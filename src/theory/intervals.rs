@@ -21,9 +21,11 @@ impl Interval {
     pub const M9: Self = Self { semitones: 14, name: "9" };
     pub const m9: Self = Self { semitones: 13, name: "b9" };
     pub const M11: Self = Self { semitones: 17, name: "11" };
+    pub const SHARP9: Self = Self { semitones: 15, name: "#9" };
     pub const m11: Self = Self { semitones: 16, name: "b11" };
     pub const M13: Self = Self { semitones: 21, name: "13" };
     pub const m13: Self = Self { semitones: 20, name: "b13" };
+    pub const dim7: Self = Self { semitones: 9, name: "dim7" };
 }
 
 #[cfg(test)]

@@ -141,7 +141,7 @@ impl ChordQuality {
                 Interval::M3,
                 Interval::P5,
                 Interval::m7,
-                Interval::M11, // #9 = 11 semitones from root, but we use M11's semitone value adjusted
+                Interval::SHARP9,
             ],
         },
         // Diminished
@@ -151,7 +151,7 @@ impl ChordQuality {
                 Interval::UNISON,
                 Interval::m3,
                 Interval::tritone,
-                Interval::m7,
+                Interval::dim7,
             ],
         },
         // Augmented
