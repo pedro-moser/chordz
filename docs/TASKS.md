@@ -6,6 +6,8 @@ Do not continue directly from the old "Phase 3 render" resume plan. The current 
 
 Each milestone ends with the review gate from [HARNESS.md](./HARNESS.md): tests, diff inspection, OMP reviewer pass, fixes, and tests again.
 
+Use `scripts/omp-task N` to launch a specific task and `scripts/omp-review` at milestone boundaries.
+
 ## Milestone 1: Stabilize the Core API
 
 ### Task 1: Add a Library Boundary

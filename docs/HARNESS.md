@@ -35,6 +35,24 @@ Prefer prompts like:
 - "Create a pure ASCII renderer for one `Fingering`; do not touch UI/event code."
 - "Change `root_to_pc` to return `Option<u8>` and update callers/tests."
 
+## Automation
+
+Use the repository scripts instead of hand-writing prompts whenever possible:
+
+```bash
+scripts/omp-task 1
+scripts/omp-task 2
+scripts/omp-task 4 --print
+scripts/omp-review
+```
+
+- `scripts/omp-task N` extracts Task N from [TASKS.md](./TASKS.md), wraps it with the canonical docs and harness rules, then launches OMP.
+- Prefer a fresh OMP session per task. The docs are the source of truth, and fresh sessions avoid expensive auto-compaction.
+- `scripts/omp-task N --continue` sends the task prompt to the previous OMP session; use this only for an immediate short follow-up.
+- `scripts/omp-task N --print` prints the generated prompt without launching OMP.
+- `scripts/omp-review` launches the phase-end review gate prompt.
+- `scripts/omp-review --print` prints the review prompt without launching OMP.
+
 ## Required Work Loop
 
 Every implementation turn should follow this loop:

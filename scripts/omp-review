@@ -1,0 +1,79 @@
+#!/usr/bin/env sh
+set -eu
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/omp-review [--continue] [--print]
+
+Launch OMP with the phase-end review gate prompt from docs/HARNESS.md.
+
+Examples:
+  scripts/omp-review
+  scripts/omp-review --print
+EOF
+}
+
+continue_session=0
+print_only=0
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -c|--continue)
+            continue_session=1
+            ;;
+        --print|--dry-run)
+            print_only=1
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            echo "Unexpected argument: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$repo_root"
+
+prompt=$(cat <<EOF
+You are working in $repo_root.
+
+Run the phase-end review gate from docs/HARNESS.md.
+
+Canonical docs:
+- docs/ARCHITECTURE.md
+- docs/VOICING_ENGINE.md
+- docs/HARNESS.md
+- docs/TASKS.md
+
+Required behavior:
+- Run cargo test --all-targets.
+- Inspect git diff --stat and git diff.
+- Use the OMP reviewer agent if available.
+- Fix any confirmed correctness issues.
+- Re-run cargo test --all-targets.
+- Do not start the next task or milestone.
+- Summarize reviewer findings, fixes, changed files, and final test result.
+EOF
+)
+
+if [ "$print_only" -eq 1 ]; then
+    printf '%s\n' "$prompt"
+    exit 0
+fi
+
+if [ "$continue_session" -eq 1 ]; then
+    exec omp --no-title --continue "$prompt"
+fi
+
+exec omp --no-title "$prompt"

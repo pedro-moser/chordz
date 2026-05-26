@@ -1,0 +1,119 @@
+#!/usr/bin/env sh
+set -eu
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/omp-task TASK_NUMBER [--continue] [--print]
+
+Launch OMP with a bounded prompt for one task from docs/TASKS.md.
+
+Examples:
+  scripts/omp-task 1
+  scripts/omp-task 4
+  scripts/omp-task 7 --print
+EOF
+}
+
+task_number=""
+continue_session=0
+print_only=0
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -c|--continue)
+            continue_session=1
+            ;;
+        --print|--dry-run)
+            print_only=1
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            if [ -n "$task_number" ]; then
+                echo "Only one task number is allowed." >&2
+                usage >&2
+                exit 2
+            fi
+            task_number="$1"
+            ;;
+    esac
+    shift
+done
+
+if [ -z "$task_number" ]; then
+    echo "Missing task number." >&2
+    usage >&2
+    exit 2
+fi
+
+case "$task_number" in
+    *[!0-9]*)
+        echo "Task number must be numeric: $task_number" >&2
+        exit 2
+        ;;
+esac
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$repo_root"
+
+task_text=$(
+    awk -v task="$task_number" '
+        $0 ~ "^### Task " task ":" {
+            capture = 1
+        }
+        capture && $0 ~ "^### Task [0-9]+:" && $0 !~ "^### Task " task ":" {
+            exit
+        }
+        capture && $0 ~ "^## Milestone " {
+            exit
+        }
+        capture {
+            print
+        }
+    ' docs/TASKS.md
+)
+
+if [ -z "$task_text" ]; then
+    echo "Task $task_number not found in docs/TASKS.md." >&2
+    exit 1
+fi
+
+prompt=$(cat <<EOF
+You are working in $repo_root.
+
+Read these canonical docs before editing:
+- docs/ARCHITECTURE.md
+- docs/VOICING_ENGINE.md
+- docs/HARNESS.md
+- docs/TASKS.md
+
+Do Task $task_number from docs/TASKS.md only.
+
+$task_text
+
+Rules:
+- Follow the required work loop in docs/HARNESS.md.
+- Edit only files allowed by this task unless a compile/test fix truly requires a directly related caller or test update.
+- If existing uncommitted changes are present, inspect them and do not revert them.
+- Run cargo test --all-targets before claiming completion.
+- Stop after completing Task $task_number. Do not start the next task.
+EOF
+)
+
+if [ "$print_only" -eq 1 ]; then
+    printf '%s\n' "$prompt"
+    exit 0
+fi
+
+if [ "$continue_session" -eq 1 ]; then
+    exec omp --no-title --continue "$prompt"
+fi
+
+exec omp --no-title "$prompt"

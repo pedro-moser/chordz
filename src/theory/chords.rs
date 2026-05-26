@@ -1,7 +1,7 @@
 use crate::theory::intervals::Interval;
 
 /// A chord quality defined by a name and a set of intervals from the root.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ChordQuality {
     pub name: &'static str,
     pub intervals: &'static [Interval],
@@ -32,6 +32,7 @@ impl ChordQuality {
                 Interval::M3,
                 Interval::P5,
                 Interval::M7,
+                Interval::M9,
                 Interval::M13,
             ],
         },
@@ -57,6 +58,7 @@ impl ChordQuality {
                 Interval::m3,
                 Interval::P5,
                 Interval::m7,
+                Interval::M9,
                 Interval::M11,
             ],
         },
@@ -67,6 +69,7 @@ impl ChordQuality {
                 Interval::m3,
                 Interval::P5,
                 Interval::m7,
+                Interval::M9,
                 Interval::M13,
             ],
         },
@@ -112,17 +115,13 @@ impl ChordQuality {
                 Interval::M3,
                 Interval::P5,
                 Interval::m7,
+                Interval::M9,
                 Interval::M13,
             ],
         },
         Self {
             name: "dom7#5",
-            intervals: &[
-                Interval::UNISON,
-                Interval::M3,
-                Interval::m6,
-                Interval::m7,
-            ],
+            intervals: &[Interval::UNISON, Interval::M3, Interval::m6, Interval::m7],
         },
         Self {
             name: "dom7b9",
@@ -157,36 +156,32 @@ impl ChordQuality {
         // Augmented
         Self {
             name: "aug7",
-            intervals: &[
-                Interval::UNISON,
-                Interval::M3,
-                Interval::m6,
-                Interval::m7,
-            ],
+            intervals: &[Interval::UNISON, Interval::M3, Interval::m6, Interval::m7],
         },
     ];
 }
 
 /// All 12 pitch class root names.
-pub const ROOTS: [&str; 12] =
-    ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+pub const ROOTS: [&str; 12] = [
+    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
 
 /// Get the pitch class (0=C, 1=C#, …, 11=B) for a root name.
-pub fn root_to_pc(root: &str) -> u8 {
+pub fn root_to_pc(root: &str) -> Option<u8> {
     match root {
-        "C" => 0,
-        "C#" | "Db" => 1,
-        "D" => 2,
-        "D#" | "Eb" => 3,
-        "E" => 4,
-        "F" => 5,
-        "F#" | "Gb" => 6,
-        "G" => 7,
-        "G#" | "Ab" => 8,
-        "A" => 9,
-        "A#" | "Bb" => 10,
-        "B" => 11,
-        _ => 0,
+        "C" => Some(0),
+        "C#" | "Db" => Some(1),
+        "D" => Some(2),
+        "D#" | "Eb" => Some(3),
+        "E" => Some(4),
+        "F" => Some(5),
+        "F#" | "Gb" => Some(6),
+        "G" => Some(7),
+        "G#" | "Ab" => Some(8),
+        "A" => Some(9),
+        "A#" | "Bb" => Some(10),
+        "B" => Some(11),
+        _ => None,
     }
 }
 
@@ -194,9 +189,15 @@ pub fn root_to_pc(root: &str) -> u8 {
 pub fn chord_name(root: &str, quality: &ChordQuality) -> String {
     match quality.name {
         "maj7" | "maj9" | "maj13" => format!("{}{}", root, quality.name),
-        "m7" | "m9" | "m11" | "m13" | "m7b5" | "m9b11" => format!("{}m{}", root, &quality.name[1..]),
+        "m7" | "m9" | "m11" | "m13" | "m7b5" | "m9b11" => {
+            format!("{}m{}", root, &quality.name[1..])
+        }
         "dom7" | "dom9" | "dom13" | "dom7#5" | "dom7b9" | "dom7#9" => {
-            format!("{}7{}", root, &quality.name[4..])
+            format!(
+                "{}{}",
+                root,
+                quality.name.strip_prefix("dom").unwrap_or(quality.name)
+            )
         }
         "dim7" => format!("{}dim7", root),
         "aug7" => format!("{}aug7", root),
@@ -210,11 +211,13 @@ mod tests {
 
     #[test]
     fn test_root_to_pc() {
-        assert_eq!(root_to_pc("C"), 0);
-        assert_eq!(root_to_pc("C#"), 1);
-        assert_eq!(root_to_pc("Db"), 1);
-        assert_eq!(root_to_pc("F"), 5);
-        assert_eq!(root_to_pc("B"), 11);
+        assert_eq!(root_to_pc("C"), Some(0));
+        assert_eq!(root_to_pc("C#"), Some(1));
+        assert_eq!(root_to_pc("Db"), Some(1));
+        assert_eq!(root_to_pc("F"), Some(5));
+        assert_eq!(root_to_pc("B"), Some(11));
+        assert_eq!(root_to_pc("H"), None);
+        assert_eq!(root_to_pc("X"), None);
     }
 
     #[test]
@@ -233,6 +236,10 @@ mod tests {
     fn test_chord_name_dominant() {
         let dom7 = ChordQuality::ALL[9];
         assert_eq!(chord_name("G", &dom7), "G7");
+        let dom9 = ChordQuality::ALL[10];
+        assert_eq!(chord_name("G", &dom9), "G9");
+        let dom13 = ChordQuality::ALL[11];
+        assert_eq!(chord_name("G", &dom13), "G13");
     }
 
     #[test]
@@ -244,7 +251,11 @@ mod tests {
     #[test]
     fn test_all_qualities_have_intervals() {
         for q in ChordQuality::ALL {
-            assert!(!q.intervals.is_empty(), "Quality {} has no intervals", q.name);
+            assert!(
+                !q.intervals.is_empty(),
+                "Quality {} has no intervals",
+                q.name
+            );
             assert!(
                 q.intervals[0].semitones == 0,
                 "Quality {} does not start with unison",

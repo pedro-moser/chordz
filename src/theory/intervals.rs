@@ -1,5 +1,5 @@
 /// A musical interval defined by its semitone distance and a display name.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Interval {
     pub semitones: u8,
     pub name: &'static str,
