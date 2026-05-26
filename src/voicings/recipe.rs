@@ -531,12 +531,54 @@ fn four_note_core(quality: &ChordQuality) -> Option<[Interval; 4]> {
         return None;
     }
 
+    let root = if quality.intervals.contains(&Interval::UNISON) {
+        Interval::UNISON
+    } else {
+        quality.intervals[0]
+    };
+    let third = if quality.intervals.contains(&Interval::M3) {
+        Interval::M3
+    } else if quality.intervals.contains(&Interval::m3) {
+        Interval::m3
+    } else {
+        quality.intervals[1]
+    };
+    let seventh = if quality.intervals.contains(&Interval::M7) {
+        Interval::M7
+    } else if quality.intervals.contains(&Interval::m7) {
+        Interval::m7
+    } else if quality.intervals.contains(&Interval::dim7) {
+        Interval::dim7
+    } else {
+        quality.intervals[3]
+    };
+
+    if let Some(color) = preferred_drop_color(quality) {
+        let core = [root, third, seventh, color];
+        if core.iter().all(|interval| quality.intervals.contains(interval)) {
+            return Some(core);
+        }
+    }
+
     Some([
         quality.intervals[0],
         quality.intervals[1],
         quality.intervals[2],
         quality.intervals[3],
     ])
+}
+
+fn preferred_drop_color(quality: &ChordQuality) -> Option<Interval> {
+    [
+        Interval::M13,
+        Interval::M11,
+        Interval::m11,
+        Interval::SHARP9,
+        Interval::m9,
+        Interval::M9,
+    ]
+    .into_iter()
+    .find(|interval| quality.intervals.contains(interval))
 }
 
 fn push_prefixes(
@@ -1004,6 +1046,19 @@ mod tests {
             drop3[0].intervals,
             vec![Interval::M3, Interval::UNISON, Interval::P5, Interval::M7]
         );
+    }
+
+    #[test]
+    fn test_drop_recipes_include_requested_extension() {
+        let quality = ChordQuality::ALL.iter().find(|q| q.name == "maj9").unwrap();
+
+        let drop2 = VoicingRecipe::Drop2.generate_drop2(0, quality);
+
+        assert_eq!(
+            drop2[0].intervals,
+            vec![Interval::M7, Interval::UNISON, Interval::M3, Interval::M9]
+        );
+        assert!(!drop2[0].intervals.contains(&Interval::P5));
     }
 
     #[test]

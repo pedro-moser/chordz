@@ -16,14 +16,13 @@ use crate::voicings::voice_set::VoiceSet;
 
 const NOTE_COUNTS: [usize; 5] = [2, 3, 4, 5, 6];
 const VOICINGS_PER_VOICE_SET: usize = 3;
-const MAX_VOICINGS: usize = 24;
+const MAX_VOICINGS: usize = 64;
 
 /// Focusable panes in the browser screen.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BrowserPane {
     Root,
     Family,
-    Color,
     Notes,
     Voicings,
 }
@@ -73,6 +72,7 @@ impl ChordFamily {
 /// A generated fingering plus the recipe and ranking metadata used by the UI.
 #[derive(Clone, Debug)]
 pub struct VoicingData {
+    pub quality: &'static ChordQuality,
     pub recipe: VoicingRecipe,
     pub tension: &'static str,
     pub fingering: Fingering,
@@ -82,7 +82,6 @@ pub struct VoicingData {
 pub struct BrowserScreen {
     pub root_index: usize,
     pub family_index: usize,
-    pub color_index: usize,
     pub note_count_index: usize,
     pub selected_voicing: usize,
     pub focused_pane: BrowserPane,
@@ -94,7 +93,6 @@ impl BrowserScreen {
         let mut screen = Self {
             root_index: 0,
             family_index: 0,
-            color_index: 0,
             note_count_index: 2,
             selected_voicing: 0,
             focused_pane: BrowserPane::Root,
@@ -116,8 +114,7 @@ impl BrowserScreen {
         self.focused_pane = match self.focused_pane {
             BrowserPane::Root => BrowserPane::Voicings,
             BrowserPane::Family => BrowserPane::Root,
-            BrowserPane::Color => BrowserPane::Family,
-            BrowserPane::Notes => BrowserPane::Color,
+            BrowserPane::Notes => BrowserPane::Family,
             BrowserPane::Voicings => BrowserPane::Notes,
         };
     }
@@ -125,8 +122,7 @@ impl BrowserScreen {
     pub fn focus_next(&mut self) {
         self.focused_pane = match self.focused_pane {
             BrowserPane::Root => BrowserPane::Family,
-            BrowserPane::Family => BrowserPane::Color,
-            BrowserPane::Color => BrowserPane::Notes,
+            BrowserPane::Family => BrowserPane::Notes,
             BrowserPane::Notes => BrowserPane::Voicings,
             BrowserPane::Voicings => BrowserPane::Root,
         };
@@ -136,7 +132,6 @@ impl BrowserScreen {
         match self.focused_pane {
             BrowserPane::Root => self.set_root(0),
             BrowserPane::Family => self.set_family(0),
-            BrowserPane::Color => self.set_color(0),
             BrowserPane::Notes => self.set_note_count(0),
             BrowserPane::Voicings => self.selected_voicing = 0,
         }
@@ -146,7 +141,6 @@ impl BrowserScreen {
         match self.focused_pane {
             BrowserPane::Root => self.set_root(chords::ROOTS.len() - 1),
             BrowserPane::Family => self.set_family(ChordFamily::all().len() - 1),
-            BrowserPane::Color => self.set_color(self.family().quality_names().len() - 1),
             BrowserPane::Notes => self.set_note_count(NOTE_COUNTS.len() - 1),
             BrowserPane::Voicings => {
                 self.selected_voicing = self.voicings.len().saturating_sub(1);
@@ -155,7 +149,7 @@ impl BrowserScreen {
     }
 
     pub fn current_chord_name(&self) -> String {
-        chords::chord_name(self.root(), self.quality())
+        self.chord_name_for(self.selected_quality())
     }
 
     pub fn current_note_count(&self) -> usize {
@@ -180,7 +174,7 @@ impl BrowserScreen {
 
         let main_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(36), Constraint::Percentage(64)].as_ref())
+            .constraints([Constraint::Percentage(44), Constraint::Percentage(56)].as_ref())
             .split(chunks[1]);
 
         self.render_voicings(frame, main_chunks[0]);
@@ -197,11 +191,6 @@ impl BrowserScreen {
             BrowserPane::Family => {
                 let next = adjusted_index(self.family_index, ChordFamily::all().len(), delta);
                 self.set_family(next);
-            }
-            BrowserPane::Color => {
-                let next =
-                    adjusted_index(self.color_index, self.family().quality_names().len(), delta);
-                self.set_color(next);
             }
             BrowserPane::Notes => {
                 let next = adjusted_index(self.note_count_index, NOTE_COUNTS.len(), delta);
@@ -221,14 +210,6 @@ impl BrowserScreen {
 
     fn set_family(&mut self, index: usize) {
         self.family_index = index.min(ChordFamily::all().len() - 1);
-        self.color_index = self
-            .color_index
-            .min(self.family().quality_names().len() - 1);
-        self.refresh_voicings();
-    }
-
-    fn set_color(&mut self, index: usize) {
-        self.color_index = index.min(self.family().quality_names().len() - 1);
         self.refresh_voicings();
     }
 
@@ -245,12 +226,15 @@ impl BrowserScreen {
         ChordFamily::all()[self.family_index]
     }
 
-    fn quality_name(&self) -> &'static str {
-        self.family().quality_names()[self.color_index]
+    fn selected_quality(&self) -> &'static ChordQuality {
+        self.voicings
+            .get(self.selected_voicing)
+            .map(|voicing| voicing.quality)
+            .unwrap_or_else(|| find_quality(self.family().quality_names()[0]))
     }
 
-    fn quality(&self) -> &'static ChordQuality {
-        find_quality(self.quality_name())
+    fn chord_name_for(&self, quality: &ChordQuality) -> String {
+        chords::chord_name(self.root(), quality)
     }
 
     fn refresh_voicings(&mut self) {
@@ -271,7 +255,6 @@ impl BrowserScreen {
             require_root: false,
         };
         let root_pc = chords::root_to_pc(self.root()).unwrap();
-        let quality = self.quality();
         let recipes = [
             VoicingRecipe::Shell,
             VoicingRecipe::Closed,
@@ -285,27 +268,36 @@ impl BrowserScreen {
         ];
         let mut voicings = Vec::new();
 
-        for recipe in recipes {
-            let voice_sets = voice_sets_for(recipe, root_pc, quality);
-            for voice_set in voice_sets
-                .iter()
-                .filter(|voice_set| voice_set.len() == note_count)
-            {
-                let mut fingerings = map_voice_set(voice_set, &fretboard, &rules);
-                rank_fingerings(&mut fingerings, voice_set, &fretboard);
-                voicings.extend(fingerings.into_iter().take(VOICINGS_PER_VOICE_SET).map(
-                    |fingering| VoicingData {
-                        recipe: voice_set.recipe,
-                        tension: tension_label(quality, voice_set.recipe),
-                        fingering,
-                    },
-                ));
+        for quality_name in self.family().quality_names() {
+            let quality = find_quality(quality_name);
+
+            for recipe in recipes {
+                let voice_sets = voice_sets_for(recipe, root_pc, quality);
+                for voice_set in voice_sets
+                    .iter()
+                    .filter(|voice_set| voice_set.len() == note_count)
+                {
+                    let mut fingerings = map_voice_set(voice_set, &fretboard, &rules);
+                    rank_fingerings(&mut fingerings, voice_set, &fretboard);
+                    voicings.extend(fingerings.into_iter().take(VOICINGS_PER_VOICE_SET).map(
+                        |fingering| VoicingData {
+                            quality,
+                            recipe: voice_set.recipe,
+                            tension: tension_label(quality, voice_set.recipe),
+                            fingering,
+                        },
+                    ));
+                }
             }
         }
 
         voicings.sort_by(|a, b| {
-            tension_score(quality, a.recipe)
-                .cmp(&tension_score(quality, b.recipe))
+            tension_score(a.quality, a.recipe)
+                .cmp(&tension_score(b.quality, b.recipe))
+                .then_with(|| {
+                    quality_order(self.family(), a.quality)
+                        .cmp(&quality_order(self.family(), b.quality))
+                })
                 .then_with(|| recipe_order(a.recipe).cmp(&recipe_order(b.recipe)))
                 .then_with(|| a.fingering.positions.cmp(&b.fingering.positions))
         });
@@ -319,10 +311,9 @@ impl BrowserScreen {
             .direction(Direction::Horizontal)
             .constraints(
                 [
-                    Constraint::Percentage(18),
-                    Constraint::Percentage(28),
-                    Constraint::Percentage(32),
-                    Constraint::Percentage(22),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(55),
+                    Constraint::Percentage(25),
                 ]
                 .as_ref(),
             )
@@ -345,13 +336,6 @@ impl BrowserScreen {
         render_selector(
             frame,
             chunks[2],
-            " Color ",
-            &self.current_chord_name(),
-            self.focused_pane == BrowserPane::Color,
-        );
-        render_selector(
-            frame,
-            chunks[3],
             " Notes ",
             &self.current_note_count().to_string(),
             self.focused_pane == BrowserPane::Notes,
@@ -385,7 +369,7 @@ impl BrowserScreen {
             Text::from(render_fingering(
                 &voicing.fingering,
                 &Fretboard::standard_tuning(),
-                &self.current_chord_name(),
+                &self.chord_name_for(voicing.quality),
             ))
         } else {
             Text::from("No voicings for this note count")
@@ -394,7 +378,7 @@ impl BrowserScreen {
         let title = if let Some(voicing) = self.voicings.get(self.selected_voicing) {
             format!(
                 " {} {} {} ",
-                self.current_chord_name(),
+                self.chord_name_for(voicing.quality),
                 recipe_label(voicing.recipe),
                 voicing.tension
             )
@@ -408,9 +392,10 @@ impl BrowserScreen {
 
     fn render_status(&self, frame: &mut Frame, area: Rect) {
         let status = format!(
-            " {} | {} | {} notes | voicing {}/{} | h/l field  j/k change  g/G edge  q quit",
-            self.current_chord_name(),
+            " {} {} | {} | {}n | {}/{} | h/l fields  j/k move  g/G edge  q quit",
+            self.root(),
             self.family().name(),
+            self.current_chord_name(),
             self.current_note_count(),
             self.selected_voicing
                 .saturating_add(1)
@@ -425,6 +410,7 @@ impl BrowserScreen {
     }
 
     fn voicing_label(&self, voicing: &VoicingData) -> String {
+        let chord_name = self.chord_name_for(voicing.quality);
         let intervals: Vec<&str> = voicing
             .fingering
             .played_intervals()
@@ -432,9 +418,10 @@ impl BrowserScreen {
             .map(|interval| compact_interval_name(*interval))
             .collect();
         format!(
-            "{:<6} {:<10} {}",
-            voicing.tension,
-            recipe_label(voicing.recipe),
+            "{:<8} {:<3} {:<8} {}",
+            chord_name,
+            tension_code(voicing.tension),
+            recipe_list_label(voicing.recipe),
             intervals.join(" ")
         )
     }
@@ -519,6 +506,25 @@ fn recipe_label(recipe: VoicingRecipe) -> &'static str {
     }
 }
 
+fn recipe_list_label(recipe: VoicingRecipe) -> &'static str {
+    match recipe {
+        VoicingRecipe::RootlessA => "rless-a",
+        VoicingRecipe::RootlessB => "rless-b",
+        VoicingRecipe::UpperStructureTriad => "upper",
+        VoicingRecipe::TriadPair => "triads",
+        _ => recipe_label(recipe),
+    }
+}
+
+fn tension_code(tension: &str) -> &'static str {
+    match tension {
+        "inside" => "in",
+        "color" => "col",
+        "out" => "out",
+        _ => "?",
+    }
+}
+
 fn compact_interval_name(interval: Interval) -> &'static str {
     if interval == Interval::UNISON {
         "R"
@@ -564,6 +570,14 @@ fn recipe_order(recipe: VoicingRecipe) -> usize {
         VoicingRecipe::UpperStructureTriad => 7,
         VoicingRecipe::TriadPair => 8,
     }
+}
+
+fn quality_order(family: ChordFamily, quality: &ChordQuality) -> usize {
+    family
+        .quality_names()
+        .iter()
+        .position(|name| *name == quality.name)
+        .unwrap_or(usize::MAX)
 }
 
 fn quality_tension(name: &str) -> usize {
@@ -613,7 +627,6 @@ mod tests {
 
         assert_eq!(screen.root(), "C");
         assert_eq!(screen.family(), ChordFamily::Major);
-        assert_eq!(screen.quality_name(), "maj7");
         assert_eq!(screen.current_note_count(), 4);
         assert_eq!(screen.current_chord_name(), "Cmaj7");
         assert!(
@@ -627,13 +640,12 @@ mod tests {
 
     #[test]
     fn browser_includes_rootless_cmaj9_four_note_voicings() {
-        let mut screen = BrowserScreen::new();
-        screen.set_color(1);
+        let screen = BrowserScreen::new();
 
-        assert_eq!(screen.current_chord_name(), "Cmaj9");
         assert!(
             screen.voicings.iter().any(|voicing| {
-                voicing.recipe == VoicingRecipe::RootlessA
+                voicing.quality.name == "maj9"
+                    && voicing.recipe == VoicingRecipe::RootlessA
                     && !voicing.fingering.has_interval(Interval::UNISON)
                     && voicing.fingering.played_count() == 4
             }),
@@ -644,31 +656,42 @@ mod tests {
     #[test]
     fn browser_includes_quartal_and_triad_pair_colors() {
         let mut screen = BrowserScreen::new();
-        screen.set_color(2);
         screen.set_note_count(2);
 
-        assert_eq!(screen.current_chord_name(), "Cmaj13");
         assert_eq!(screen.current_note_count(), 4);
         assert!(
             screen
                 .voicings
                 .iter()
-                .any(|voicing| voicing.recipe == VoicingRecipe::Quartal),
+                .any(|voicing| voicing.quality.name == "maj13"
+                    && voicing.recipe == VoicingRecipe::Quartal),
             "browser should expose quartal Cmaj13 four-note voicings"
         );
         assert!(
             screen
                 .voicings
                 .iter()
-                .any(|voicing| voicing.recipe == VoicingRecipe::TriadPair),
+                .any(|voicing| voicing.quality.name == "maj13"
+                    && voicing.recipe == VoicingRecipe::TriadPair),
             "browser should expose triad-pair Cmaj13 four-note voicings"
         );
     }
 
     #[test]
+    fn selected_voicing_controls_displayed_chord_color() {
+        let mut screen = BrowserScreen::new();
+        screen.selected_voicing = screen
+            .voicings
+            .iter()
+            .position(|voicing| voicing.quality.name == "maj9")
+            .unwrap();
+
+        assert_eq!(screen.current_chord_name(), "Cmaj9");
+    }
+
+    #[test]
     fn note_count_filters_voicings_exactly() {
         let mut screen = BrowserScreen::new();
-        screen.set_color(1);
         screen.set_note_count(1);
 
         assert_eq!(screen.current_note_count(), 3);
@@ -686,7 +709,6 @@ mod tests {
         screen.select_last();
 
         assert_eq!(screen.family(), ChordFamily::Diminished);
-        assert_eq!(screen.quality_name(), "dim7");
         assert_eq!(screen.current_chord_name(), "Cdim7");
     }
 }
