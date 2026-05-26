@@ -278,6 +278,10 @@ impl BrowserScreen {
                     .filter(|voice_set| voice_set.len() == note_count)
                 {
                     let mut fingerings = map_voice_set(voice_set, &fretboard, &rules);
+                    fingerings.retain(|fingering| {
+                        has_one_note_per_played_string(fingering)
+                            && has_unique_pitch_classes(fingering, &fretboard)
+                    });
                     rank_fingerings(&mut fingerings, voice_set, &fretboard);
                     voicings.extend(fingerings.into_iter().take(VOICINGS_PER_VOICE_SET).map(
                         |fingering| VoicingData {
@@ -537,6 +541,29 @@ fn compact_interval_name(interval: Interval) -> &'static str {
     }
 }
 
+fn has_one_note_per_played_string(fingering: &Fingering) -> bool {
+    fingering
+        .positions
+        .iter()
+        .zip(fingering.intervals.iter())
+        .all(|(position, interval)| position.is_some() == interval.is_some())
+        && fingering.played_count() == fingering.played_intervals().len()
+}
+
+fn has_unique_pitch_classes(fingering: &Fingering, fretboard: &Fretboard) -> bool {
+    let mut seen = [false; 12];
+
+    for note in fingering.notes(fretboard).into_iter().flatten() {
+        let index = note.pitch_class as usize;
+        if seen[index] {
+            return false;
+        }
+        seen[index] = true;
+    }
+
+    true
+}
+
 fn selected_style(focused: bool) -> Style {
     let mut style = Style::default().add_modifier(Modifier::REVERSED);
     if focused {
@@ -700,6 +727,33 @@ mod tests {
             .voicings
             .iter()
             .all(|voicing| voicing.fingering.played_count() == 3));
+    }
+
+    #[test]
+    fn browser_voicings_use_one_unique_note_per_string() {
+        let fretboard = Fretboard::standard_tuning();
+        let mut screen = BrowserScreen::new();
+
+        for family_index in 0..ChordFamily::all().len() {
+            screen.set_family(family_index);
+            for note_count_index in 0..NOTE_COUNTS.len() {
+                screen.set_note_count(note_count_index);
+                for voicing in &screen.voicings {
+                    assert!(
+                        has_one_note_per_played_string(&voicing.fingering),
+                        "{} {:?} should have one interval per played string",
+                        screen.chord_name_for(voicing.quality),
+                        voicing.fingering.positions
+                    );
+                    assert!(
+                        has_unique_pitch_classes(&voicing.fingering, &fretboard),
+                        "{} {:?} should not duplicate notes across strings",
+                        screen.chord_name_for(voicing.quality),
+                        voicing.fingering.positions
+                    );
+                }
+            }
+        }
     }
 
     #[test]
