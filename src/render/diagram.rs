@@ -5,23 +5,26 @@ use crate::voicings::generate::Fingering;
 ///
 /// The diagram shows:
 /// - Chord name header.
-/// - Fret region indicator (starting fret).
-/// - Six string rows (high E at top, low E at bottom).
+/// - Fret region indicator.
+/// - Six string columns (low E to high e).
+/// - Frets as horizontal rows.
 /// - Muted strings marked with `x`, open strings with `O`.
-/// - Fret positions shown in their corresponding column.
 ///
 /// # Example
 ///
 /// ```text
 /// Cmaj7
-/// frets 5-8
-///      5  6  7  8
-/// e| -- -- --  8
-/// B| -- --  7 --
-/// G|  5 -- -- --
-/// D| xx xx xx xx
-/// A| xx xx xx xx
-/// E| xx xx xx xx
+/// frets 0-3
+///      E   A   D   G   B   e
+///    +---+---+---+---+---+---+
+///  0 | x |   |   | O | O | O |
+///    +---+---+---+---+---+---+
+///  1 |   |   |   |   |   |   |
+///    +---+---+---+---+---+---+
+///  2 |   |   | 2 |   |   |   |
+///    +---+---+---+---+---+---+
+///  3 |   | 3 |   |   |   |   |
+///    +---+---+---+---+---+---+
 /// ```
 pub fn render_fingering(fingering: &Fingering, fretboard: &Fretboard, chord_name: &str) -> String {
     let _ = fretboard; // used for note lookups in future extensions
@@ -47,60 +50,47 @@ pub fn render_fingering(fingering: &Fingering, fretboard: &Fretboard, chord_name
         .map(|fret| fret.to_string().len())
         .max()
         .unwrap_or(1)
-        .max(2);
-
-    fn format_cell(value: &str, width: usize) -> String {
-        format!("{value:>width$}")
-    }
+        .max(3);
+    let fret_label_width = end_fret.to_string().len().max(2);
 
     let mut lines = Vec::new();
 
-    // Header: chord name
     lines.push(chord_name.to_string());
-
-    // Fret region indicator
     lines.push(format!("frets {}-{}", start_fret, end_fret));
 
-    // Fret number row
-    let fret_header = frets.iter().fold(String::from("   "), |mut row, fret| {
-        row.push(' ');
-        row.push_str(&format_cell(&fret.to_string(), cell_width));
+    let string_labels = ["E", "A", "D", "G", "B", "e"];
+    let header_prefix = " ".repeat(fret_label_width + 2);
+    let header = string_labels.iter().fold(header_prefix, |mut row, label| {
+        row.push_str(&format!("{:^cell_width$} ", label));
         row
     });
-    lines.push(fret_header);
+    lines.push(header.trim_end().to_string());
 
-    // String rows: index 0 = low E, index 5 = high E (render top-to-bottom = high-to-low)
-    let string_labels = ['E', 'A', 'D', 'G', 'B', 'e'];
+    let separator = format!(
+        "{}+{}+",
+        " ".repeat(fret_label_width + 1),
+        vec!["-".repeat(cell_width); 6].join("+")
+    );
 
-    for i in (0..6).rev() {
-        let label = string_labels[i];
-        let mut row = format!("{}|", label);
+    for fret_num in frets {
+        lines.push(separator.clone());
+        let mut row = format!("{:>width$} |", fret_num, width = fret_label_width);
 
-        for fret_num in &frets {
-            row.push(' ');
-            match fingering.positions[i] {
-                None => {
-                    row.push_str(&format_cell(&"x".repeat(cell_width), cell_width));
-                }
-                Some(0) => {
-                    if *fret_num == 0 {
-                        row.push_str(&format_cell("O", cell_width));
-                    } else {
-                        row.push_str(&format_cell(&"-".repeat(cell_width), cell_width));
-                    }
-                }
-                Some(fret) => {
-                    if fret == *fret_num {
-                        row.push_str(&format_cell(&fret.to_string(), cell_width));
-                    } else {
-                        row.push_str(&format_cell(&"-".repeat(cell_width), cell_width));
-                    }
-                }
-            }
+        for string in 0..6 {
+            let cell = match fingering.positions[string] {
+                None if fret_num == start_fret => "x".to_string(),
+                None => String::new(),
+                Some(0) if fret_num == 0 => "O".to_string(),
+                Some(0) => String::new(),
+                Some(fret) if fret == fret_num => fret.to_string(),
+                Some(_) => String::new(),
+            };
+            row.push_str(&format!("{:^cell_width$}|", cell));
         }
 
         lines.push(row);
     }
+    lines.push(separator);
 
     lines.join("\n")
 }
@@ -134,13 +124,16 @@ mod tests {
         let expected = "\
 Cmaj7
 frets 0-3
-     0  1  2  3
-e|  O -- -- --
-B|  O -- -- --
-G|  O -- -- --
-D| -- --  2 --
-A| -- -- --  3
-E| xx xx xx xx";
+     E   A   D   G   B   e
+   +---+---+---+---+---+---+
+ 0 | x |   |   | O | O | O |
+   +---+---+---+---+---+---+
+ 1 |   |   |   |   |   |   |
+   +---+---+---+---+---+---+
+ 2 |   |   | 2 |   |   |   |
+   +---+---+---+---+---+---+
+ 3 |   | 3 |   |   |   |   |
+   +---+---+---+---+---+---+";
 
         assert_eq!(diagram, expected, "diagram mismatch:\n{}", diagram);
     }
@@ -168,13 +161,16 @@ E| xx xx xx xx";
         let expected = "\
 G9
 frets 0-3
-     0  1  2  3
-e| xx xx xx xx
-B|  O -- -- --
-G| -- --  2 --
-D| -- -- --  3
-A| xx xx xx xx
-E| xx xx xx xx";
+     E   A   D   G   B   e
+   +---+---+---+---+---+---+
+ 0 | x | x |   |   | O | x |
+   +---+---+---+---+---+---+
+ 1 |   |   |   |   |   |   |
+   +---+---+---+---+---+---+
+ 2 |   |   |   | 2 |   |   |
+   +---+---+---+---+---+---+
+ 3 |   |   | 3 |   |   |   |
+   +---+---+---+---+---+---+";
 
         assert_eq!(diagram, expected, "diagram mismatch:\n{}", diagram);
     }

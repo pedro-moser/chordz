@@ -159,47 +159,7 @@ impl VoicingRecipe {
 
         let mut result = Vec::new();
 
-        // Choose color tones based on chord family and available intervals.
-        let color_tones: &[Interval] = if has_m3 && has_m7 {
-            // Major: 9 and 13 are the standard color tones.
-            if quality.intervals.contains(&Interval::M9)
-                && quality.intervals.contains(&Interval::M13)
-            {
-                &[Interval::M9, Interval::M13]
-            } else if quality.intervals.contains(&Interval::M9) {
-                &[Interval::M9]
-            } else if quality.intervals.contains(&Interval::M13) {
-                &[Interval::M13]
-            } else {
-                &[]
-            }
-        } else if has_m3 && has_m7b {
-            // Dominant: 9 and 13 are the standard color tones.
-            if quality.intervals.contains(&Interval::M9)
-                && quality.intervals.contains(&Interval::M13)
-            {
-                &[Interval::M9, Interval::M13]
-            } else if quality.intervals.contains(&Interval::M9) {
-                &[Interval::M9]
-            } else if quality.intervals.contains(&Interval::M13) {
-                &[Interval::M13]
-            } else {
-                &[]
-            }
-        } else {
-            // Minor: 9 and 11 are the standard color tones.
-            if quality.intervals.contains(&Interval::M9)
-                && quality.intervals.contains(&Interval::M11)
-            {
-                &[Interval::M9, Interval::M11]
-            } else if quality.intervals.contains(&Interval::M9) {
-                &[Interval::M9]
-            } else if quality.intervals.contains(&Interval::M11) {
-                &[Interval::M11]
-            } else {
-                &[]
-            }
-        };
+        let color_tones = rootless_color_tones(quality, third);
 
         // 4-note rootless: 3rd, 7th, and two color tones.
         if color_tones.len() >= 2 {
@@ -210,10 +170,18 @@ impl VoicingRecipe {
                 *self,
                 quality,
             ));
+        } else if color_tones.len() == 1 && quality.intervals.contains(&Interval::P5) {
+            result.push(VoiceSet::new(
+                root_pc,
+                vec![third, seventh, color_tones[0], Interval::P5],
+                vec![1, 1, 2, 2],
+                *self,
+                quality,
+            ));
         }
 
         // 3-note rootless: 3rd, 7th, and one color tone each.
-        for &color in color_tones {
+        for color in color_tones.iter().copied() {
             result.push(VoiceSet::new(
                 root_pc,
                 vec![third, seventh, color],
@@ -234,6 +202,401 @@ impl VoicingRecipe {
 
         result
     }
+
+    /// Generate alternate rootless voice sets.
+    ///
+    /// Family B uses the same guide tones and colors as Rootless A, but
+    /// reverses the guide-tone order. That produces different guitar mappings
+    /// without pretending the chord is a closed-position stack.
+    pub fn generate_rootless_b(
+        &self,
+        root_pc: u8,
+        quality: &'static ChordQuality,
+    ) -> Vec<VoiceSet> {
+        let Some((third, seventh)) = guide_tones(quality) else {
+            return Vec::new();
+        };
+        let color_tones = rootless_color_tones(quality, third);
+        let mut result = Vec::new();
+
+        if color_tones.len() >= 2 {
+            push_voice_set(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[seventh, third, color_tones[1], color_tones[0]],
+            );
+        } else if color_tones.len() == 1 && quality.intervals.contains(&Interval::P5) {
+            push_voice_set(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[seventh, third, Interval::P5, color_tones[0]],
+            );
+        }
+
+        for color in color_tones.iter().copied() {
+            push_voice_set(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[seventh, third, color],
+            );
+        }
+
+        push_voice_set(&mut result, root_pc, quality, *self, &[seventh, third]);
+        result
+    }
+
+    /// Generate drop-2 voicings from the core four-note chord structure.
+    pub fn generate_drop2(&self, root_pc: u8, quality: &'static ChordQuality) -> Vec<VoiceSet> {
+        let Some(core) = four_note_core(quality) else {
+            return Vec::new();
+        };
+        let mut result = Vec::new();
+        push_voice_set(
+            &mut result,
+            root_pc,
+            quality,
+            *self,
+            &[core[2], core[0], core[1], core[3]],
+        );
+        result
+    }
+
+    /// Generate drop-3 voicings from the core four-note chord structure.
+    pub fn generate_drop3(&self, root_pc: u8, quality: &'static ChordQuality) -> Vec<VoiceSet> {
+        let Some(core) = four_note_core(quality) else {
+            return Vec::new();
+        };
+        let mut result = Vec::new();
+        push_voice_set(
+            &mut result,
+            root_pc,
+            quality,
+            *self,
+            &[core[1], core[0], core[2], core[3]],
+        );
+        result
+    }
+
+    /// Generate fourth-stack voicings from available chord tones.
+    ///
+    /// These are intentionally conservative until the engine has explicit
+    /// scale/context objects. The patterns below use only intervals present in
+    /// the selected quality, so the recipe can expose quartal color without
+    /// inventing outside tones behind the user's back.
+    pub fn generate_quartal(&self, root_pc: u8, quality: &'static ChordQuality) -> Vec<VoiceSet> {
+        let mut result = Vec::new();
+
+        if quality.intervals.contains(&Interval::M3) && quality.intervals.contains(&Interval::M7) {
+            // Cmaj13 examples: B-E-A-D-G and E-A-D-G.
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[
+                    Interval::M7,
+                    Interval::M3,
+                    Interval::M13,
+                    Interval::M9,
+                    Interval::P5,
+                ],
+                3,
+            );
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::M3, Interval::M13, Interval::M9, Interval::P5],
+                3,
+            );
+        } else if quality.intervals.contains(&Interval::M3)
+            && quality.intervals.contains(&Interval::m7)
+        {
+            // Dominant 13 color: 3-13-9-5 is a fourth stack; b7-3 keeps
+            // the guide-tone bite before continuing in fourths.
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::M3, Interval::M13, Interval::M9, Interval::P5],
+                3,
+            );
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::m7, Interval::M3, Interval::M13, Interval::M9],
+                3,
+            );
+        } else if quality.intervals.contains(&Interval::m3)
+            && quality.intervals.contains(&Interval::m7)
+        {
+            // Dm11 example from the design notes: D-G-C-F.
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::UNISON, Interval::M11, Interval::m7, Interval::m3],
+                3,
+            );
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::M11, Interval::m7, Interval::m3],
+                3,
+            );
+        }
+
+        result
+    }
+
+    /// Generate compact upper-structure material for dominant colors.
+    ///
+    /// The current chord model has only a small altered-dominant vocabulary,
+    /// so this recipe returns rootless guide-tone-plus-color structures instead
+    /// of requiring a full parent scale.
+    pub fn generate_upper_structure_triad(
+        &self,
+        root_pc: u8,
+        quality: &'static ChordQuality,
+    ) -> Vec<VoiceSet> {
+        if !(quality.intervals.contains(&Interval::M3) && quality.intervals.contains(&Interval::m7))
+        {
+            return Vec::new();
+        }
+
+        let mut result = Vec::new();
+        push_voice_set(
+            &mut result,
+            root_pc,
+            quality,
+            *self,
+            &[Interval::M3, Interval::P5, Interval::m7],
+        );
+
+        for color in [Interval::m9, Interval::SHARP9, Interval::m6, Interval::M13] {
+            if quality.intervals.contains(&color) {
+                push_voice_set(
+                    &mut result,
+                    root_pc,
+                    quality,
+                    *self,
+                    &[Interval::M3, Interval::m7, color],
+                );
+                push_voice_set(
+                    &mut result,
+                    root_pc,
+                    quality,
+                    *self,
+                    &[Interval::M3, Interval::P5, Interval::m7, color],
+                );
+            }
+        }
+
+        result
+    }
+
+    /// Generate triad-pair material from chord tones available in the quality.
+    ///
+    /// This is a deliberately narrow first slice: it avoids parent-scale
+    /// inference and emits only patterns whose intervals are already present in
+    /// the selected chord quality.
+    pub fn generate_triad_pair(
+        &self,
+        root_pc: u8,
+        quality: &'static ChordQuality,
+    ) -> Vec<VoiceSet> {
+        let mut result = Vec::new();
+
+        if quality.name == "maj13" {
+            // Cmaj13: G major + A minor, alternated G-A-B-C-D-E.
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[
+                    Interval::P5,
+                    Interval::M13,
+                    Interval::M7,
+                    Interval::UNISON,
+                    Interval::M9,
+                    Interval::M3,
+                ],
+                4,
+            );
+            push_voice_set(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::P5, Interval::M7, Interval::M9],
+            );
+            push_voice_set(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::M13, Interval::UNISON, Interval::M3],
+            );
+        } else if quality.name == "m11" {
+            // Dm11: F major + C major, alternated F-C-A-E-C-G.
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[
+                    Interval::m3,
+                    Interval::m7,
+                    Interval::P5,
+                    Interval::M9,
+                    Interval::m7,
+                    Interval::M11,
+                ],
+                4,
+            );
+            push_voice_set(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::m3, Interval::P5, Interval::m7],
+            );
+            push_voice_set(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::m7, Interval::M9, Interval::M11],
+            );
+        }
+
+        result
+    }
+}
+
+fn guide_tones(quality: &ChordQuality) -> Option<(Interval, Interval)> {
+    if quality.intervals.contains(&Interval::M3) && quality.intervals.contains(&Interval::M7) {
+        Some((Interval::M3, Interval::M7))
+    } else if quality.intervals.contains(&Interval::M3)
+        && quality.intervals.contains(&Interval::m7)
+    {
+        Some((Interval::M3, Interval::m7))
+    } else if quality.intervals.contains(&Interval::m3)
+        && quality.intervals.contains(&Interval::m7)
+    {
+        Some((Interval::m3, Interval::m7))
+    } else {
+        None
+    }
+}
+
+fn rootless_color_tones(quality: &ChordQuality, third: Interval) -> Vec<Interval> {
+    let candidates: &[Interval] = if third == Interval::m3 {
+        &[Interval::M9, Interval::M11, Interval::M13, Interval::m9]
+    } else if quality.intervals.contains(&Interval::m7) {
+        &[
+            Interval::M9,
+            Interval::M13,
+            Interval::m9,
+            Interval::SHARP9,
+            Interval::m6,
+        ]
+    } else {
+        &[Interval::M9, Interval::M13]
+    };
+
+    candidates
+        .iter()
+        .copied()
+        .filter(|interval| quality.intervals.contains(interval))
+        .collect()
+}
+
+fn four_note_core(quality: &ChordQuality) -> Option<[Interval; 4]> {
+    if quality.intervals.len() < 4 {
+        return None;
+    }
+
+    Some([
+        quality.intervals[0],
+        quality.intervals[1],
+        quality.intervals[2],
+        quality.intervals[3],
+    ])
+}
+
+fn push_prefixes(
+    result: &mut Vec<VoiceSet>,
+    root_pc: u8,
+    quality: &'static ChordQuality,
+    recipe: VoicingRecipe,
+    intervals: &[Interval],
+    min_len: usize,
+) {
+    for len in min_len..=intervals.len() {
+        push_voice_set(result, root_pc, quality, recipe, &intervals[..len]);
+    }
+}
+
+fn push_voice_set(
+    result: &mut Vec<VoiceSet>,
+    root_pc: u8,
+    quality: &'static ChordQuality,
+    recipe: VoicingRecipe,
+    intervals: &[Interval],
+) {
+    if intervals.is_empty()
+        || !intervals
+            .iter()
+            .all(|interval| quality.intervals.contains(interval))
+    {
+        return;
+    }
+    if result
+        .iter()
+        .any(|voice_set| voice_set.intervals.as_slice() == intervals)
+    {
+        return;
+    }
+
+    result.push(VoiceSet::new(
+        root_pc,
+        intervals.to_vec(),
+        ascending_offsets(intervals),
+        recipe,
+        quality,
+    ));
+}
+
+fn ascending_offsets(intervals: &[Interval]) -> Vec<i32> {
+    let mut offsets = Vec::with_capacity(intervals.len());
+    let mut previous = None;
+
+    for interval in intervals {
+        let base = (interval.semitones % 12) as i32;
+        let mut absolute = base;
+        while previous.is_some_and(|previous| absolute <= previous) {
+            absolute += 12;
+        }
+        offsets.push((absolute - interval.semitones as i32) / 12);
+        previous = Some(absolute);
+    }
+
+    offsets
 }
 
 #[cfg(test)]
@@ -483,6 +846,16 @@ mod tests {
     }
 
     #[test]
+    fn test_major_rootless_cmaj9_can_use_fifth_as_fourth_voice() {
+        let quality = ChordQuality::ALL.iter().find(|q| q.name == "maj9").unwrap();
+        let rootless = VoicingRecipe::RootlessA.generate_rootless(0, quality);
+
+        assert!(rootless.iter().any(|vs| {
+            vs.intervals == vec![Interval::M3, Interval::M7, Interval::M9, Interval::P5]
+        }));
+    }
+
+    #[test]
     fn test_minor_rootless_dm11_produces_b3_b7_9_11() {
         // Dm11 rootless can produce b3 b7 9 11.
         let quality = ChordQuality::ALL.iter().find(|q| q.name == "m11").unwrap();
@@ -598,5 +971,85 @@ mod tests {
             assert_eq!(rootless[0].len(), 2);
             assert!(!rootless[0].intervals.contains(&Interval::UNISON));
         }
+    }
+
+    #[test]
+    fn test_rootless_b_reorders_guide_tones() {
+        let quality = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "dom13")
+            .unwrap();
+        let rootless = VoicingRecipe::RootlessB.generate_rootless_b(7, quality);
+
+        let four_note = rootless.iter().find(|vs| vs.len() == 4).unwrap();
+        assert_eq!(
+            four_note.intervals,
+            vec![Interval::m7, Interval::M3, Interval::M13, Interval::M9]
+        );
+        assert!(!four_note.intervals.contains(&Interval::UNISON));
+    }
+
+    #[test]
+    fn test_drop_recipes_reorder_four_note_core() {
+        let quality = ChordQuality::ALL.iter().find(|q| q.name == "maj7").unwrap();
+
+        let drop2 = VoicingRecipe::Drop2.generate_drop2(0, quality);
+        let drop3 = VoicingRecipe::Drop3.generate_drop3(0, quality);
+
+        assert_eq!(
+            drop2[0].intervals,
+            vec![Interval::P5, Interval::UNISON, Interval::M3, Interval::M7]
+        );
+        assert_eq!(
+            drop3[0].intervals,
+            vec![Interval::M3, Interval::UNISON, Interval::P5, Interval::M7]
+        );
+    }
+
+    #[test]
+    fn test_quartal_minor_m11_produces_fourth_stack() {
+        let quality = ChordQuality::ALL.iter().find(|q| q.name == "m11").unwrap();
+        let quartal = VoicingRecipe::Quartal.generate_quartal(2, quality);
+
+        assert!(quartal.iter().any(|vs| {
+            vs.intervals == vec![Interval::UNISON, Interval::M11, Interval::m7, Interval::m3]
+        }));
+    }
+
+    #[test]
+    fn test_upper_structure_dominant_altered_omits_root() {
+        let quality = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "dom7#9")
+            .unwrap();
+        let upper = VoicingRecipe::UpperStructureTriad.generate_upper_structure_triad(7, quality);
+
+        assert!(upper
+            .iter()
+            .any(|vs| vs.intervals == vec![Interval::M3, Interval::m7, Interval::SHARP9]));
+        assert!(upper
+            .iter()
+            .all(|vs| !vs.intervals.contains(&Interval::UNISON)));
+    }
+
+    #[test]
+    fn test_triad_pair_major_uses_two_available_triads() {
+        let quality = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "maj13")
+            .unwrap();
+        let pairs = VoicingRecipe::TriadPair.generate_triad_pair(0, quality);
+
+        assert!(pairs.iter().any(|vs| {
+            vs.intervals
+                == vec![
+                    Interval::P5,
+                    Interval::M13,
+                    Interval::M7,
+                    Interval::UNISON,
+                    Interval::M9,
+                    Interval::M3,
+                ]
+        }));
     }
 }

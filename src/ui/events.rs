@@ -7,8 +7,10 @@ use super::app::App;
 /// Supported keys:
 /// - `j` / `Down`: move selection down
 /// - `k` / `Up`: move selection up
-/// - `h` / `Left`: focus chord list
-/// - `l` / `Right` / `Tab`: focus voicing list
+/// - `h` / `Left`: focus previous field
+/// - `l` / `Right` / `Tab`: focus next field
+/// - `g` / `Home`: move to first item in focused field
+/// - `G` / `End`: move to last item in focused field
 /// - `q` / `Esc`: quit
 pub fn handle_event(event: Event, app: &mut App) {
     if let Event::Key(key) = event {
@@ -36,6 +38,13 @@ pub fn handle_event(event: Event, app: &mut App) {
             }
             KeyCode::Char('l') | KeyCode::Right | KeyCode::Tab => {
                 app.screen.focus_next();
+            }
+            // Move to edges.
+            KeyCode::Char('g') | KeyCode::Home => {
+                app.screen.select_first();
+            }
+            KeyCode::Char('G') | KeyCode::End => {
+                app.screen.select_last();
             }
             _ => {}
         }
