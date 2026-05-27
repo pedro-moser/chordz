@@ -36,6 +36,16 @@ impl ChordQuality {
                 Interval::M13,
             ],
         },
+        Self {
+            name: "maj7#11",
+            intervals: &[
+                Interval::UNISON,
+                Interval::M3,
+                Interval::P5,
+                Interval::M7,
+                Interval::SHARP11,
+            ],
+        },
         // Minor family
         Self {
             name: "m7",
@@ -143,6 +153,26 @@ impl ChordQuality {
                 Interval::SHARP9,
             ],
         },
+        Self {
+            name: "dom7#11",
+            intervals: &[
+                Interval::UNISON,
+                Interval::M3,
+                Interval::P5,
+                Interval::m7,
+                Interval::SHARP11,
+            ],
+        },
+        Self {
+            name: "dom7b13",
+            intervals: &[
+                Interval::UNISON,
+                Interval::M3,
+                Interval::P5,
+                Interval::m7,
+                Interval::m13,
+            ],
+        },
         // Diminished
         Self {
             name: "dim7",
@@ -161,9 +191,9 @@ impl ChordQuality {
     ];
 }
 
-/// All 12 pitch class root names.
+/// All 12 pitch class root names, following jazz conventions (flats preferred).
 pub const ROOTS: [&str; 12] = [
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
 ];
 
 /// Get the pitch class (0=C, 1=C#, …, 11=B) for a root name.
@@ -188,11 +218,11 @@ pub fn root_to_pc(root: &str) -> Option<u8> {
 /// Format a full chord name from root and quality, e.g. "Cmaj7", "Dm9".
 pub fn chord_name(root: &str, quality: &ChordQuality) -> String {
     match quality.name {
-        "maj7" | "maj9" | "maj13" => format!("{}{}", root, quality.name),
+        "maj7" | "maj9" | "maj13" | "maj7#11" => format!("{}{}", root, quality.name),
         "m7" | "m9" | "m11" | "m13" | "m7b5" | "m9b11" => {
             format!("{}m{}", root, &quality.name[1..])
         }
-        "dom7" | "dom9" | "dom13" | "dom7#5" | "dom7b9" | "dom7#9" => {
+        "dom7" | "dom9" | "dom13" | "dom7#5" | "dom7b9" | "dom7#9" | "dom7#11" | "dom7b13" => {
             format!(
                 "{}{}",
                 root,
@@ -214,38 +244,86 @@ mod tests {
         assert_eq!(root_to_pc("C"), Some(0));
         assert_eq!(root_to_pc("C#"), Some(1));
         assert_eq!(root_to_pc("Db"), Some(1));
+        assert_eq!(root_to_pc("Eb"), Some(3));
+        assert_eq!(root_to_pc("D#"), Some(3));
         assert_eq!(root_to_pc("F"), Some(5));
+        assert_eq!(root_to_pc("Bb"), Some(10));
+        assert_eq!(root_to_pc("A#"), Some(10));
         assert_eq!(root_to_pc("B"), Some(11));
         assert_eq!(root_to_pc("H"), None);
         assert_eq!(root_to_pc("X"), None);
     }
 
     #[test]
+    fn test_roots_use_jazz_conventions() {
+        assert_eq!(ROOTS[1], "Db");
+        assert_eq!(ROOTS[3], "Eb");
+        assert_eq!(ROOTS[6], "F#");
+        assert_eq!(ROOTS[8], "Ab");
+        assert_eq!(ROOTS[10], "Bb");
+    }
+
+    #[test]
+    fn test_chord_name_with_flats() {
+        let dom7 = ChordQuality::ALL.iter().find(|q| q.name == "dom7").unwrap();
+        assert_eq!(chord_name("Bb", dom7), "Bb7");
+        let m7 = ChordQuality::ALL.iter().find(|q| q.name == "m7").unwrap();
+        assert_eq!(chord_name("Eb", m7), "Ebm7");
+        let maj7 = ChordQuality::ALL.iter().find(|q| q.name == "maj7").unwrap();
+        assert_eq!(chord_name("Ab", maj7), "Abmaj7");
+    }
+
+    #[test]
     fn test_chord_name_major() {
-        let maj7 = ChordQuality::ALL[0];
-        assert_eq!(chord_name("C", &maj7), "Cmaj7");
+        let maj7 = ChordQuality::ALL.iter().find(|q| q.name == "maj7").unwrap();
+        assert_eq!(chord_name("C", maj7), "Cmaj7");
     }
 
     #[test]
     fn test_chord_name_minor() {
-        let m7 = ChordQuality::ALL[3];
-        assert_eq!(chord_name("D", &m7), "Dm7");
+        let m7 = ChordQuality::ALL.iter().find(|q| q.name == "m7").unwrap();
+        assert_eq!(chord_name("D", m7), "Dm7");
     }
 
     #[test]
     fn test_chord_name_dominant() {
-        let dom7 = ChordQuality::ALL[9];
-        assert_eq!(chord_name("G", &dom7), "G7");
-        let dom9 = ChordQuality::ALL[10];
-        assert_eq!(chord_name("G", &dom9), "G9");
-        let dom13 = ChordQuality::ALL[11];
-        assert_eq!(chord_name("G", &dom13), "G13");
+        let dom7 = ChordQuality::ALL.iter().find(|q| q.name == "dom7").unwrap();
+        assert_eq!(chord_name("G", dom7), "G7");
+        let dom9 = ChordQuality::ALL.iter().find(|q| q.name == "dom9").unwrap();
+        assert_eq!(chord_name("G", dom9), "G9");
+        let dom13 = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "dom13")
+            .unwrap();
+        assert_eq!(chord_name("G", dom13), "G13");
     }
 
     #[test]
     fn test_chord_name_dominant_sharp5() {
-        let dom7s5 = ChordQuality::ALL[12];
-        assert_eq!(chord_name("G", &dom7s5), "G7#5");
+        let dom7s5 = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "dom7#5")
+            .unwrap();
+        assert_eq!(chord_name("G", dom7s5), "G7#5");
+    }
+
+    #[test]
+    fn test_chord_name_new_qualities() {
+        let maj7s11 = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "maj7#11")
+            .unwrap();
+        assert_eq!(chord_name("C", maj7s11), "Cmaj7#11");
+        let dom7s11 = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "dom7#11")
+            .unwrap();
+        assert_eq!(chord_name("G", dom7s11), "G7#11");
+        let dom7b13 = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "dom7b13")
+            .unwrap();
+        assert_eq!(chord_name("Ab", dom7b13), "Ab7b13");
     }
 
     #[test]

@@ -5,27 +5,93 @@ pub struct Interval {
     pub name: &'static str,
 }
 
+/// Associated constants intentionally use common music notation.
+#[allow(non_upper_case_globals)]
 impl Interval {
-    pub const UNISON: Self = Self { semitones: 0, name: "1" };
-    pub const m2: Self = Self { semitones: 1, name: "b2" };
-    pub const M2: Self = Self { semitones: 2, name: "2" };
-    pub const m3: Self = Self { semitones: 3, name: "b3" };
-    pub const M3: Self = Self { semitones: 4, name: "3" };
-    pub const P4: Self = Self { semitones: 5, name: "4" };
-    pub const tritone: Self = Self { semitones: 6, name: "#4" };
-    pub const P5: Self = Self { semitones: 7, name: "5" };
-    pub const m6: Self = Self { semitones: 8, name: "b6" };
-    pub const M6: Self = Self { semitones: 9, name: "6" };
-    pub const m7: Self = Self { semitones: 10, name: "b7" };
-    pub const M7: Self = Self { semitones: 11, name: "maj7" };
-    pub const M9: Self = Self { semitones: 14, name: "9" };
-    pub const m9: Self = Self { semitones: 13, name: "b9" };
-    pub const M11: Self = Self { semitones: 17, name: "11" };
-    pub const SHARP9: Self = Self { semitones: 15, name: "#9" };
-    pub const m11: Self = Self { semitones: 16, name: "b11" };
-    pub const M13: Self = Self { semitones: 21, name: "13" };
-    pub const m13: Self = Self { semitones: 20, name: "b13" };
-    pub const dim7: Self = Self { semitones: 9, name: "dim7" };
+    pub const UNISON: Self = Self {
+        semitones: 0,
+        name: "1",
+    };
+    pub const m2: Self = Self {
+        semitones: 1,
+        name: "b2",
+    };
+    pub const M2: Self = Self {
+        semitones: 2,
+        name: "2",
+    };
+    pub const m3: Self = Self {
+        semitones: 3,
+        name: "b3",
+    };
+    pub const M3: Self = Self {
+        semitones: 4,
+        name: "3",
+    };
+    pub const P4: Self = Self {
+        semitones: 5,
+        name: "4",
+    };
+    pub const tritone: Self = Self {
+        semitones: 6,
+        name: "#4",
+    };
+    pub const P5: Self = Self {
+        semitones: 7,
+        name: "5",
+    };
+    pub const m6: Self = Self {
+        semitones: 8,
+        name: "b6",
+    };
+    pub const M6: Self = Self {
+        semitones: 9,
+        name: "6",
+    };
+    pub const m7: Self = Self {
+        semitones: 10,
+        name: "b7",
+    };
+    pub const M7: Self = Self {
+        semitones: 11,
+        name: "maj7",
+    };
+    pub const M9: Self = Self {
+        semitones: 14,
+        name: "9",
+    };
+    pub const m9: Self = Self {
+        semitones: 13,
+        name: "b9",
+    };
+    pub const M11: Self = Self {
+        semitones: 17,
+        name: "11",
+    };
+    pub const SHARP9: Self = Self {
+        semitones: 15,
+        name: "#9",
+    };
+    pub const m11: Self = Self {
+        semitones: 16,
+        name: "b11",
+    };
+    pub const SHARP11: Self = Self {
+        semitones: 18,
+        name: "#11",
+    };
+    pub const M13: Self = Self {
+        semitones: 21,
+        name: "13",
+    };
+    pub const m13: Self = Self {
+        semitones: 20,
+        name: "b13",
+    };
+    pub const dim7: Self = Self {
+        semitones: 9,
+        name: "dim7",
+    };
 }
 
 #[cfg(test)]

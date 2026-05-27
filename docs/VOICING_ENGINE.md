@@ -2,105 +2,156 @@
 
 ## Goal
 
-The voicing engine is the heart of chordz. It should generate useful modern jazz guitar voicings procedurally, then map them to playable fingerings.
+The voicing engine is the heart of chordz. It generates useful modern jazz
+guitar voicings procedurally, maps them to playable fingerings, ranks them, and
+solves smooth paths through chord charts.
 
-It must not be a static dictionary and must not require every chord extension to be played. Guitar voicings are selective. A good Cmaj13#11 voicing might contain `3 7 9 #11 13` and omit the root and fifth. A useful G7alt voicing might be an upper-structure triad over a shell. A practical m11 voicing might be quartal and omit the fifth.
+It must not be a static dictionary and must not require every chord extension to
+be played. Guitar voicings are selective. A good Cmaj13#11 voicing might contain
+`3 7 9 #11 13` and omit the root and fifth. A useful G7alt voicing might use
+guide tones plus altered color. A practical m11 voicing might be quartal and
+omit the fifth.
 
-## Current Limitation
+## Current Engine Shape
 
-The current generator in `src/voicings/generate.rs` works like this:
+The project now has two generators:
 
-1. Take every interval in `ChordQuality`.
-2. Find one fretboard position for each interval.
-3. Return fingerings that include all intervals exactly once.
+- Legacy `generate`: maps every interval in a `ChordQuality` exactly once. Keep
+  this around for baseline tests and simple closed voicings.
+- Modern recipe pipeline: expands a `VoicingRecipe` into `VoiceSet` candidates,
+  maps each `VoiceSet` to `Fingering`, ranks the results, and optionally solves
+  chart-level voice leading.
 
-This is acceptable as a prototype, but it is not the target engine.
+The modern path is the target behavior for new work.
 
-Problems:
-
-- Rootless voicings are impossible.
-- Omitted fifths are impossible.
-- Duplicated notes are impossible.
-- Three-note shell voicings are impossible with current default `min_strings = 4`.
-- Extended chords are treated like required full stacks.
-- There is no concept of recipe, style, harmonic function, or ranking.
+```text
+root_pc + ChordQuality
+  -> VoicingRecipe::generate_voice_sets
+  -> Vec<VoiceSet>
+  -> map_voice_set
+  -> Vec<Fingering>
+  -> rank_fingerings or solver::solve / solver::solve_with_locks
+```
 
 ## Core Types
 
-These names are proposed. Adjust them to fit Rust style and local code as implementation evolves.
+### ChordQuality
 
-### ChordFormula
-
-The complete harmonic material available for a chord.
+Defined in `src/theory/chords.rs`. It represents the full harmonic material
+available for a chord quality.
 
 Examples:
 
-- `maj7`: `1 3 5 7`
-- `maj9`: `1 3 5 7 9`
-- `maj13#11`: `1 3 5 7 9 #11 13`
+- `maj7`: `1 3 5 maj7`
+- `maj13`: `1 3 5 maj7 9 13`
 - `m11`: `1 b3 5 b7 9 11`
-- `7alt`: `1 3 b7 b9 #9 b5 #5`
-- `13b9`: `1 3 5 b7 b9 13`
+- `dom7b9`: `1 3 5 b7 b9`
+- `dom7#11`: `1 3 5 b7 #11`
 
 ### VoicingRecipe
 
-A musical strategy for selecting and arranging notes before mapping to guitar.
+Defined in `src/voicings/recipe.rs`. A musical strategy for selecting and
+arranging chord tones before guitar mapping.
 
-Initial recipes:
+Current recipes:
 
-- `Closed`: simple close-position chord tones, mostly for baseline/testing.
-- `Shell`: 3rd and 7th plus optional root, fifth, or color.
-- `Drop2`: four-note close structure with second voice from top dropped.
-- `Drop3`: four-note close structure with third voice from top dropped.
-- `RootlessA`: common rootless dominant/major/minor forms based on 3rd and 7th.
-- `RootlessB`: alternate inversion/family of rootless forms.
-- `Quartal`: stacks of fourths derived from chord/scale material.
-- `UpperStructureTriad`: triad over guide tones, common for altered dominants.
-- `TriadPair`: two triads from a parent scale or harmonic color.
+- `Closed`: complete formula, mostly for simple closed/baseline behavior.
+- `Shell`: guide tones with optional root.
+- `RootlessA`: common rootless major/minor/dominant forms.
+- `RootlessB`: alternate guide-tone ordering.
+- `Drop2`: drop-2 voicings over multiple four-note cores and inversions.
+- `Drop3`: drop-3 voicings over multiple four-note cores and inversions.
+- `Quartal`: fourth-stack material where available.
+- `UpperStructureTriad`: guide-tone-plus-triad dominant colors.
+- `TriadPair`: alternating material from two available triads.
+
+Call `VoicingRecipe::generate_voice_sets(root_pc, quality)` from callers. Do
+not duplicate the recipe dispatch outside this type.
 
 ### VoiceSet
 
-An abstract voicing before guitar mapping.
+Defined in `src/voicings/voice_set.rs`. An abstract voicing before guitar
+mapping.
 
-Fields to consider:
+Important fields:
 
-- `intervals`: selected interval names or IDs.
-- `pitch_classes`: selected pitch classes.
-- `octave_offsets`: spacing/inversion data.
+- `root_pc`: root pitch class.
+- `intervals`: selected interval identities.
+- `octave_offsets`: spacing/inversion information.
 - `recipe`: source recipe.
-- `omissions`: root/fifth/etc. intentionally omitted.
-- `tags`: rootless, shell, quartal, altered, bright, dense, sparse.
+- `source_quality`: original harmonic material.
+
+Voice sets may intentionally omit roots and fifths. They may contain fewer notes
+than the source quality.
 
 ### Fingering
 
-A playable mapping of a `VoiceSet` onto the guitar.
+Defined in `src/voicings/generate.rs`. A playable mapping of a `VoiceSet` onto
+the six guitar strings.
 
-Fields to consider:
+Important fields:
 
-- `positions: [Option<u8>; 6]`
-- `intervals: [Option<IntervalId>; 6]`
-- `notes: [Option<Note>; 6]`
-- `recipe`
-- `score`
+- `positions: [Option<u8>; 6]`: fret per string, or muted.
+- `intervals: [Option<Interval>; 6]`: interval per string, or muted.
+
+Important methods:
+
+- `played_count`
 - `fret_span`
 - `lowest_fret`
-- `requires_barre`
+- `played_intervals`
+- `has_interval`
+- `notes`
 
-### Ranking
+### SolverConfig
 
-Fingerings should be sorted by musical and ergonomic usefulness, not by raw position array.
+Defined in `src/voicings/solver.rs`. Controls chart-level candidate generation
+and path solving.
 
-Score dimensions:
+Important fields:
 
-- Fret span.
-- Number of strings.
-- Avoidance of awkward stretches.
-- Region preference.
-- Presence of guide tones.
-- Presence of requested color tones.
-- Bass note suitability.
-- Recipe-specific priority.
-- Avoid muddy low-register clusters.
+- `rules`: hard `VoicingRules` for string count, span, max fret, root policy.
+- `recipes`: recipe set to consider.
+- `max_candidates`: cap per chord.
+- `min_fret`: lower fret bound after mapping.
+- `allowed_strings`: optional string mask.
+- `allow_open_strings`: keep or reject fingerings that use fret 0.
+- `expand_basic_chords`: when true, simple chart symbols such as `G7` can use
+  richer voicing material such as altered or lydian dominant colors.
+- `tension_target`: 0.0 grounded to 1.0 abstract.
+- `tension_weight`: strength of tension matching.
+- `rank_weight`: strength of standalone fingering rank in chart solving.
+- `smoothness_weight`: multiplier for voice-leading movement cost.
+- `jitter`: random-ish tie/noise amount; set to `0` for deterministic tests.
+
+`SolverConfig::default()` is deterministic: `jitter` is `0`. The Tune UI maps
+its Variation slider to this field when the user wants a less repeatable solve.
+
+### SolvedChart, SolvedChange, and SolvedAlternative
+
+Defined in `src/voicings/solver.rs`. `SolvedChart` contains:
+
+- `fingerings`: the chosen path, one `SolvedChange` per chart change.
+- `alternatives`: retained `SolvedAlternative` candidates per chart change,
+  used by Tune mode for manual left/right swapping.
+
+`SolvedChange` and `SolvedAlternative` both carry the selected `Fingering`,
+`VoicingRecipe`, raw `tension`, per-chord `normalized_tension`, `rank_score`,
+and `RelaxationLevel`.
+
+The raw tension is calculated from recipe, chord quality, root omission, and
+extensions. It is then normalized within each chord's candidate set before the
+slider penalty is applied. This makes the Tension slider pick the lower or
+higher tension options available for the current chord instead of depending on
+absolute tension values across unrelated chord types.
+
+`RelaxationLevel` documents whether a candidate matched the user's filters
+exactly or came from a fallback:
+
+- `Exact`: all filters were satisfied.
+- `FewerNotes`: the solver allowed 2-note candidates.
+- `IgnoreStringFilter`: the solver dropped the string mask.
+- `WiderFretRange`: the solver widened the fret range by up to two frets.
 
 ## Generation Pipeline
 
@@ -109,100 +160,109 @@ Score dimensions:
 Input:
 
 - Root pitch class.
-- Chord quality/formula.
-- Optional harmonic context: tonic, function, scale source, bass note, target color.
+- `ChordQuality`.
+- Optional chart context in higher-level callers.
 
 Output:
 
 - Complete interval material.
 - Guide tones.
 - Color tones.
-- Avoid notes or low-priority notes for this context.
+- Recipe-specific cores.
+
+Today this is mostly encoded directly in recipe helpers. Future scale/context
+work should live in `theory` or a new domain module, not in UI code.
 
 ### 2. Expand Recipes
 
-Each recipe receives the formula and returns one or more `VoiceSet` candidates.
-
-Recipe examples:
-
-- Shell dominant: `3 b7`, optional `1`, `13`, `b9`, `#9`.
-- Rootless dominant: `3 b7 9 13`, or `b7 3 b13 b9`.
-- Major rootless: `3 7 9 13`, optional `#11`.
-- Minor rootless: `b3 b7 9 11`, optional `5`.
-- Quartal minor: `11 b7 b3`, plus `9` or `5`.
-- Upper-structure G7alt: guide tones `3 b7` plus upper triads from altered colors.
-- Triad pair: alternate notes from two triads derived from the parent scale.
-
-Recipes are allowed to:
+Each recipe returns one or more `VoiceSet` candidates. Recipes are allowed to:
 
 - Omit roots.
 - Omit fifths.
-- Duplicate chord tones.
-- Use 3, 4, 5, or 6 notes.
-- Produce several inversions and octave spreads.
+- Use 2, 3, 4, 5, or 6 notes.
+- Use extensions without playing the full stack.
+- Produce inversions and octave spreads.
+
+Acceptance examples already covered by tests include:
+
+- `G13` rootless forms omit `1`.
+- `Cmaj13` rootless can produce `3 7 9 13`.
+- `Dm11` rootless can produce `b3 b7 9 11`.
+- Shells include guide tones and can omit fifths.
+- Drop voicings generate multiple inversions.
+- Quartal, upper-structure, and triad-pair recipes produce non-closed material.
 
 ### 3. Map VoiceSets to Fretboard
 
-For each voice in a `VoiceSet`, find candidate string/fret locations.
+`map_voice_set` finds candidate string/fret locations for each voice and
+backtracks through playable assignments.
 
-Constraints:
+Hard constraints:
 
-- Respect tuning and fret count.
-- Prefer 3-5 note guitar voicings for jazz.
-- Allow muted strings between played strings when musically/physically useful.
-- Avoid generating every impossible permutation.
+- Respect fretboard tuning and `max_fret`.
+- Respect `max_fret_span`.
+- Respect min/max played strings.
+- Respect `require_root`.
+- Keep selected voices in ascending string order and non-descending MIDI order.
 
-### 4. Filter Playability
+The mapper returns deterministic, deduplicated `Fingering` values.
 
-Reject fingerings that violate hard constraints:
+### 4. Rank Fingerings
 
-- Fret above max fret.
-- Fret span too large.
-- Too few or too many played strings.
-- Impossible string ordering for the selected voice ordering, unless the recipe allows reordering.
-- Low-register clusters that are too muddy.
+`ranking::score` rewards and penalizes musical/ergonomic traits:
 
-### 5. Deduplicate
+- Smaller fret span is better.
+- Complete guide tones are better.
+- Muddy low-register clusters are penalized.
 
-Deduplicate by musical and physical identity:
+This ranking is intentionally simple. Future scoring should add region
+preference, repeated-note handling, barre/stretch heuristics, and bass-note
+suitability.
 
-- Same string/fret positions.
-- Same interval stack in the same register.
-- Same shape transposed within equivalent local contexts, when appropriate.
+### 5. Solve Chart Voice Leading
 
-### 6. Rank
+`solver::solve` parses per-chord candidates and uses dynamic programming to find
+a low-cost path through a chart. `solver::solve_with_locks` is the same solver
+with selected chart positions forced to a previously chosen `SolvedAlternative`.
 
-Sort remaining fingerings by usefulness.
+Cost inputs:
 
-The first page in the TUI should contain playable, idiomatic voicings, not merely the first lexicographic results.
+- Voice-leading distance between adjacent fingerings.
+- Repeat-shape penalty.
+- Tension mismatch penalty against normalized per-chord candidate tension.
+- Standalone fingering rank penalty.
+- Smoothness multiplier for voice-leading distance.
+- Optional jitter.
 
-## Acceptance Examples
+Set `SolverConfig { jitter: 0, ..Default::default() }` in tests that need stable
+paths.
 
-The engine should eventually satisfy behavior like this:
+Candidate generation order matters. Each mapped `VoiceSet` is ranked first, the
+best three fingerings per voice set are retained, and candidate deduplication
+preserves that ranked order until `max_candidates` is reached. Avoid replacing
+this with lexicographic position sorting unless tests prove the musical ranking
+is still preserved.
 
-- A rootless dominant recipe for `G13` may return voicings with no G.
-- A `Cmaj13#11` recipe may omit C and G while keeping E, B, D, F#, and A.
-- A shell recipe for `G7b9` may return three-note or four-note voicings.
-- A quartal recipe for `Dm11` may return stacks based on G-C-F or C-F-Bb-like colors depending on context.
-- A triad-pair recipe should produce alternating material from two triads, not a single closed chord.
-- The generator must not require every interval in an extended chord to appear in one fingering.
+### 6. Chart Durations
 
-## Implementation Path
+`Chart::parse` distributes four beats across the chord tokens in each bar using
+`f32` beat counts. A three-chord bar therefore stores `4.0 / 3.0` beats per
+change instead of rounding down to one beat each. `SolvedChange.beats` and
+`AudioEngine::play_progression` use the same floating-point beat durations, so
+display, solving metadata, and playback stay aligned.
 
-Recommended order:
+## Current Known Gaps
 
-1. Keep the existing generator as `legacy` or `closed` behavior while adding tests around its current behavior.
-2. Add interval identity types instead of relying only on index into `ChordQuality`.
-3. Introduce `VoicingRecipe` and `VoiceSet`.
-4. Implement `Shell` recipes first; they are small and expose omissions/rootless behavior.
-5. Implement mapping `VoiceSet -> Fingering`.
-6. Add `RootlessA` and `RootlessB`.
-7. Add ranking.
-8. Add `Drop2`/`Drop3`.
-9. Add quartal and upper-structure recipes.
-10. Add triad-pair generation after scale/context primitives are strong enough.
+- Scale/source context is still implicit in recipe heuristics.
+- Barre and difficult-fingering detection are not modeled.
+- UI chart playback synthesis can block while a full progression buffer is
+  generated.
+- Tune mode is still implemented inside `src/ui/app.rs`; it should eventually
+  move into a focused UI module.
 
-## Tests Required Before Replacing the Current Generator
+## Test Expectations
+
+Before replacing or changing generator behavior, keep these properties covered:
 
 - Rootless recipes can return no-root fingerings.
 - Shell recipes can return 3-string fingerings.
@@ -210,5 +270,8 @@ Recommended order:
 - Fifth omission is allowed where recipe permits.
 - Required guide tones are present for shell/rootless dominant recipes.
 - Fingerings respect fret span and max fret.
-- Generated results are deterministic.
-
+- Generated results are deterministic when jitter is zero.
+- Locked Tune alternatives stay fixed when `solve_with_locks` is used.
+- Auto-relaxed candidates expose their `RelaxationLevel`.
+- Chart solver returns a complete path or explicit `None`, never a partial
+  silently-successful result.

@@ -69,6 +69,28 @@ impl VoicingRecipe {
         ]
     }
 
+    /// Generate the abstract voice sets for this recipe.
+    ///
+    /// This is the public dispatcher used by UI and solver code. Keep recipe
+    /// selection here so callers do not duplicate the recipe matrix.
+    pub fn generate_voice_sets(
+        &self,
+        root_pc: u8,
+        quality: &'static ChordQuality,
+    ) -> Vec<VoiceSet> {
+        match *self {
+            Self::Shell => self.generate_shell(root_pc, quality),
+            Self::RootlessA => self.generate_rootless(root_pc, quality),
+            Self::RootlessB => self.generate_rootless_b(root_pc, quality),
+            Self::Drop2 => self.generate_drop2(root_pc, quality),
+            Self::Drop3 => self.generate_drop3(root_pc, quality),
+            Self::Quartal => self.generate_quartal(root_pc, quality),
+            Self::UpperStructureTriad => self.generate_upper_structure_triad(root_pc, quality),
+            Self::TriadPair => self.generate_triad_pair(root_pc, quality),
+            Self::Closed => vec![VoiceSet::from_quality(root_pc, quality, *self)],
+        }
+    }
+
     /// Generate shell voice sets for the given chord.
     ///
     /// Shell voicings use the guide tones (3rd and 7th) as the core,
@@ -161,6 +183,8 @@ impl VoicingRecipe {
 
         let color_tones = rootless_color_tones(quality, third);
 
+        let has_fifth = quality.intervals.contains(&Interval::P5);
+
         // 4-note rootless: 3rd, 7th, and two color tones.
         if color_tones.len() >= 2 {
             result.push(VoiceSet::new(
@@ -170,7 +194,19 @@ impl VoicingRecipe {
                 *self,
                 quality,
             ));
-        } else if color_tones.len() == 1 && quality.intervals.contains(&Interval::P5) {
+            // Also: color + fifth (very common on guitar).
+            if has_fifth {
+                for &color in &color_tones {
+                    push_voice_set(
+                        &mut result,
+                        root_pc,
+                        quality,
+                        *self,
+                        &[third, seventh, color, Interval::P5],
+                    );
+                }
+            }
+        } else if color_tones.len() == 1 && has_fifth {
             result.push(VoiceSet::new(
                 root_pc,
                 vec![third, seventh, color_tones[0], Interval::P5],
@@ -219,6 +255,8 @@ impl VoicingRecipe {
         let color_tones = rootless_color_tones(quality, third);
         let mut result = Vec::new();
 
+        let has_fifth = quality.intervals.contains(&Interval::P5);
+
         if color_tones.len() >= 2 {
             push_voice_set(
                 &mut result,
@@ -227,7 +265,18 @@ impl VoicingRecipe {
                 *self,
                 &[seventh, third, color_tones[1], color_tones[0]],
             );
-        } else if color_tones.len() == 1 && quality.intervals.contains(&Interval::P5) {
+            if has_fifth {
+                for &color in &color_tones {
+                    push_voice_set(
+                        &mut result,
+                        root_pc,
+                        quality,
+                        *self,
+                        &[seventh, third, Interval::P5, color],
+                    );
+                }
+            }
+        } else if color_tones.len() == 1 && has_fifth {
             push_voice_set(
                 &mut result,
                 root_pc,
@@ -251,35 +300,42 @@ impl VoicingRecipe {
         result
     }
 
-    /// Generate drop-2 voicings from the core four-note chord structure.
+    /// Generate drop-2 voicings from all inversions of each core four-note chord.
+    ///
+    /// Each of the 4 rotations (root pos, 1st/2nd/3rd inversion) gets the
+    /// drop-2 treatment: the 2nd voice from the top is moved to the bottom.
+    /// Multiple cores (standard, rootless, etc.) produce a richer vocabulary.
     pub fn generate_drop2(&self, root_pc: u8, quality: &'static ChordQuality) -> Vec<VoiceSet> {
-        let Some(core) = four_note_core(quality) else {
+        let cores = four_note_cores(quality);
+        if cores.is_empty() {
             return Vec::new();
-        };
+        }
         let mut result = Vec::new();
-        push_voice_set(
-            &mut result,
-            root_pc,
-            quality,
-            *self,
-            &[core[2], core[0], core[1], core[3]],
-        );
+        for core in &cores {
+            for rotation in rotations(core) {
+                let dropped = [rotation[2], rotation[0], rotation[1], rotation[3]];
+                push_voice_set(&mut result, root_pc, quality, *self, &dropped);
+            }
+        }
         result
     }
 
-    /// Generate drop-3 voicings from the core four-note chord structure.
+    /// Generate drop-3 voicings from all inversions of each core four-note chord.
+    ///
+    /// Each of the 4 rotations gets the drop-3 treatment: the 3rd voice from
+    /// the top is moved to the bottom.
     pub fn generate_drop3(&self, root_pc: u8, quality: &'static ChordQuality) -> Vec<VoiceSet> {
-        let Some(core) = four_note_core(quality) else {
+        let cores = four_note_cores(quality);
+        if cores.is_empty() {
             return Vec::new();
-        };
+        }
         let mut result = Vec::new();
-        push_voice_set(
-            &mut result,
-            root_pc,
-            quality,
-            *self,
-            &[core[1], core[0], core[2], core[3]],
-        );
+        for core in &cores {
+            for rotation in rotations(core) {
+                let dropped = [rotation[1], rotation[0], rotation[2], rotation[3]];
+                push_voice_set(&mut result, root_pc, quality, *self, &dropped);
+            }
+        }
         result
     }
 
@@ -319,8 +375,7 @@ impl VoicingRecipe {
         } else if quality.intervals.contains(&Interval::M3)
             && quality.intervals.contains(&Interval::m7)
         {
-            // Dominant 13 color: 3-13-9-5 is a fourth stack; b7-3 keeps
-            // the guide-tone bite before continuing in fourths.
+            // Natural dominant fourth stacks: 3-13-9-5 and b7-3-13-9.
             push_prefixes(
                 &mut result,
                 root_pc,
@@ -335,6 +390,15 @@ impl VoicingRecipe {
                 quality,
                 *self,
                 &[Interval::m7, Interval::M3, Interval::M13, Interval::M9],
+                3,
+            );
+            // Altered dominant fourth stack: b7-#9-b13-b9.
+            push_prefixes(
+                &mut result,
+                root_pc,
+                quality,
+                *self,
+                &[Interval::m7, Interval::SHARP9, Interval::m13, Interval::m9],
                 3,
             );
         } else if quality.intervals.contains(&Interval::m3)
@@ -386,7 +450,14 @@ impl VoicingRecipe {
             &[Interval::M3, Interval::P5, Interval::m7],
         );
 
-        for color in [Interval::m9, Interval::SHARP9, Interval::m6, Interval::M13] {
+        for color in [
+            Interval::m9,
+            Interval::SHARP9,
+            Interval::m6,
+            Interval::M13,
+            Interval::m13,
+            Interval::SHARP11,
+        ] {
             if quality.intervals.contains(&color) {
                 push_voice_set(
                     &mut result,
@@ -491,12 +562,10 @@ impl VoicingRecipe {
 fn guide_tones(quality: &ChordQuality) -> Option<(Interval, Interval)> {
     if quality.intervals.contains(&Interval::M3) && quality.intervals.contains(&Interval::M7) {
         Some((Interval::M3, Interval::M7))
-    } else if quality.intervals.contains(&Interval::M3)
-        && quality.intervals.contains(&Interval::m7)
+    } else if quality.intervals.contains(&Interval::M3) && quality.intervals.contains(&Interval::m7)
     {
         Some((Interval::M3, Interval::m7))
-    } else if quality.intervals.contains(&Interval::m3)
-        && quality.intervals.contains(&Interval::m7)
+    } else if quality.intervals.contains(&Interval::m3) && quality.intervals.contains(&Interval::m7)
     {
         Some((Interval::m3, Interval::m7))
     } else {
@@ -506,17 +575,25 @@ fn guide_tones(quality: &ChordQuality) -> Option<(Interval, Interval)> {
 
 fn rootless_color_tones(quality: &ChordQuality, third: Interval) -> Vec<Interval> {
     let candidates: &[Interval] = if third == Interval::m3 {
-        &[Interval::M9, Interval::M11, Interval::M13, Interval::m9]
+        &[
+            Interval::M9,
+            Interval::M11,
+            Interval::M13,
+            Interval::m9,
+            Interval::m11,
+        ]
     } else if quality.intervals.contains(&Interval::m7) {
         &[
             Interval::M9,
             Interval::M13,
+            Interval::m13,
+            Interval::SHARP11,
             Interval::m9,
             Interval::SHARP9,
             Interval::m6,
         ]
     } else {
-        &[Interval::M9, Interval::M13]
+        &[Interval::M9, Interval::M13, Interval::SHARP11]
     };
 
     candidates
@@ -526,9 +603,9 @@ fn rootless_color_tones(quality: &ChordQuality, third: Interval) -> Vec<Interval
         .collect()
 }
 
-fn four_note_core(quality: &ChordQuality) -> Option<[Interval; 4]> {
+fn four_note_cores(quality: &ChordQuality) -> Vec<[Interval; 4]> {
     if quality.intervals.len() < 4 {
-        return None;
+        return Vec::new();
     }
 
     let root = if quality.intervals.contains(&Interval::UNISON) {
@@ -553,24 +630,75 @@ fn four_note_core(quality: &ChordQuality) -> Option<[Interval; 4]> {
         quality.intervals[3]
     };
 
-    if let Some(color) = preferred_drop_color(quality) {
+    let colors = drop_colors(quality);
+    let mut cores: Vec<[Interval; 4]> = Vec::new();
+
+    // Fundamental core: R, 3, 5th (or b5), 7 — always present.
+    let fifth = if quality.intervals.contains(&Interval::P5) {
+        Some(Interval::P5)
+    } else if quality.intervals.contains(&Interval::tritone) {
+        Some(Interval::tritone)
+    } else if quality.intervals.contains(&Interval::m6) {
+        Some(Interval::m6)
+    } else {
+        None
+    };
+    if let Some(fifth) = fifth {
+        cores.push([root, third, fifth, seventh]);
+    }
+
+    // Extension cores: R, 3, 7, color
+    for &color in &colors {
         let core = [root, third, seventh, color];
-        if core.iter().all(|interval| quality.intervals.contains(interval)) {
-            return Some(core);
+        if core.iter().all(|i| quality.intervals.contains(i)) && !cores.contains(&core) {
+            cores.push(core);
         }
     }
 
-    Some([
-        quality.intervals[0],
-        quality.intervals[1],
-        quality.intervals[2],
-        quality.intervals[3],
-    ])
+    // Rootless core: 3, 7, color1, color2
+    if colors.len() >= 2 {
+        let core = [third, seventh, colors[0], colors[1]];
+        if core.iter().all(|i| quality.intervals.contains(i)) && !cores.contains(&core) {
+            cores.push(core);
+        }
+    }
+
+    // Rootless + fifth core: 3, 7, color, 5
+    if let Some(fifth) = fifth {
+        for &color in &colors {
+            let core = [third, seventh, color, fifth];
+            if core.iter().all(|i| quality.intervals.contains(i)) && !cores.contains(&core) {
+                cores.push(core);
+            }
+        }
+    }
+
+    // No-third core: R, 7, color1, color2
+    if colors.len() >= 2 {
+        let core = [root, seventh, colors[0], colors[1]];
+        if core.iter().all(|i| quality.intervals.contains(i)) && !cores.contains(&core) {
+            cores.push(core);
+        }
+    }
+
+    // Fallback: first four intervals if nothing else matched.
+    if cores.is_empty() {
+        cores.push([
+            quality.intervals[0],
+            quality.intervals[1],
+            quality.intervals[2],
+            quality.intervals[3],
+        ]);
+    }
+
+    cores
 }
 
-fn preferred_drop_color(quality: &ChordQuality) -> Option<Interval> {
+fn drop_colors(quality: &ChordQuality) -> Vec<Interval> {
     [
         Interval::M13,
+        Interval::m13,
+        Interval::SHARP11,
         Interval::M11,
         Interval::m11,
         Interval::SHARP9,
@@ -578,7 +706,8 @@ fn preferred_drop_color(quality: &ChordQuality) -> Option<Interval> {
         Interval::M9,
     ]
     .into_iter()
-    .find(|interval| quality.intervals.contains(interval))
+    .filter(|interval| quality.intervals.contains(interval))
+    .collect()
 }
 
 fn push_prefixes(
@@ -622,6 +751,15 @@ fn push_voice_set(
         recipe,
         quality,
     ));
+}
+
+fn rotations(core: &[Interval; 4]) -> [[Interval; 4]; 4] {
+    [
+        *core,
+        [core[1], core[2], core[3], core[0]],
+        [core[2], core[3], core[0], core[1]],
+        [core[3], core[0], core[1], core[2]],
+    ]
 }
 
 fn ascending_offsets(intervals: &[Interval]) -> Vec<i32> {
@@ -1032,33 +1170,123 @@ mod tests {
     }
 
     #[test]
-    fn test_drop_recipes_reorder_four_note_core() {
+    fn test_drop2_produces_all_inversions() {
         let quality = ChordQuality::ALL.iter().find(|q| q.name == "maj7").unwrap();
-
         let drop2 = VoicingRecipe::Drop2.generate_drop2(0, quality);
+
+        // Core is [R, 3, 5, 7]. 4 rotations × drop2 = 4 voice sets.
+        assert_eq!(drop2.len(), 4);
+
+        // Root pos: R 3 5 7 → drop 5 → 5 R 3 7
+        assert!(drop2
+            .iter()
+            .any(|vs| vs.intervals
+                == vec![Interval::P5, Interval::UNISON, Interval::M3, Interval::M7]));
+        // 1st inv: 3 5 7 R → drop 7 → 7 3 5 R
+        assert!(drop2
+            .iter()
+            .any(|vs| vs.intervals
+                == vec![Interval::M7, Interval::M3, Interval::P5, Interval::UNISON]));
+        // 2nd inv: 5 7 R 3 → drop R → R 5 7 3
+        assert!(drop2
+            .iter()
+            .any(|vs| vs.intervals
+                == vec![Interval::UNISON, Interval::P5, Interval::M7, Interval::M3]));
+        // 3rd inv: 7 R 3 5 → drop 3 → 3 7 R 5
+        assert!(drop2
+            .iter()
+            .any(|vs| vs.intervals
+                == vec![Interval::M3, Interval::M7, Interval::UNISON, Interval::P5]));
+    }
+
+    #[test]
+    fn test_drop3_produces_all_inversions() {
+        let quality = ChordQuality::ALL.iter().find(|q| q.name == "maj7").unwrap();
         let drop3 = VoicingRecipe::Drop3.generate_drop3(0, quality);
 
-        assert_eq!(
-            drop2[0].intervals,
-            vec![Interval::P5, Interval::UNISON, Interval::M3, Interval::M7]
+        assert_eq!(drop3.len(), 4);
+
+        // Root pos: R 3 5 7 → drop 3 → 3 R 5 7
+        assert!(drop3
+            .iter()
+            .any(|vs| vs.intervals
+                == vec![Interval::M3, Interval::UNISON, Interval::P5, Interval::M7]));
+        // 1st inv: 3 5 7 R → drop 5 → 5 3 7 R
+        assert!(drop3
+            .iter()
+            .any(|vs| vs.intervals
+                == vec![Interval::P5, Interval::M3, Interval::M7, Interval::UNISON]));
+        // 2nd inv: 5 7 R 3 → drop 7 → 7 5 R 3
+        assert!(drop3
+            .iter()
+            .any(|vs| vs.intervals
+                == vec![Interval::M7, Interval::P5, Interval::UNISON, Interval::M3]));
+        // 3rd inv: 7 R 3 5 → drop R → R 7 3 5
+        assert!(drop3
+            .iter()
+            .any(|vs| vs.intervals
+                == vec![Interval::UNISON, Interval::M7, Interval::M3, Interval::P5]));
+    }
+
+    #[test]
+    fn test_drop2_with_extension_produces_inversions() {
+        let quality = ChordQuality::ALL.iter().find(|q| q.name == "maj9").unwrap();
+        let drop2 = VoicingRecipe::Drop2.generate_drop2(0, quality);
+
+        assert!(
+            drop2.len() >= 4,
+            "should produce at least 4 drop2 voicings, got {}",
+            drop2.len()
         );
-        assert_eq!(
-            drop3[0].intervals,
-            vec![Interval::M3, Interval::UNISON, Interval::P5, Interval::M7]
+        // Standard core inversions should use the color tone (9) instead of P5.
+        let standard = drop2
+            .iter()
+            .filter(|vs| !vs.intervals.contains(&Interval::P5))
+            .count();
+        assert_eq!(standard, 4, "4 inversions from the standard R-3-7-9 core");
+        // Should also have a rootless+fifth core.
+        assert!(
+            drop2.iter().any(|vs| {
+                vs.intervals.contains(&Interval::P5)
+                    && vs.intervals.contains(&Interval::M9)
+                    && !vs.intervals.contains(&Interval::UNISON)
+            }),
+            "should include rootless+fifth drop2 voicings"
         );
     }
 
     #[test]
-    fn test_drop_recipes_include_requested_extension() {
-        let quality = ChordQuality::ALL.iter().find(|q| q.name == "maj9").unwrap();
-
+    fn test_drop2_extended_chord_produces_multi_core_voicings() {
+        let quality = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "dom13")
+            .unwrap();
         let drop2 = VoicingRecipe::Drop2.generate_drop2(0, quality);
-
-        assert_eq!(
-            drop2[0].intervals,
-            vec![Interval::M7, Interval::UNISON, Interval::M3, Interval::M9]
+        assert!(
+            drop2.len() > 4,
+            "extended chord should produce more than 4 drop2 voicings, got {}",
+            drop2.len()
         );
-        assert!(!drop2[0].intervals.contains(&Interval::P5));
+        let has_rootless = drop2
+            .iter()
+            .any(|vs| !vs.intervals.contains(&Interval::UNISON));
+        assert!(has_rootless, "should include rootless drop2 voicings");
+    }
+
+    #[test]
+    fn test_drop2_new_quality_dom7_sharp11() {
+        let quality = ChordQuality::ALL
+            .iter()
+            .find(|q| q.name == "dom7#11")
+            .unwrap();
+        let drop2 = VoicingRecipe::Drop2.generate_drop2(0, quality);
+        assert!(!drop2.is_empty(), "dom7#11 should produce drop2 voicings");
+        assert!(
+            drop2
+                .iter()
+                .any(|vs| vs.intervals.contains(&Interval::SHARP11)),
+            "some dom7#11 drop2 voicings should contain #11"
+        );
     }
 
     #[test]

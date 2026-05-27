@@ -2,152 +2,198 @@
 
 ## Product Goal
 
-chordz is a keyboard-driven Rust TUI for guitarists studying and using modern jazz harmony. It should feel like a practical chord dictionary, but its voicings are generated from music theory and guitar constraints instead of stored as a static lookup table.
+chordz is a keyboard-driven Rust desktop app for guitarists studying and using
+modern jazz harmony. It should feel like a practical chord dictionary and chart
+voice-leading tool, but its voicings are generated from music theory and guitar
+constraints instead of stored as a static lookup table.
 
 The app should help a player answer questions like:
 
 - What are useful Cmaj9 voicings around frets 5-9?
 - Show me rootless dominant voicings for a ii-V-I.
 - Compare drop, shell, quartal, and upper-structure sounds for the same chord.
-- Give me modern colors: #11, b9, #9, b13, 13, altered, diminished, and triad-pair material.
+- Find a playable path through Stella by Starlight with smooth voice leading.
+- Hear a voicing or full progression as a quick synthesized reference.
 
-## Current State
+## Current Stack
 
-- `src/theory/` has the first theory primitives: notes, intervals, chord qualities, roots, and chord naming.
-- `src/voicings/` has a first-pass fretboard model, simple rules, and a backtracking generator.
-- `src/render/`, `src/audio/`, `src/ui/`, and `src/storage/` are placeholders.
-- `src/main.rs` is not yet a real TUI entry point.
+- UI: `eframe` / `egui` native desktop window.
+- Audio: `kira` playback with generated in-memory WAV buffers.
+- Persistence dependency: `dirs` is present, but favorites/presets are still a
+  placeholder.
+- Tests: focused Rust unit tests across theory, rendering, voicings, solver, and
+  synth modules.
 
-The current voicing generator is useful as a prototype, but it is not the final design. It enumerates fingerings that contain every interval in a chord quality exactly once. Modern jazz guitar voicings need a richer model: omissions, rootless forms, shell voicings, upper structures, quartal stacks, triad pairs, inversions, and ranking.
+`src/main.rs` is intentionally small. It creates the `eframe::NativeOptions` and
+launches `ChordzApp`.
 
-## Architecture
+## Source Map
 
 ```text
 src/
-  main.rs              TUI entry point and app bootstrap
-  theory/              Pitch, interval, chord, scale, and harmonic context primitives
-  voicings/            Procedural voicing engine and fretboard mapping
-  render/              Text/ratatui diagram rendering
-  audio/               Optional synthesized playback
-  ui/                  App state, screens, widgets, and event handling
-  storage/             Favorites and user config persistence
+  main.rs              Native egui app bootstrap.
+  lib.rs               Library boundary exposing core modules to tests/UI.
+  theory/              Notes, intervals, chord qualities, roots, chart parsing.
+  voicings/            Procedural guitar engine, recipes, mapping, ranking,
+                       chart solver, and voice-leading distance.
+  render/              Pure ASCII diagram renderer and golden tests.
+  audio/               Synth sample generation and kira playback engine.
+  ui/                  egui application state, views, widgets, and commands.
+  storage/             Future user data persistence.
 ```
 
 ## Module Responsibilities
 
 ### theory
 
-Pure music theory. No terminal, audio, storage, or guitar UI concerns.
+Pure music theory. No UI, audio, storage, or guitar rendering concerns.
 
-Expected responsibilities:
+Important files:
 
-- Notes and pitch classes.
-- Intervals with enharmonic/display names.
-- Chord formulas and qualities.
-- Scale/chord relationships needed for altered, melodic minor, diminished, and modal colors.
-- Harmonic context for choosing rootless and upper-structure recipes.
+- `notes.rs`: `Note`, MIDI conversion, pitch-class display names.
+- `intervals.rs`: interval constants. Lowercase constants such as `m3` and `m7`
+  are intentional music notation, not Rust style drift.
+- `chords.rs`: supported `ChordQuality` values, jazz root names, root parsing,
+  and display names.
+- `chart.rs`: parsing chart text into timed `ChordChange` values.
+
+Rules:
+
+- Invalid roots should fail explicitly through `Option`/`Result`.
+- Chart beat durations are `f32`; each bar distributes four beats across its
+  chord tokens so odd divisions such as three chords in a bar remain playable.
+- Keep chord spelling and parsing rules test-backed.
+- Do not introduce UI display assumptions here beyond stable domain names.
 
 ### voicings
 
-The procedural guitar engine. It should not draw UI, play audio, or store user data.
+The procedural guitar engine. It should not draw UI, play audio, or store user
+data.
 
-Expected responsibilities:
+Important files:
 
-- Fretboard model and tuning.
-- Musical voicing recipes.
-- Candidate voice-set generation before guitar mapping.
-- Mapping voice sets to playable fingerings.
-- Playability filtering.
-- Musical and ergonomic ranking.
+- `fretboard.rs`: standard tuning and safe string/fret note lookup.
+- `recipe.rs`: `VoicingRecipe` plus recipe-to-`VoiceSet` generation.
+- `voice_set.rs`: abstract selected intervals before guitar mapping.
+- `generate.rs`: legacy full-stack `Voicing` generator and modern
+  `VoiceSet -> Fingering` mapper.
+- `ranking.rs`: musical and ergonomic scoring for mapped fingerings.
+- `voice_leading.rs`: distance metric between two fingerings.
+- `solver.rs`: chart-level dynamic programming solver with tension and optional
+  jitter, retained alternatives, locks, and automatic filter relaxation.
 
-See [VOICING_ENGINE.md](./VOICING_ENGINE.md) for the canonical design.
+Core data flow:
+
+```text
+ChordQuality + root
+  -> VoicingRecipe::generate_voice_sets
+  -> VoiceSet
+  -> map_voice_set
+  -> Fingering
+  -> rank_fingerings / solver::solve / solver::solve_with_locks
+```
+
+Rules:
+
+- Extended chords must not require every extension in one fingering.
+- Rootless and fifth-omitting voicings are first-class behavior.
+- Recipe dispatch belongs in `VoicingRecipe::generate_voice_sets`; avoid
+  duplicating that matrix in UI or solver code.
+- Mapping and ranking should stay deterministic unless solver jitter is
+  intentionally nonzero.
+- Solver candidates should retain recipe, raw/normalized tension, rank score,
+  and relaxation metadata so UI code can inspect and swap choices without
+  reconstructing musical state.
 
 ### render
 
-Converts domain data into terminal-friendly representations.
+Pure text rendering. It converts a `Fingering` into stable ASCII diagrams for
+tests, logs, and possible future CLI output.
 
-Expected responsibilities:
+Rules:
 
-- ASCII/ratatui fretboard diagrams.
-- Interval labels, note labels, muted/open strings, barre hints.
-- Stable layout for different fret regions.
-- Snapshot/golden tests for diagrams.
+- Keep golden tests stable.
+- Do not depend on egui here.
 
 ### ui
 
-Ratatui application layer.
+Desktop egui application layer.
 
-Expected responsibilities:
+Important files:
 
-- App state and navigation.
-- Browser, detail, search, compare, and favorites screens.
-- Vim-style key bindings.
-- Event loop and terminal lifecycle.
+- `app.rs`: app state, browser mode, chart/tune mode, keyboard handling, and
+  commands.
+- `fretboard.rs`: stateless egui fretboard widget and compact interval labels.
+- `mod.rs`: UI module exports.
 
-Preferred first layout:
+Current modes:
 
-```text
-+----------------+-----------------------------+----------------+
-| Chords         | Diagram / voicing list      | Details        |
-| roots/quality  | selected fretboard region   | recipe, notes  |
-| filters        | generated alternatives      | intervals      |
-+----------------+-----------------------------+----------------+
-| / search  j/k navigate  h/l pane/root  enter select  p play  q quit |
-+---------------------------------------------------------------------+
-```
+- Browser mode: choose root, chord family, note count, recipe/quality groups,
+  and cycle voicing positions.
+- Tune mode: parse a chart, solve a smooth fingering path, inspect each chord,
+  lock choices, swap alternatives, adjust solver filters, and play
+  strums/progressions.
+
+Keyboard model:
+
+- Browser: `j/k` or arrows move groups, `h/l` cycle positions, space strums.
+- Tune: `j/k` or arrows move through solved changes, `h/l` swap alternatives,
+  space strums current chord, full progression playback is available in the UI.
+
+Tune constraints map directly into `SolverConfig`: note count, fret range,
+maximum span, string mask, open-string policy, basic-chord extension expansion,
+recipe filter, tension target, smoothness, and variation. Re-solving preserves
+locked chord positions by passing their current `SolvedAlternative` values to
+`solver::solve_with_locks`.
+
+Rules:
+
+- Keep egui code out of `theory` and `voicings`.
+- Keep reusable widgets outside `app.rs` when possible.
+- `app.rs` is still larger than ideal; future UI work should continue splitting
+  browser state/view, tune state/view, and command handling.
 
 ### audio
 
-Optional playback. Keep this later than render/UI unless the user asks otherwise.
+Optional playback. The app must continue to function if audio initialization
+fails.
 
-Expected responsibilities:
+Important files:
 
-- Convert fingerings to pitches/frequencies.
-- Simple synthesized pluck/strum.
-- Non-blocking playback.
-- Graceful failure when no audio device is available.
+- `synth.rs`: deterministic generated plucked-string-like samples.
+- `engine.rs`: `kira` manager, active sound handles, strum/arpeggio/progression
+  playback, in-memory WAV encoding.
+
+Rules:
+
+- Playback errors should not crash the UI.
+- Any sound started through `AudioEngine` should be tracked so `stop_all` can
+  stop it.
+- Long generated progressions may block the UI today; moving synthesis off the
+  UI thread is a good future improvement.
 
 ### storage
 
-User data only.
+Currently a placeholder. Intended ownership is user data only: favorites,
+presets, and config files under the platform config directory.
 
-Expected responsibilities:
+## Quality Gates
 
-- Favorites.
-- Maybe user presets for filters and tuning.
-- JSON under the platform config directory via `dirs`.
+Before calling a code change complete, run:
 
-## Interaction Model
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+```
 
-Use vim-style bindings as the default:
-
-- `j` / `k`: move down/up
-- `h` / `l`: move left/right or transpose root down/up depending on focused pane
-- `g` / `G`: first/last item
-- `/`: search
-- `n` / `N`: next/previous search match
-- `enter`: select
-- `tab`: cycle pane
-- `f`: favorite
-- `p`: play
-- `c`: compare
-- `q`: quit
-
-Arrow keys may also work, but the app should not require them.
+For musical behavior changes, add focused tests in the relevant domain module.
+For rendering changes, update or add golden tests. For UI-only changes, keep the
+domain behavior untouched and verify the app still builds.
 
 ## Non-Goals
 
-- Do not build an Electron app.
-- Do not depend on a static chord dictionary as the primary source of voicings.
-- Do not optimize audio before the voicing engine and visual browsing are useful.
-- Do not treat extended chords as "play every listed interval on guitar".
-
-## Quality Bar
-
-Every completed slice should have:
-
-- Focused unit tests for theory and voicing behavior.
-- Golden/snapshot-style tests for text diagrams once render exists.
-- A small observable smoke path through `cargo run` once the TUI shell exists.
-- `cargo test --all-targets` passing before calling work complete.
-
+- Do not add Electron or web runtime dependencies.
+- Do not replace procedural voicing generation with a static chord dictionary.
+- Do not force extended chords into full chord stacks.
+- Do not let UI convenience leak into core theory/voicing APIs.

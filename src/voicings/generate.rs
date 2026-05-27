@@ -343,7 +343,14 @@ pub fn map_voice_set(
         rules,
         result: &mut result,
     };
-    mapper.backtrack(0, &mut used_string, &mut positions, &mut intervals, None, None);
+    mapper.backtrack(
+        0,
+        &mut used_string,
+        &mut positions,
+        &mut intervals,
+        None,
+        None,
+    );
 
     // Deduplicate and sort deterministically.
     result.sort_by(|a, b| {
@@ -471,7 +478,11 @@ mod tests {
         for root_name in chords::ROOTS {
             let root_pc = chords::root_to_pc(root_name).unwrap();
             let voicings = generate(root_pc, quality, &fb, &rules);
-            assert!(!voicings.is_empty(), "{}maj7 produced no voicings", root_name);
+            assert!(
+                !voicings.is_empty(),
+                "{}maj7 produced no voicings",
+                root_name
+            );
         }
     }
 

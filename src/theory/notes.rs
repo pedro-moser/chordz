@@ -1,4 +1,10 @@
-/// A musical note represented by a pitch class (0=C, 1=C#, …, 11=B) and an octave.
+/// Pitch class display names following jazz conventions.
+/// Flats for Db, Eb, Ab, Bb; sharps for C#, F#.
+pub const PC_NAMES: [&str; 12] = [
+    "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
+];
+
+/// A musical note represented by a pitch class (0=C, 1=Db, …, 11=B) and an octave.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Note {
     pub pitch_class: u8,
@@ -8,8 +14,8 @@ pub struct Note {
 impl Note {
     /// Create a new note. Pitch class is normalized to 0..12.
     pub fn new(pitch_class: i32, octave: i8) -> Self {
-        let pc = ((pitch_class % 12) + 12) % 12;
-        let oct = (octave as i32 + (pitch_class - pc as i32) / 12) as i8;
+        let pc = pitch_class.rem_euclid(12);
+        let oct = (octave as i32 + pitch_class.div_euclid(12)) as i8;
         Note {
             pitch_class: pc as u8,
             octave: oct,
@@ -18,7 +24,10 @@ impl Note {
 
     /// Transpose this note by a given number of semitones.
     pub fn transpose(self, semitones: i32) -> Self {
-        Self::new(self.pitch_class as i32 + semitones, self.octave as i32 as i8)
+        Self::new(
+            self.pitch_class as i32 + semitones,
+            self.octave as i32 as i8,
+        )
     }
 
     /// The MIDI note number for this note.
@@ -28,25 +37,22 @@ impl Note {
 
     /// Build a Note from a MIDI note number.
     pub fn from_midi(midi: i32) -> Self {
-        let octave = midi / 12 - 1;
-        let pc = ((midi % 12) + 12) % 12;
+        let octave = midi.div_euclid(12) - 1;
+        let pc = midi.rem_euclid(12);
         Note {
             pitch_class: pc as u8,
             octave: octave as i8,
         }
     }
 
-    /// Human-readable name, e.g. "C4", "F#3", "Bb5".
+    /// Human-readable name using jazz conventions, e.g. "C4", "F#3", "Bb5".
     pub fn name(self) -> String {
-        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-        format!("{}{}", names[self.pitch_class as usize], self.octave)
+        format!("{}{}", self.pc_name(), self.octave)
     }
 
-    /// Just the pitch class name, e.g. "C", "F#".
+    /// Pitch class name using jazz conventions: Db, Eb, Ab, Bb (not C#, D#, G#, A#).
     pub fn pc_name(self) -> &'static str {
-        const NAMES: [&str; 12] =
-            ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-        NAMES[self.pitch_class as usize]
+        PC_NAMES[self.pitch_class as usize]
     }
 }
 
@@ -96,6 +102,16 @@ mod tests {
         let n = Note::new(0, 4);
         assert_eq!(n.name(), "C4");
         let n2 = Note::new(3, 3);
-        assert_eq!(n2.name(), "D#3");
+        assert_eq!(n2.name(), "Eb3");
+    }
+
+    #[test]
+    fn test_pc_name_jazz_conventions() {
+        assert_eq!(Note::new(0, 4).pc_name(), "C");
+        assert_eq!(Note::new(1, 4).pc_name(), "Db");
+        assert_eq!(Note::new(3, 4).pc_name(), "Eb");
+        assert_eq!(Note::new(6, 4).pc_name(), "F#");
+        assert_eq!(Note::new(8, 4).pc_name(), "Ab");
+        assert_eq!(Note::new(10, 4).pc_name(), "Bb");
     }
 }

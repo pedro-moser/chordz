@@ -2,207 +2,195 @@
 
 ## Current Direction
 
-Do not continue directly from the old "Phase 3 render" resume plan. The current priority is to repair the voicing engine design so it matches the product goal: modern procedural jazz guitar voicings.
+The project has moved past the original minimal TUI milestones. The current app
+is an `eframe` / `egui` desktop application with a procedural voicing engine,
+chart parser, voice-leading solver, ASCII renderer, and synthesized playback.
 
-Each milestone ends with the review gate from [HARNESS.md](./HARNESS.md): tests, diff inspection, OMP reviewer pass, fixes, and tests again.
+Use this file as the current backlog. Use [ARCHITECTURE.md](./ARCHITECTURE.md),
+[VOICING_ENGINE.md](./VOICING_ENGINE.md), and [AGENT_GUIDE.md](./AGENT_GUIDE.md)
+as implementation context.
 
-Use `scripts/omp-task N` to launch a specific task and `scripts/omp-review` at milestone boundaries.
+Each completed task must pass:
 
-## Milestone 1: Stabilize the Core API
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+```
 
-### Task 1: Add a Library Boundary
+## Completed Baseline
 
-Goal: expose the core modules through `src/lib.rs` so tests and future UI code can use the same API.
+These capabilities exist and should be preserved unless a task explicitly says
+otherwise:
 
-Allowed files:
+- Library boundary through `src/lib.rs`.
+- Explicit root parsing with `Option<u8>`.
+- Safe fretboard note lookup.
+- `VoicingRecipe` and `VoiceSet`.
+- Shell, rootless, drop, quartal, upper-structure, and triad-pair recipes.
+- `VoiceSet -> Fingering` mapping.
+- Basic deterministic ranking.
+- Chart parser.
+- Chart parser with fractional beat distribution inside each 4/4 bar.
+- Dynamic-programming chart solver with tension, smoothness, ranking,
+  alternatives, locks, automatic filter relaxation, and optional jitter.
+- ASCII diagram rendering with golden tests.
+- Native egui browser/tune UI with Tune filters for note count, fret range,
+  stretch, strings, open strings, extension expansion, recipes, tension,
+  smoothness, variation, alternatives, and locks.
+- Synthesized strum, arpeggio, and progression playback.
 
-- `src/lib.rs`
-- `src/main.rs` if needed
+## Priority 1: Keep Gates Green
 
-Acceptance:
+### Task A: Preserve Clean Formatting And Lints
 
-- `cargo test --all-targets` passes.
-- Existing module tests still run.
-- No behavior change required.
-
-### Task 2: Make Root Parsing Explicit
-
-Goal: change invalid root handling from silent C fallback to explicit failure.
-
-Allowed files:
-
-- `src/theory/chords.rs`
-- Callers/tests as needed
-
-Acceptance:
-
-- `root_to_pc("C") == Some(0)`.
-- `root_to_pc("Db") == Some(1)`.
-- `root_to_pc("H") == None`.
-- Existing chord naming tests pass after updates.
-
-### Task 3: Make Fretboard Access Fallible
-
-Goal: prevent panics for invalid string/fret lookup.
-
-Allowed files:
-
-- `src/voicings/fretboard.rs`
-- Callers/tests as needed
-
-Acceptance:
-
-- Safe API returns `None` for invalid string index.
-- Safe API returns `None` for fret greater than `num_frets`.
-- Existing generator still works with valid positions.
-
-## Milestone 2: Replace Full-Stack Thinking With Recipes
-
-### Task 4: Introduce VoicingRecipe
-
-Goal: add an enum representing musical generation strategies.
+Goal: keep the repository ready for handoff to other agents.
 
 Allowed files:
 
-- `src/voicings/rules.rs` or a new `src/voicings/recipe.rs`
-- `src/voicings/mod.rs`
+- Any files touched by the current feature/fix.
 
 Acceptance:
 
-- Enum includes at least `Closed`, `Shell`, `RootlessA`, `RootlessB`, `Drop2`, `Drop3`, `Quartal`, `UpperStructureTriad`, `TriadPair`.
-- No generator rewrite yet.
-- Tests or compile-time use prove the enum is exported.
-
-### Task 5: Introduce VoiceSet
-
-Goal: represent selected musical intervals before mapping to the fretboard.
-
-Allowed files:
-
-- `src/voicings/generate.rs` or new `src/voicings/voice_set.rs`
-- `src/voicings/mod.rs`
-
-Acceptance:
-
-- `VoiceSet` can represent fewer intervals than the source chord formula.
-- `VoiceSet` stores its source `VoicingRecipe`.
-- Unit test constructs a rootless major voice set with intervals `3 7 9 13`.
-
-### Task 6: Implement Shell VoiceSet Generation
-
-Goal: generate abstract shell voice sets without mapping them to guitar yet.
-
-Allowed files:
-
-- `src/voicings/recipe.rs`
-- `src/voicings/voice_set.rs`
-- `src/voicings/mod.rs`
-
-Acceptance:
-
-- Dominant shell includes guide tones `3` and `b7`.
-- Minor shell includes `b3` and `b7`.
-- Major shell includes `3` and `7`.
-- Shell generation may produce 3-note voice sets.
-- Tests prove fifth omission is allowed.
-
-### Task 7: Implement Rootless VoiceSet Generation
-
-Goal: generate abstract rootless voice sets for major, minor, and dominant families.
-
-Allowed files:
-
-- Same files as Task 6.
-
-Acceptance:
-
-- `G13` rootless can produce intervals without `1`.
-- `Cmaj13` rootless can produce `3 7 9 13`.
-- `Dm11` rootless can produce `b3 b7 9 11`.
-- Tests prove root omission is intentional, not accidental.
-
-## Milestone 3: Map Recipes to Guitar
-
-### Task 8: Map VoiceSet to Fingering
-
-Goal: convert a `VoiceSet` into playable guitar fingerings.
-
-Allowed files:
-
-- `src/voicings/fretboard.rs`
-- `src/voicings/generate.rs`
-- recipe/voice-set modules as needed
-
-Acceptance:
-
-- Mapping respects `max_fret`, `max_fret_span`, and string count.
-- A shell voice set can map to a 3-string fingering.
-- A rootless voice set can map to a fingering with no root.
-- Results are deterministic.
-
-### Task 9: Add Ranking
-
-Goal: sort generated fingerings by usefulness.
-
-Allowed files:
-
-- `src/voicings/ranking.rs`
-- `src/voicings/mod.rs`
-- generator/tests as needed
-
-Acceptance:
-
-- Ranking is deterministic.
-- Smaller fret spans generally rank better.
-- Guide-tone-complete voicings outrank incomplete candidates.
-- Very muddy low-register clusters are penalized.
-
-## Milestone 4: First User-Visible Slice
-
-### Task 10: ASCII Diagram Renderer
-
-Goal: render a fingering as a stable text diagram.
-
-Allowed files:
-
-- `src/render/diagram.rs`
-- `src/render/mod.rs`
-
-Acceptance:
-
-- Handles muted strings.
-- Handles open strings.
-- Shows fret region.
-- Golden tests cover at least one closed voicing and one rootless/shell voicing.
-
-### Task 11: CLI Smoke Output
-
-Goal: make `cargo run` show a useful static example before the full TUI exists.
-
-Allowed files:
-
-- `src/main.rs`
-- render/voicing modules as needed
-
-Acceptance:
-
-- `cargo run` prints a named chord and at least one diagram.
+- `cargo fmt --check` passes.
+- `cargo clippy --all-targets -- -D warnings` passes.
 - `cargo test --all-targets` passes.
 
-### Task 12: Minimal Ratatui Browser
+## Priority 2: UI Decomposition
 
-Goal: create the first interactive TUI screen.
+### Task B: Split Browser Mode From `app.rs`
 
-Allowed files:
+Goal: move browser-specific state/view/helpers out of `src/ui/app.rs`.
+
+Suggested files:
 
 - `src/ui/app.rs`
-- `src/ui/events.rs`
-- `src/ui/screens/browser.rs`
-- `src/main.rs`
+- new `src/ui/browser.rs`
+- `src/ui/mod.rs`
 
 Acceptance:
 
-- App opens in alternate screen and exits cleanly with `q`.
-- `j/k` move selection.
-- Display includes chord name and current voicing/diagram.
-- Terminal state is restored on exit or panic path where practical.
+- Browser behavior remains unchanged.
+- Root/family/note-count selection still refreshes voicings.
+- `j/k/h/l` and arrow navigation still work.
+- Quality gates pass.
+
+### Task C: Split Tune Mode From `app.rs`
+
+Goal: move chart/tune-specific state/view/helpers out of `src/ui/app.rs`.
+
+Suggested files:
+
+- `src/ui/app.rs`
+- new `src/ui/tune.rs`
+- `src/ui/mod.rs`
+
+Acceptance:
+
+- Chart presets, solve, selected chord navigation, alternative swapping, and
+  playback controls still work.
+- Solver config construction remains testable outside widget code where
+  practical.
+- Quality gates pass.
+
+## Priority 3: Solver Candidate Quality
+
+### Task D: Preserve Musical Ranking During Candidate Capping - Done
+
+Goal: avoid discarding useful candidates in `solver::generate_candidates` due to
+lexicographic position sorting before truncation.
+
+Suggested files:
+
+- `src/voicings/solver.rs`
+- `src/voicings/ranking.rs` if score data needs to be exposed
+
+Acceptance:
+
+- Deduplication remains deterministic.
+- Candidate truncation prefers ranked/tension-appropriate options over raw
+  position order.
+- Existing solver tests pass.
+- Add a focused test proving a lower-ranked lexicographic shape does not
+  incorrectly displace a better candidate under a small `max_candidates`.
+
+Status: implemented. Candidate generation now ranks per `VoiceSet`, keeps the
+top mapped fingerings in that order, deduplicates while preserving order, and
+tracks `rank_score` for the chart-level cost.
+
+### Task E: Expand Ranking Heuristics
+
+Goal: make top results more guitar-idiomatic.
+
+Suggested files:
+
+- `src/voicings/ranking.rs`
+- tests in the same module
+
+Acceptance:
+
+- Add at least one tested heuristic for region preference, repeated tones,
+  awkward stretches, or barre-like shapes.
+- Existing ranking tests still pass.
+
+## Priority 4: Chart Model
+
+### Task F: Improve Beat Distribution - Done
+
+Goal: replace integer-only `4 / tokens.len()` chart beat allocation with a model
+that can represent three chords per bar and other common divisions.
+
+Suggested files:
+
+- `src/theory/chart.rs`
+- `src/voicings/solver.rs`
+- `src/audio/engine.rs`
+- UI code that displays or plays beats
+
+Acceptance:
+
+- Existing charts parse the same or with documented, intentional duration
+  changes.
+- A 3-chord bar has nonzero durations that sum to the bar length.
+- Progression playback uses the new duration model.
+- Quality gates pass.
+
+Status: implemented. `ChordChange.beats`, `SolvedChange.beats`, and progression
+playback now use `f32` beat durations.
+
+## Priority 5: Storage
+
+### Task G: Implement Favorites Or Remove Placeholder
+
+Goal: make `src/storage/favorites.rs` real or remove the unused public module
+until needed.
+
+Suggested files:
+
+- `src/storage/favorites.rs`
+- `src/storage/mod.rs`
+- UI files if favorites become user-visible
+
+Acceptance:
+
+- If implemented, favorites persist as JSON under the platform config directory.
+- If deferred, unused placeholder API is removed and docs mention storage as
+  future work.
+- Quality gates pass.
+
+## Priority 6: Audio Responsiveness
+
+### Task H: Move Long Progression Synthesis Off The UI Thread
+
+Goal: keep the egui app responsive when generating full progression playback.
+
+Suggested files:
+
+- `src/audio/engine.rs`
+- `src/ui/tune.rs` or `src/ui/app.rs`, depending on UI decomposition state
+
+Acceptance:
+
+- Full progression playback does not block the UI while samples are generated.
+- Errors are surfaced or ignored gracefully without panics.
+- Quality gates pass.

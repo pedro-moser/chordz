@@ -9,6 +9,7 @@ The canonical project context is:
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
 - [VOICING_ENGINE.md](./VOICING_ENGINE.md)
 - [TASKS.md](./TASKS.md)
+- [AGENT_GUIDE.md](./AGENT_GUIDE.md)
 
 Do not use session logs as the source of truth. Logs can explain history, but the docs above define current intent.
 
@@ -61,7 +62,10 @@ Every implementation turn should follow this loop:
 2. Inspect existing code in the files to be edited.
 3. Write a short implementation plan.
 4. Make the smallest coherent change.
-5. Run `cargo test --all-targets`.
+5. Run the required quality gates:
+   `cargo fmt --check`,
+   `cargo clippy --all-targets -- -D warnings`,
+   `cargo test --all-targets`.
 6. Report changed files, tests, and any remaining caveats.
 
 If a task touches musical behavior, add or update tests before claiming completion.
@@ -72,12 +76,14 @@ At the end of each milestone or phase, run a separate review pass before calling
 
 Required sequence:
 
-1. Run `cargo test --all-targets`.
-2. Inspect `git diff --stat` and `git diff`.
-3. Ask OMP's `reviewer` agent to review the patch.
-4. Fix any confirmed correctness issues.
-5. Re-run `cargo test --all-targets`.
-6. Only then summarize the phase as complete.
+1. Run `cargo fmt --check`.
+2. Run `cargo clippy --all-targets -- -D warnings`.
+3. Run `cargo test --all-targets`.
+4. Inspect `git diff --stat` and `git diff`.
+5. Ask OMP's `reviewer` agent to review the patch.
+6. Fix any confirmed correctness issues.
+7. Re-run the quality gates.
+8. Only then summarize the phase as complete.
 
 Review prompt template:
 
@@ -88,6 +94,7 @@ Canonical docs:
 - docs/ARCHITECTURE.md
 - docs/VOICING_ENGINE.md
 - docs/TASKS.md
+- docs/AGENT_GUIDE.md
 
 Review scope:
 - correctness bugs
@@ -130,9 +137,11 @@ Do not say "phase complete" unless:
 
 For extended chords, do not require every interval to appear in one fingering. Modern jazz guitar voicings often omit roots/fifths and emphasize guide tones plus color tones.
 
-### Ignoring the Binary
+### Ignoring The Binary
 
-Library tests are not enough forever. Once render/UI work begins, keep a small `cargo run` smoke path that shows something real.
+Library tests are not enough forever. The active binary opens a native egui app
+through `cargo run`. Do not reintroduce old ratatui/crossterm assumptions unless
+there is an explicit product decision to switch back.
 
 ## Suggested ohmypi Prompt Template
 
@@ -143,6 +152,7 @@ Canonical docs:
 - docs/ARCHITECTURE.md
 - docs/VOICING_ENGINE.md
 - docs/TASKS.md
+- docs/AGENT_GUIDE.md
 
 Task:
 <one narrow objective>
@@ -153,6 +163,8 @@ Allowed files:
 Acceptance:
 - <musical behavior or UI behavior>
 - <test behavior>
+- `cargo fmt --check` passes
+- `cargo clippy --all-targets -- -D warnings` passes
 - `cargo test --all-targets` passes
 
 Stop after completing this task. Do not start the next task.
@@ -160,4 +172,6 @@ Stop after completing this task. Do not start the next task.
 
 ## Current Best Next Task
 
-Use [TASKS.md](./TASKS.md). At the time this guide was written, the best next engineering move is to stabilize the domain model before building UI: introduce recipe/voice-set concepts and tests for rootless/shell behavior.
+Use [TASKS.md](./TASKS.md). The current best next engineering move is to keep
+the quality gates green while continuing to split `src/ui/app.rs` into smaller
+browser/tune modules and improving solver candidate ranking.
