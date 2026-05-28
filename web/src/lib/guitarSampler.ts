@@ -60,7 +60,7 @@ export function playSample(
   src.detune.value = (midi - sampledMidi) * 100;
 
   const env = ctx.createGain();
-  const attack = 0.005;
+  const attack = 0.15; // slow swell onset (POG2/Rosenwinkel-ish) — flute-like, masks the pluck transient
   const release = 0.12;
   const hold = when + Math.max(duration, attack + 0.02);
   env.gain.setValueAtTime(0, when);

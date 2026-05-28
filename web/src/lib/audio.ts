@@ -135,22 +135,47 @@ function playBuffer(samples: Float32Array, gain = 1.0, sampleRate = RUST_SAMPLE_
   return source;
 }
 
-let bassVolume = 0.7;
+let bassVolume = 0.4;
 
 export function getBassVolume() { return bassVolume; }
 export function setBassVolume(v: number) { bassVolume = v; }
 
-export function playBass(rootPc: number, duration = 2.0) {
+function midiToFreq(midi: number): number {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+/** Bass MIDI for a pitch class: octave-2 root (C2 = 36). */
+function bassMidi(rootPc: number): number {
+  return 36 + (rootPc % 12);
+}
+
+/** Plucked sine bass note, dry to the destination (no reverb). Decays rather than
+ *  sustaining, so it doesn't drone/ring into the next chord. */
+function playSine(midi: number, when: number, duration: number, gain = bassVolume): OscillatorNode {
   const audioCtx = getContext();
-  if (isSamplerReady() && !samplerFailed()) {
-    const midi = 36 + (rootPc % 12);
-    const src = playSample(audioCtx, getEffects(audioCtx).input, midi, getAudioTime(), duration, 0.9);
-    if (src) registerScheduled(src);
-    return;
-  }
-  const { synth_bass_note } = getWasmSync();
-  const samples = synth_bass_note(rootPc, duration);
-  if (samples.length > 0) playBuffer(new Float32Array(samples), bassVolume);
+  const osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = midiToFreq(midi);
+  const env = audioCtx.createGain();
+  const attack = 0.01;
+  const release = 0.06;
+  const end = when + Math.max(duration, 0.2);
+  const decayTo = Math.max(when + attack + 0.02, end - release);
+  env.gain.setValueAtTime(0, when);
+  env.gain.linearRampToValueAtTime(gain, when + attack);
+  // Sustain across the whole note with a gentle decay, then a short fade to silence at
+  // the end — fills its duration without droning past it (callers cut on the next chord).
+  env.gain.linearRampToValueAtTime(gain * 0.4, decayTo);
+  env.gain.linearRampToValueAtTime(0, end);
+  osc.connect(env);
+  env.connect(audioCtx.destination);
+  osc.start(when);
+  osc.stop(end + 0.03);
+  return osc;
+}
+
+export function playBass(rootPc: number, duration = 2.0) {
+  registerScheduled(playSine(bassMidi(rootPc), getAudioTime(), duration, bassVolume));
 }
 
 export function playStrum(positions: (number | null)[]) {
@@ -185,9 +210,9 @@ export function playArpeggio(positions: (number | null)[]) {
   if (samples.length > 0) playInterleaved(new Float32Array(samples));
 }
 
-let scheduledSources: AudioBufferSourceNode[] = [];
+let scheduledSources: AudioScheduledSourceNode[] = [];
 
-function registerScheduled(source: AudioBufferSourceNode) {
+function registerScheduled(source: AudioScheduledSourceNode) {
   scheduledSources.push(source);
   // Prune on completion so finished buffers can be collected mid-playback.
   source.onended = () => {
@@ -239,36 +264,16 @@ export function scheduleNotes(
 }
 
 /**
- * Schedule bass notes on the same AudioContext clock as scheduleNotes. Routed through
- * the shared scheduledSources registry so stopScheduled() silences them too (unlike the
- * fire-and-forget playBass, an in-flight scheduled bass note is stoppable). Call AFTER
- * scheduleNotes, since scheduleNotes clears the registry on entry.
+ * Schedule sine bass notes on the same AudioContext clock as scheduleNotes, registered
+ * so stopScheduled() silences them. Call AFTER scheduleNotes, which clears the registry.
  */
 export function scheduleBass(
   notes: { rootPc: number; time: number; duration: number }[],
   startTime = getAudioTime(),
 ) {
-  const audioCtx = getContext();
-  const fx = getEffects(audioCtx);
-  const useSampler = isSamplerReady() && !samplerFailed();
   for (const n of notes) {
     if (!Number.isFinite(n.time) || !Number.isFinite(n.duration) || n.duration <= 0) continue;
-    if (useSampler) {
-      const midi = 36 + (n.rootPc % 12); // octave-2 root (C2 = 36), inside guitar range
-      const src = playSample(audioCtx, fx.input, midi, startTime + n.time, n.duration, 0.9);
-      if (src) registerScheduled(src);
-    } else {
-      const samples: Float32Array = getWasmSync().synth_bass_note(n.rootPc, n.duration);
-      if (samples.length === 0) continue;
-      const source = audioCtx.createBufferSource();
-      source.buffer = interleavedToBuffer(audioCtx, samples);
-      const gainNode = audioCtx.createGain();
-      gainNode.gain.value = bassVolume;
-      source.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      source.start(startTime + n.time);
-      registerScheduled(source);
-    }
+    registerScheduled(playSine(bassMidi(n.rootPc), startTime + n.time, n.duration, bassVolume));
   }
 }
 

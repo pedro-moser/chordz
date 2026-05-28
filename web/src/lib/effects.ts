@@ -1,7 +1,7 @@
 export interface EffectsChain {
   /** Connect sample sources here. */
   input: AudioNode;
-  /** 0 = dry, 1 = max reverb. */
+  /** 0 = dry, 1 = max ambience (reverb + delay). */
   setAmbience(amount: number): void;
 }
 
@@ -23,7 +23,7 @@ export function createEffectsChain(ctx: AudioContext): EffectsChain {
   const input = ctx.createGain();
   const lowpass = ctx.createBiquadFilter();
   lowpass.type = 'lowpass';
-  lowpass.frequency.value = 3500; // warmth; tune by ear
+  lowpass.frequency.value = 1300; // warmth; lower = darker/closed, higher = brighter
   lowpass.Q.value = 0.7;
 
   const dry = ctx.createGain();
@@ -33,17 +33,30 @@ export function createEffectsChain(ctx: AudioContext): EffectsChain {
   const master = ctx.createGain();
   master.gain.value = 0.9;
 
+  // Short feedback delay (modern-jazz ambience), mixed in low.
+  const delay = ctx.createDelay(1.0);
+  delay.delayTime.value = 0.3; // 300 ms
+  const feedback = ctx.createGain();
+  feedback.gain.value = 0.3; // a few decaying repeats
+  const delayWet = ctx.createGain();
+
   input.connect(lowpass);
   lowpass.connect(dry);
   lowpass.connect(convolver);
   convolver.connect(wet);
+  lowpass.connect(delay);
+  delay.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(delayWet);
   dry.connect(master);
   wet.connect(master);
+  delayWet.connect(master);
   master.connect(ctx.destination);
 
   function setAmbience(amount: number) {
     const a = Math.min(1, Math.max(0, amount));
     wet.gain.value = a;
+    delayWet.gain.value = a * 0.3; // ~10% delay mix at the default ambience (0.35)
     dry.gain.value = 1 - a * 0.4; // keep dry mostly present even when wet
   }
   setAmbience(0.35); // moderate default
