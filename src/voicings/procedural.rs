@@ -189,6 +189,7 @@ pub fn generate_all_voice_sets_with_abstraction(
 ) -> Vec<(VoiceSet, u16, &'static str)> {
     let mut table = get_stability_table(quality, next_quality);
     stability::apply_abstraction(&mut table, quality, abstraction);
+    let min_total_stability = stability::adjusted_threshold(min_total_stability, abstraction);
 
     // Collect available semitones (stability > 0).
     let available: Vec<u8> = (0u8..12)

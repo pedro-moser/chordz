@@ -118,13 +118,22 @@ pub fn apply_abstraction(table: &mut StabilityTable, quality: &ChordQuality, abs
         }
         let is_core = explicit.contains(&(i as u8));
         if is_core {
-            let reduction = (s as f32 * abstraction * 0.5) as u8;
-            *entry = s.saturating_sub(reduction).max(2);
+            // Grounded(0): no change. Abstract(1): 4→2, 3→2
+            let new_val = s as f32 * (1.0 - abstraction * 0.6);
+            *entry = (new_val.round() as u8).max(1);
         } else if s >= 2 {
-            let boost = (abstraction * 1.5) as u8;
+            // Boost extensions: Balanced(0.3): +1, Abstract(1.0): +2
+            let boost = (abstraction * 2.0).round() as u8;
             *entry = (s + boost).min(4);
         }
     }
+}
+
+/// Adjust min_total_stability threshold for abstraction level.
+/// Higher abstraction lowers the effective threshold since all scores drop.
+pub fn adjusted_threshold(base_threshold: u8, abstraction: f32) -> u8 {
+    let scale = 1.0 - abstraction * 0.4;
+    (base_threshold as f32 * scale).round() as u8
 }
 
 pub fn subset_stability(table: &StabilityTable, semitones: &[u8]) -> u16 {
