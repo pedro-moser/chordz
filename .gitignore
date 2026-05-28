@@ -1,2 +1,6 @@
 /target
 dist/
+web/node_modules/
+web/pkg/
+web/build/
+web/.svelte-kit/
