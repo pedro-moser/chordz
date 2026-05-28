@@ -11,24 +11,75 @@
     { label: 'Tune', href: '/chords/tune' },
   ];
 
+  interface VoicingGroup {
+    chord: string;
+    recipe: string;
+    intervals: string[];
+    entries: VoicingInfo[];
+  }
+
   let roots = $state<string[]>([]);
   let families = $state<{index: number; name: string}[]>([]);
   let rootIndex = $state(0);
   let familyIndex = $state(0);
   let noteCount = $state(4);
-  let voicings = $state<VoicingInfo[]>([]);
-  let selectedIndex = $state(0);
+  let groups = $state<VoicingGroup[]>([]);
+  let selectedGroup = $state(0);
+  let selectedPos = $state(0);
 
   onMount(() => {
     roots = getRoots();
     families = getFamilies();
     refresh();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   });
 
   function refresh() {
-    voicings = generateVoicings(rootIndex, familyIndex, noteCount);
-    selectedIndex = 0;
+    const flat = generateVoicings(rootIndex, familyIndex, noteCount);
+    const map = new Map<string, VoicingGroup>();
+    for (const v of flat) {
+      const key = `${v.chord}|${v.recipe}|${(v.intervals ?? []).join(',')}`;
+      if (map.has(key)) {
+        map.get(key)!.entries.push(v);
+      } else {
+        map.set(key, {
+          chord: v.chord,
+          recipe: v.recipe,
+          intervals: v.intervals ?? [],
+          entries: [v],
+        });
+      }
+    }
+    groups = [...map.values()];
+    selectedGroup = 0;
+    selectedPos = 0;
   }
+
+  function onKey(e: KeyboardEvent) {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+    switch (e.key) {
+      case 'j': case 'ArrowDown':
+        e.preventDefault();
+        if (selectedGroup < groups.length - 1) { selectedGroup++; selectedPos = 0; }
+        break;
+      case 'k': case 'ArrowUp':
+        e.preventDefault();
+        if (selectedGroup > 0) { selectedGroup--; selectedPos = 0; }
+        break;
+      case 'l': case 'ArrowRight':
+        e.preventDefault();
+        if (group && selectedPos < group.entries.length - 1) selectedPos++;
+        break;
+      case 'h': case 'ArrowLeft':
+        e.preventDefault();
+        if (selectedPos > 0) selectedPos--;
+        break;
+    }
+  }
+
+  let group = $derived(groups[selectedGroup] ?? null);
+  let entry = $derived(group?.entries[selectedPos] ?? null);
 
   let rootOptions = $derived(roots.map((r, i) => ({ label: r, value: i })));
   let familyOptions = $derived(families.map((f) => ({ label: f.name, value: f.index })));
@@ -38,8 +89,6 @@
     { label: '5', value: 5 },
     { label: '6', value: 6 },
   ];
-
-  let selected = $derived(voicings[selectedIndex] ?? null);
 </script>
 
 <SubTabs tabs={chordTabs} active="Browse" />
@@ -49,32 +98,43 @@
     <Select label="Root" value={rootIndex} options={rootOptions} onchange={(v) => { rootIndex = v; refresh(); }} />
     <Select label="Family" value={familyIndex} options={familyOptions} onchange={(v) => { familyIndex = v; refresh(); }} />
     <Select label="Notes" value={noteCount} options={noteOptions} onchange={(v) => { noteCount = v; refresh(); }} />
-    <span class="count">{voicings.length} voicings</span>
+    <span class="count">{groups.length} groups</span>
+    <span class="hint">j/k navigate · h/l positions</span>
   </div>
 
   <div class="browser-body">
     <div class="voicing-list">
-      {#each voicings as v, i}
+      {#each groups as g, i}
         <button
           class="voicing-item"
-          class:selected={i === selectedIndex}
-          onclick={() => selectedIndex = i}
+          class:selected={i === selectedGroup}
+          onclick={() => { selectedGroup = i; selectedPos = 0; }}
         >
-          <span class="v-chord">{v.chord}</span>
-          <span class="v-recipe">{v.recipe}</span>
-          <span class="v-intervals">{v.intervals?.join(' ') ?? ''}</span>
+          <span class="v-chord">{g.chord}</span>
+          <span class="v-recipe">{g.recipe}</span>
+          <span class="v-intervals">{g.intervals.join(' ')}</span>
+          {#if g.entries.length > 1}
+            <span class="v-count">({g.entries.length})</span>
+          {/if}
         </button>
       {/each}
     </div>
 
     <div class="voicing-detail">
-      {#if selected}
-        <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
-        <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
+      {#if entry && group}
+        <h2>{group.chord} <span class="recipe-tag">{group.recipe}</span></h2>
+        <p class="intervals-display">{group.intervals.join('  ')}</p>
+        {#if group.entries.length > 1}
+          <div class="pos-nav">
+            <button class="pos-btn" disabled={selectedPos === 0} onclick={() => selectedPos--}>◀</button>
+            <span class="pos-label">{selectedPos + 1} / {group.entries.length}</span>
+            <button class="pos-btn" disabled={selectedPos >= group.entries.length - 1} onclick={() => selectedPos++}>▶</button>
+          </div>
+        {/if}
         <VoicingFretboard
-          positions={selected.positions}
-          notes={selected.notes}
-          intervals={selected.intervals ?? []}
+          positions={entry.positions}
+          notes={entry.notes}
+          intervals={entry.intervals ?? []}
         />
       {:else}
         <p class="empty">No voicings for this combination</p>
@@ -106,6 +166,11 @@
     margin-left: auto;
   }
 
+  .hint {
+    font-size: var(--font-label);
+    color: var(--text-disabled);
+  }
+
   .browser-body {
     flex: 1;
     display: flex;
@@ -113,7 +178,7 @@
   }
 
   .voicing-list {
-    width: 300px;
+    width: 320px;
     overflow-y: auto;
     border-right: 1px solid var(--border);
   }
@@ -156,6 +221,11 @@
     font-size: var(--font-label);
   }
 
+  .v-count {
+    color: var(--text-disabled);
+    font-size: var(--font-label);
+  }
+
   .voicing-detail {
     flex: 1;
     padding: 16px 24px;
@@ -176,37 +246,39 @@
 
   .intervals-display {
     color: var(--text-muted);
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
-  .fret-diagram {
+  .pos-nav {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: var(--font-body);
-  }
-
-  .string-row {
-    display: flex;
-    gap: 12px;
     align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
   }
 
-  .string-label {
-    width: 16px;
-    color: var(--text-muted);
-  }
-
-  .fret-value {
-    width: 24px;
-    text-align: center;
+  .pos-btn {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
     color: var(--text);
-    font-weight: 700;
+    padding: 2px 8px;
+    font-size: var(--font-body);
+    cursor: pointer;
   }
 
-  .note-name {
-    color: var(--secondary);
+  .pos-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .pos-btn:not(:disabled):hover {
+    background: var(--primary-muted);
+  }
+
+  .pos-label {
     font-size: var(--font-label);
+    color: var(--text-muted);
+    min-width: 40px;
+    text-align: center;
   }
 
   .empty {

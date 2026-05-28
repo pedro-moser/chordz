@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import { solveChart } from '$lib/wasm';
@@ -14,6 +15,26 @@
   let solved = $state<SolvedChange[] | null>(null);
   let error = $state<string | null>(null);
   let selectedChord = $state(0);
+
+  onMount(() => {
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  function onKey(e: KeyboardEvent) {
+    if (!solved) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    switch (e.key) {
+      case 'j': case 'ArrowRight':
+        e.preventDefault();
+        if (selectedChord < solved.length - 1) selectedChord++;
+        break;
+      case 'k': case 'ArrowLeft':
+        e.preventDefault();
+        if (selectedChord > 0) selectedChord--;
+        break;
+    }
+  }
 
   function solve() {
     const result = solveChart(chartInput, titleInput);
@@ -51,6 +72,7 @@
   {#if solved}
     <div class="tune-result">
       <div class="chord-nav">
+        <button class="nav-btn" disabled={selectedChord === 0} onclick={() => selectedChord--}>◀</button>
         {#each solved as change, i}
           <button
             class="chord-btn"
@@ -60,6 +82,8 @@
             {change.chord}
           </button>
         {/each}
+        <button class="nav-btn" disabled={selectedChord >= solved.length - 1} onclick={() => selectedChord++}>▶</button>
+        <span class="hint">{selectedChord + 1}/{solved.length} · ←→ navigate</span>
       </div>
 
       {#if selected}
@@ -163,6 +187,28 @@
     background: var(--primary-muted);
     border-color: var(--primary);
     color: var(--text);
+  }
+
+  .nav-btn {
+    padding: 4px 8px;
+    font-size: var(--font-label);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+  }
+
+  .nav-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .nav-btn:not(:disabled):hover {
+    background: var(--primary-muted);
+  }
+
+  .hint {
+    font-size: var(--font-label);
+    color: var(--text-disabled);
+    margin-left: 8px;
   }
 
   .chord-detail h2 {
