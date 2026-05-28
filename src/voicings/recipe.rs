@@ -102,7 +102,25 @@ impl VoicingRecipe {
             Self::Quartal => self.generate_quartal(root_pc, quality),
             Self::UpperStructureTriad => self.generate_upper_structure_triad(root_pc, quality),
             Self::TriadPair => self.generate_triad_pair(root_pc, quality),
-            Self::Closed => vec![VoiceSet::from_quality(root_pc, quality, *self)],
+            Self::Closed => {
+                let mut result = vec![VoiceSet::from_quality(root_pc, quality, *self)];
+                if quality.intervals.len() >= 5 && quality.intervals.contains(&Interval::P5) {
+                    let without_fifth: Vec<Interval> = quality
+                        .intervals
+                        .iter()
+                        .copied()
+                        .filter(|iv| *iv != Interval::P5)
+                        .collect();
+                    result.push(VoiceSet::new(
+                        root_pc,
+                        without_fifth,
+                        vec![0; quality.intervals.len() - 1],
+                        *self,
+                        quality,
+                    ));
+                }
+                result
+            }
         }
     }
 
