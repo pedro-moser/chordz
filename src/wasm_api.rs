@@ -312,6 +312,7 @@ fn parse_solver_config(config_js: JsValue) -> SolverConfig {
         allowed_strings,
         allow_open_strings,
         tension_target,
+        abstraction: obj.get("abstraction").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
         tension_weight: 6.0,
         rank_weight: 1,
         smoothness_weight,

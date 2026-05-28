@@ -13,11 +13,17 @@
   ];
 
   const ALL_RECIPES = ['shell', 'closed', 'drop2', 'drop3', 'rless-a', 'rless-b', 'quartal', 'upper', 'triads'];
-  const VOICING_STYLES = [
+  const ABSTRACTION_PRESETS = [
     { label: 'Grounded', value: 0.0 },
     { label: 'Balanced', value: 0.3 },
     { label: 'Open', value: 0.6 },
     { label: 'Abstract', value: 1.0 },
+  ];
+  const TENSION_PRESETS = [
+    { label: 'Low', value: 0.0 },
+    { label: 'Medium', value: 0.3 },
+    { label: 'High', value: 0.7 },
+    { label: 'Max', value: 1.0 },
   ];
   const SMOOTHNESS_PRESETS = [
     { label: 'Free', value: 0.0 },
@@ -49,6 +55,7 @@
   let bassEnabled = $state(false);
 
   // Solver constraints
+  let abstraction = $state(0.0);
   let tension = $state(0.3);
   let smoothness = $state(1.0);
   let variation = $state(0);
@@ -57,7 +64,6 @@
   let fretMax = $state(15);
   let maxSpan = $state(5);
   let allowOpenStrings = $state(true);
-  let expandBasicChords = $state(true);
   let recipeFilterOn = $state(false);
   let recipes = $state(ALL_RECIPES.map(() => true));
   let stringFilterOn = $state(false);
@@ -112,10 +118,10 @@
       maxFret: fretMax,
       minFret: fretMin,
       tensionTarget: tension,
+      abstraction,
       smoothnessWeight: smoothness,
       jitter: variation,
       allowOpenStrings,
-      expandBasicChords,
     };
     if (stringFilterOn) {
       cfg.allowedStrings = strings;
@@ -268,10 +274,18 @@
     {#if constraintsOpen}
     <div class="constraints-panel">
       <div class="constraint-row">
-        <span class="constraint-label">Style</span>
+        <span class="constraint-label">Abstraction</span>
         <div class="btn-group">
-          {#each VOICING_STYLES as vs}
-            <button class="filter-btn" class:active={tension === vs.value} onclick={() => tension = vs.value}>{vs.label}</button>
+          {#each ABSTRACTION_PRESETS as ap}
+            <button class="filter-btn" class:active={abstraction === ap.value} onclick={() => abstraction = ap.value}>{ap.label}</button>
+          {/each}
+        </div>
+      </div>
+      <div class="constraint-row">
+        <span class="constraint-label">Tension</span>
+        <div class="btn-group">
+          {#each TENSION_PRESETS as tp}
+            <button class="filter-btn" class:active={tension === tp.value} onclick={() => tension = tp.value}>{tp.label}</button>
           {/each}
         </div>
       </div>
@@ -310,11 +324,6 @@
       <div class="constraint-row">
         <label>
           <input type="checkbox" bind:checked={allowOpenStrings} /> Open strings
-        </label>
-      </div>
-      <div class="constraint-row">
-        <label>
-          <input type="checkbox" bind:checked={expandBasicChords} /> Expand basic chords
         </label>
       </div>
       <div class="constraint-row">

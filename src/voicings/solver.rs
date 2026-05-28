@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use super::fretboard::Fretboard;
 use super::generate::{map_voice_set, Fingering};
-use super::procedural::generate_all_voice_sets;
+use super::procedural::generate_all_voice_sets_with_abstraction;
 use super::ranking::{rank_fingerings, score as fingering_score};
 use super::recipe::VoicingRecipe;
 use super::rules::VoicingRules;
@@ -77,10 +77,10 @@ pub struct SolverConfig {
     pub min_fret: u8,
     pub allowed_strings: Option<[bool; 6]>,
     pub allow_open_strings: bool,
-    /// 0.0 = prefer grounded voicings (shells, drops), 1.0 = prefer abstract
-    /// (quartal, upper structures). The solver adds a penalty proportional to
-    /// how far each candidate's tension is from this target.
+    /// 0.0 = only stable intervals (★3-4), 1.0 = tolerant of dissonance (★1-2).
     pub tension_target: f32,
+    /// 0.0 = spell out the chord (R,3,5,7), 1.0 = imply it (4,9,13,omit root).
+    pub abstraction: f32,
     /// How much tension mismatch costs relative to voice-leading distance.
     /// 0 = tension ignored, higher = stronger preference.
     pub tension_weight: f32,
@@ -111,6 +111,7 @@ impl Default for SolverConfig {
             allowed_strings: None,
             allow_open_strings: true,
             tension_target: 0.3,
+            abstraction: 0.0,
             tension_weight: 6.0,
             rank_weight: 1,
             smoothness_weight: 1.0,
@@ -414,12 +415,13 @@ fn generate_candidates_with_relaxation(
     // Generate voice sets for each valid note count.
     let mut all_voice_sets = Vec::new();
     for nc in rules.min_strings..=rules.max_strings {
-        all_voice_sets.extend(generate_all_voice_sets(
+        all_voice_sets.extend(generate_all_voice_sets_with_abstraction(
             root_pc,
             quality,
             nc as usize,
             next_quality,
             min_stability,
+            config.abstraction,
         ));
     }
 

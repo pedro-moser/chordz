@@ -92,6 +92,41 @@ pub fn get_stability_table(
     table
 }
 
+/// Apply abstraction modifier to a stability table.
+///
+/// `abstraction` ranges from 0.0 (grounded) to 1.0 (abstract).
+/// At 0.0, the table is unchanged.
+/// At 1.0, core chord tones (R, 3/b3, 5/b5, 7/b7) are reduced,
+/// and extensions (9, 11, 13, etc.) are boosted — making the engine
+/// prefer voicings that imply the harmony without spelling it out.
+/// Avoid notes (★0-1) are NOT changed — abstraction doesn't add dissonance.
+pub fn apply_abstraction(table: &mut StabilityTable, quality: &ChordQuality, abstraction: f32) {
+    if abstraction < 0.05 {
+        return;
+    }
+
+    let explicit: Vec<u8> = quality
+        .intervals
+        .iter()
+        .map(|iv| iv.semitones % 12)
+        .collect();
+
+    for (i, entry) in table.iter_mut().enumerate() {
+        let s = *entry;
+        if s <= 1 {
+            continue;
+        }
+        let is_core = explicit.contains(&(i as u8));
+        if is_core {
+            let reduction = (s as f32 * abstraction * 0.5) as u8;
+            *entry = s.saturating_sub(reduction).max(2);
+        } else if s >= 2 {
+            let boost = (abstraction * 1.5) as u8;
+            *entry = (s + boost).min(4);
+        }
+    }
+}
+
 pub fn subset_stability(table: &StabilityTable, semitones: &[u8]) -> u16 {
     semitones
         .iter()

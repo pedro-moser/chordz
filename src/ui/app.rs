@@ -192,6 +192,7 @@ impl TuneConstraints {
             allowed_strings,
             allow_open_strings: self.allow_open_strings,
             tension_target: self.tension,
+            abstraction: 0.0,
             tension_weight: 6.0,
             rank_weight: 1,
             smoothness_weight: self.smoothness,

@@ -113,10 +113,10 @@ export interface SolverConfig {
   maxFret?: number;
   minFret?: number;
   tensionTarget?: number;
+  abstraction?: number;
   smoothnessWeight?: number;
   jitter?: number;
   allowOpenStrings?: boolean;
-  expandBasicChords?: boolean;
   recipes?: string[];
   allowedStrings?: boolean[];
 }

@@ -2,7 +2,7 @@ use crate::theory::chords::ChordQuality;
 use crate::theory::intervals::Interval;
 
 use super::recipe::VoicingRecipe;
-use super::stability::{get_stability_table, subset_stability};
+use super::stability::{self, get_stability_table, subset_stability};
 use super::voice_set::VoiceSet;
 
 /// Map a semitone (0-11) to the corresponding basic Interval constant.
@@ -169,7 +169,26 @@ pub fn generate_all_voice_sets(
     next_quality: Option<&'static ChordQuality>,
     min_total_stability: u8,
 ) -> Vec<(VoiceSet, u16, &'static str)> {
-    let table = get_stability_table(quality, next_quality);
+    generate_all_voice_sets_with_abstraction(
+        root_pc,
+        quality,
+        note_count,
+        next_quality,
+        min_total_stability,
+        0.0,
+    )
+}
+
+pub fn generate_all_voice_sets_with_abstraction(
+    root_pc: u8,
+    quality: &'static ChordQuality,
+    note_count: usize,
+    next_quality: Option<&'static ChordQuality>,
+    min_total_stability: u8,
+    abstraction: f32,
+) -> Vec<(VoiceSet, u16, &'static str)> {
+    let mut table = get_stability_table(quality, next_quality);
+    stability::apply_abstraction(&mut table, quality, abstraction);
 
     // Collect available semitones (stability > 0).
     let available: Vec<u8> = (0u8..12)
