@@ -201,6 +201,20 @@ const TUNE_PRESETS: &[(&str, &str)] = &[
          Cmaj7 | % | Cm7 | F7 | Gmaj7 | % | Bbm7 | Eb7 | \
          Am7 | D7 | F#m7b5 B7b9 | Em7 | A7 | Am7 D7 | Gmaj7 | Dm7 G7",
     ),
+    (
+        "Moment's Notice",
+        "Em7 | A7 | Fm7 | Bb7 | Ebmaj7 | Abm7 Db7 | Dm7 | G7 | \
+         Ebm7 | Ab7 | Dm7 | G7 | Cmaj7 | % | Abm7 | Db7 | \
+         Dm7 | G7 | Ebm7 | Ab7 | Cmaj7 | Dbm7 Gb7 | Dm7 | Ebm7 Ab7 | \
+         Dm7 | G7 | Ebm7 | Ab7 | Cmaj7 | % | Dm7 G7 | Cmaj7",
+    ),
+    (
+        "Giant Steps",
+        "Bmaj7 D7 | Gmaj7 Bb7 | Ebmaj7 | Am7 D7 | \
+         Gmaj7 Bb7 | Ebmaj7 F#7 | Bmaj7 | Fm7 Bb7 | \
+         Ebmaj7 | Am7 D7 | Gmaj7 | C#m7 F#7 | \
+         Bmaj7 | Fm7 Bb7 | Ebmaj7 | C#m7 F#7",
+    ),
 ];
 
 #[wasm_bindgen]
