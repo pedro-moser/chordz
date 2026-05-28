@@ -27,6 +27,9 @@
       <div class="loading">Loading...</div>
     {/if}
   </main>
+  <footer class="attribution">
+    <small>Guitar samples: tonejs-instruments (CC-BY 3.0).</small>
+  </footer>
 </div>
 
 <style>
@@ -49,5 +52,14 @@
     justify-content: center;
     height: 100%;
     color: var(--text-muted);
+  }
+
+  .attribution {
+    padding: 2px 8px;
+    text-align: right;
+    color: var(--text-muted, #888);
+    opacity: 0.6;
+    font-size: 0.7rem;
+    background: var(--bg, transparent);
   }
 </style>
