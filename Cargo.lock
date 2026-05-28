@@ -674,6 +674,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "eframe",
+ "js-sys",
  "kira",
  "serde",
  "serde-wasm-bindgen",

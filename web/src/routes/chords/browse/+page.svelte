@@ -61,7 +61,7 @@
         >
           <span class="v-chord">{v.chord}</span>
           <span class="v-recipe">{v.recipe}</span>
-          <span class="v-intervals">{v.intervals.join(' ')}</span>
+          <span class="v-intervals">{v.intervals?.join(' ') ?? ''}</span>
         </button>
       {/each}
     </div>
@@ -69,7 +69,7 @@
     <div class="voicing-detail">
       {#if selected}
         <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
-        <p class="intervals-display">{selected.intervals.join('  ')}</p>
+        <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
         <div class="fret-diagram">
           {#each selected.positions as pos, s}
             <div class="string-row">

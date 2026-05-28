@@ -12,10 +12,15 @@ use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
 use crate::voicings::solver::{self, SolverConfig};
 
+fn to_js(value: &impl serde::Serialize) -> JsValue {
+    let json = serde_json::to_string(value).unwrap();
+    js_sys::JSON::parse(&json).unwrap_or(JsValue::NULL)
+}
+
 #[wasm_bindgen]
 pub fn get_roots() -> JsValue {
     let roots: Vec<&str> = chords::ROOTS.to_vec();
-    serde_wasm_bindgen::to_value(&roots).unwrap()
+    to_js(&roots)
 }
 
 #[wasm_bindgen]
@@ -31,14 +36,14 @@ pub fn get_all_scales() -> JsValue {
             })
         })
         .collect();
-    serde_wasm_bindgen::to_value(&scales).unwrap()
+    to_js(&scales)
 }
 
 #[wasm_bindgen]
 pub fn get_parent_scale_names() -> JsValue {
     use crate::theory::scales::ParentScale;
     let names: Vec<&str> = ParentScale::ALL.iter().map(|p| p.name()).collect();
-    serde_wasm_bindgen::to_value(&names).unwrap()
+    to_js(&names)
 }
 
 #[wasm_bindgen]
@@ -53,7 +58,7 @@ pub fn get_pairs() -> JsValue {
             })
         })
         .collect();
-    serde_wasm_bindgen::to_value(&pairs).unwrap()
+    to_js(&pairs)
 }
 
 #[wasm_bindgen]
@@ -65,7 +70,7 @@ pub fn resolve_pair(root_pc: u8, scale_index: usize, pair_index: usize) -> JsVal
         "triadA": a,
         "triadB": b,
     });
-    serde_wasm_bindgen::to_value(&result).unwrap()
+    to_js(&result)
 }
 
 #[wasm_bindgen]
@@ -91,7 +96,7 @@ pub fn get_fretboard_notes() -> JsValue {
         }
         notes.push(string_notes);
     }
-    serde_wasm_bindgen::to_value(&notes).unwrap()
+    to_js(&notes)
 }
 
 #[wasm_bindgen]
@@ -118,7 +123,7 @@ pub fn get_families() -> JsValue {
         .enumerate()
         .map(|(i, name)| serde_json::json!({"index": i, "name": name}))
         .collect();
-    serde_wasm_bindgen::to_value(&families).unwrap()
+    to_js(&families)
 }
 
 #[wasm_bindgen]
@@ -136,7 +141,9 @@ pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usi
     let mut groups: Vec<serde_json::Value> = Vec::new();
 
     for quality_name in family_quality_names(family_index) {
-        let quality = ChordQuality::ALL.iter().find(|q| q.name == *quality_name).unwrap();
+        let Some(quality) = ChordQuality::ALL.iter().find(|q| q.name == *quality_name) else {
+            continue;
+        };
         let chord_label = chords::chord_name(chords::ROOTS[root_index], quality);
 
         for recipe in VoicingRecipe::all() {
@@ -170,14 +177,14 @@ pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usi
         }
     }
 
-    serde_wasm_bindgen::to_value(&groups).unwrap()
+    to_js(&groups)
 }
 
 #[wasm_bindgen]
 pub fn solve_chart(chart_text: &str, title: &str) -> JsValue {
     let chart = match Chart::parse(title, chart_text) {
         Ok(c) => c,
-        Err(_) => return serde_wasm_bindgen::to_value(&serde_json::json!({"error": "Parse error"})).unwrap(),
+        Err(_) => return to_js(&serde_json::json!({"error": "Parse error"})),
     };
 
     let fb = Fretboard::standard_tuning();
@@ -201,8 +208,8 @@ pub fn solve_chart(chart_text: &str, title: &str) -> JsValue {
                     "beats": c.beats,
                 })
             }).collect();
-            serde_wasm_bindgen::to_value(&serde_json::json!({"changes": changes})).unwrap()
+            to_js(&serde_json::json!({"changes": changes}))
         }
-        None => serde_wasm_bindgen::to_value(&serde_json::json!({"error": "No solution found"})).unwrap(),
+        None => to_js(&serde_json::json!({"error": "No solution found"})),
     }
 }

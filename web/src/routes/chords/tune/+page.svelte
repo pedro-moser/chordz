@@ -34,12 +34,12 @@
 <div class="tune-layout">
   <div class="tune-input">
     <div class="input-row">
-      <label class="input-label">Title</label>
-      <input bind:value={titleInput} placeholder="Tune name" />
+      <label class="input-label" for="tune-title">Title</label>
+      <input id="tune-title" bind:value={titleInput} placeholder="Tune name" />
     </div>
     <div class="input-row">
-      <label class="input-label">Chart</label>
-      <textarea bind:value={chartInput} rows="3" placeholder="Dm7 | G7 | Cmaj7 | Cmaj7"></textarea>
+      <label class="input-label" for="tune-chart">Chart</label>
+      <textarea id="tune-chart" bind:value={chartInput} rows="3" placeholder="Dm7 | G7 | Cmaj7 | Cmaj7"></textarea>
     </div>
     <button class="solve-btn" onclick={solve}>Solve</button>
     {#if error}
