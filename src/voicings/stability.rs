@@ -2,8 +2,8 @@ use crate::theory::chords::ChordQuality;
 
 pub type StabilityTable = [u8; 12];
 
-// Major (maj7): R=4 b9=0 9=3 b3=1 3=4 11=1 #11=2 5=4 b13=1 13=3 b7=0 7=4
-const MAJOR: StabilityTable = [4, 0, 3, 1, 4, 1, 2, 4, 1, 3, 0, 4];
+// Major (maj7): R=4 b9=0 9=3 b3=1 3=4 11=0 #11=2 5=4 b13=1 13=3 b7=0 7=4
+const MAJOR: StabilityTable = [4, 0, 3, 1, 4, 0, 2, 4, 1, 3, 0, 4];
 
 // Minor (m7): R=4 b9=1 9=3 b3=4 3=0 11=4 #11=2 5=4 b13=2 13=2 b7=4 maj7=2
 const MINOR: StabilityTable = [4, 1, 3, 4, 0, 4, 2, 4, 2, 2, 4, 2];
@@ -240,8 +240,8 @@ mod tests {
     }
 
     #[test]
-    fn major_avoid_note_low() {
-        assert_eq!(MAJOR[5], 1);
+    fn major_avoid_note_excluded() {
+        assert_eq!(MAJOR[5], 0);
     }
 
     #[test]
