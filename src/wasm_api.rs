@@ -7,7 +7,7 @@ use crate::theory::notes::PC_NAMES;
 use crate::theory::scales::Scale;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::{map_voice_set, Fingering};
-use crate::voicings::ranking::rank_fingerings;
+use crate::voicings::ranking::{rank_fingerings, rank_fingerings_with_crunch};
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
 use crate::audio::synth;
@@ -134,7 +134,7 @@ pub fn get_families() -> JsValue {
 }
 
 #[wasm_bindgen]
-pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usize) -> JsValue {
+pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usize, prefer_crunch: bool) -> JsValue {
     let root_pc = root_index as u8;
     let fb = Fretboard::standard_tuning();
     let rules = VoicingRules {
@@ -163,7 +163,11 @@ pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usi
                     pcs.dedup();
                     pcs.len() == f.played_count()
                 });
-                rank_fingerings(&mut fingerings, voice_set, &fb);
+                if prefer_crunch {
+                    rank_fingerings_with_crunch(&mut fingerings, voice_set, &fb);
+                } else {
+                    rank_fingerings(&mut fingerings, voice_set, &fb);
+                }
 
                 for fingering in fingerings.iter().take(6) {
                     let positions: Vec<Option<u8>> = fingering.positions.to_vec();

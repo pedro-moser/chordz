@@ -1,10 +1,8 @@
 use std::cmp::Reverse;
 
-use crate::theory::chords::ChordQuality;
-use crate::theory::intervals::Interval;
-
 use super::fretboard::Fretboard;
 use super::generate::Fingering;
+use super::recipe::guide_tones;
 use super::voice_set::VoiceSet;
 
 /// Score a single `Fingering` for musical and ergonomic usefulness.
@@ -18,11 +16,25 @@ use super::voice_set::VoiceSet;
 ///   strings (E, A, D) that are within a minor third (≤ 3 semitones) of
 ///   each other, including unisons and octaves.
 pub fn score(fingering: &Fingering, voice_set: &VoiceSet, fretboard: &Fretboard) -> i32 {
+    score_with_crunch(fingering, voice_set, fretboard, false)
+}
+
+pub fn score_with_crunch(
+    fingering: &Fingering,
+    voice_set: &VoiceSet,
+    fretboard: &Fretboard,
+    prefer_crunch: bool,
+) -> i32 {
     let span_score = -(fingering.fret_span() as i32);
     let guide_tone_score = guide_tone_score(fingering, voice_set);
     let muddy_score = muddy_cluster_penalty(fingering, fretboard);
+    let crunch = if prefer_crunch {
+        crunch_bonus(fingering, fretboard)
+    } else {
+        0
+    };
 
-    span_score + guide_tone_score + muddy_score
+    span_score + guide_tone_score + muddy_score + crunch
 }
 
 /// Sort `fingerings` in place by descending score (best first).
@@ -34,30 +46,24 @@ pub fn rank_fingerings(fingerings: &mut [Fingering], voice_set: &VoiceSet, fretb
     fingerings.sort_by_key(|fingering| Reverse(score(fingering, voice_set, fretboard)));
 }
 
-/// Returns `+20` if both guide tones are present, `0` otherwise.
-///
-/// Guide tones depend on chord quality:
-/// - Major: M3 + M7
-/// - Minor: m3 + m7
-/// - Dominant: M3 + m7
+pub fn rank_fingerings_with_crunch(
+    fingerings: &mut [Fingering],
+    voice_set: &VoiceSet,
+    fretboard: &Fretboard,
+) {
+    fingerings.sort_by_key(|fingering| {
+        Reverse(score_with_crunch(fingering, voice_set, fretboard, true))
+    });
+}
+
 fn guide_tone_score(fingering: &Fingering, voice_set: &VoiceSet) -> i32 {
-    let (gt1, gt2) = get_guide_tones(voice_set.source_quality);
+    let Some((gt1, gt2)) = guide_tones(voice_set.source_quality) else {
+        return 0;
+    };
     if fingering.has_interval(gt1) && fingering.has_interval(gt2) {
         20
     } else {
         0
-    }
-}
-
-/// Returns the two guide tone intervals for a given chord quality.
-fn get_guide_tones(quality: &ChordQuality) -> (Interval, Interval) {
-    if quality.name.starts_with("maj") {
-        (Interval::M3, Interval::M7)
-    } else if quality.name.starts_with("m") {
-        (Interval::m3, Interval::m7)
-    } else {
-        // Dominant, diminished, augmented
-        (Interval::M3, Interval::m7)
     }
 }
 
@@ -89,9 +95,36 @@ fn muddy_cluster_penalty(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
     penalty
 }
 
+fn crunch_bonus(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
+    let mut midis: Vec<i32> = fingering
+        .notes(fretboard)
+        .into_iter()
+        .flatten()
+        .map(|n| n.midi())
+        .collect();
+    midis.sort();
+    if midis.len() < 2 {
+        return 0;
+    }
+    let mut small_intervals = 0;
+    for i in 1..midis.len() {
+        let gap = midis[i] - midis[i - 1];
+        if gap >= 1 && gap <= 2 {
+            small_intervals += 1;
+        }
+    }
+    match small_intervals {
+        1 => 15,
+        2 => 8,
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theory::chords::ChordQuality;
+    use crate::theory::intervals::Interval;
     use crate::voicings::fretboard::Fretboard;
     use crate::voicings::generate::{map_voice_set, Fingering};
     use crate::voicings::recipe::VoicingRecipe;

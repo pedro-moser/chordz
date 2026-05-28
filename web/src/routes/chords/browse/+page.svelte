@@ -27,6 +27,7 @@
   let groups = $state<VoicingGroup[]>([]);
   let selectedGroup = $state(0);
   let selectedPos = $state(0);
+  let preferCrunch = $state(false);
 
   onMount(() => {
     roots = getRoots();
@@ -37,7 +38,7 @@
   });
 
   function refresh() {
-    const flat = generateVoicings(rootIndex, familyIndex, noteCount);
+    const flat = generateVoicings(rootIndex, familyIndex, noteCount, preferCrunch);
     const map = new Map<string, VoicingGroup>();
     for (const v of flat) {
       const key = `${v.chord}|${v.recipe}|${(v.intervals ?? []).join(',')}`;
@@ -107,6 +108,9 @@
     <Select label="Root" value={rootIndex} options={rootOptions} onchange={(v) => { rootIndex = v; refresh(); }} />
     <Select label="Family" value={familyIndex} options={familyOptions} onchange={(v) => { familyIndex = v; refresh(); }} />
     <Select label="Notes" value={noteCount} options={noteOptions} onchange={(v) => { noteCount = v; refresh(); }} />
+    <label class="crunch-toggle">
+      <input type="checkbox" bind:checked={preferCrunch} onchange={() => refresh()} /> Crunch
+    </label>
     <span class="count">{groups.length} groups</span>
     <span class="hint">j/k navigate · h/l positions</span>
   </div>
@@ -177,6 +181,19 @@
     font-size: var(--font-label);
     color: var(--text-muted);
     margin-left: auto;
+  }
+
+  .crunch-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--font-label);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .crunch-toggle input {
+    accent-color: var(--primary);
   }
 
   .hint {

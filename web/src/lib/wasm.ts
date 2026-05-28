@@ -135,8 +135,8 @@ export function getFamilies(): FamilyInfo[] {
   return getWasm().get_families();
 }
 
-export function generateVoicings(rootIndex: number, familyIndex: number, noteCount: number): VoicingInfo[] {
-  return getWasm().generate_voicings(rootIndex, familyIndex, noteCount);
+export function generateVoicings(rootIndex: number, familyIndex: number, noteCount: number, preferCrunch = false): VoicingInfo[] {
+  return getWasm().generate_voicings(rootIndex, familyIndex, noteCount, preferCrunch);
 }
 
 export function getPresets(): Preset[] {
