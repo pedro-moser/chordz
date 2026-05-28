@@ -2,22 +2,39 @@ use crate::theory::chords::ChordQuality;
 use crate::theory::intervals::Interval;
 
 use super::recipe::VoicingRecipe;
-use super::stability::{self, get_stability_table, subset_stability};
+use super::stability::{self, get_stability_table, has_duplicate_degree, subset_stability};
 use super::voice_set::VoiceSet;
 
-/// Map a semitone (0-11) to the corresponding basic Interval constant.
-fn semitone_to_interval(semitone: u8) -> Interval {
-    match semitone {
+const INTERVAL_B5: Interval = Interval {
+    semitones: 6,
+    name: "b5",
+};
+
+const INTERVAL_DIM7: Interval = Interval {
+    semitones: 9,
+    name: "dim7",
+};
+
+/// Map a semitone (0-11) to the correct Interval for the given quality.
+fn semitone_to_interval(semitone: u8, quality: &ChordQuality) -> Interval {
+    let s = semitone % 12;
+    match s {
         0 => Interval::UNISON,
         1 => Interval::m2,
         2 => Interval::M2,
         3 => Interval::m3,
         4 => Interval::M3,
         5 => Interval::P4,
-        6 => Interval::tritone,
+        6 => {
+            let class = stability::degree_class(s, quality);
+            if class == 5 { INTERVAL_B5 } else { Interval::tritone }
+        }
         7 => Interval::P5,
         8 => Interval::m6,
-        9 => Interval::M6,
+        9 => {
+            let class = stability::degree_class(s, quality);
+            if class == 7 { INTERVAL_DIM7 } else { Interval::M6 }
+        }
         10 => Interval::m7,
         11 => Interval::M7,
         _ => unreachable!("semitone must be 0-11"),
@@ -83,13 +100,17 @@ fn combinations_rec<T: Copy>(
 ///
 /// Returns `(intervals, octave_offsets)` where the first `inv` semitones
 /// are rotated to the end and placed in the next octave.
-fn close_inversion(sorted_semitones: &[u8], inv: usize) -> (Vec<Interval>, Vec<i32>) {
+fn close_inversion(
+    sorted_semitones: &[u8],
+    inv: usize,
+    quality: &ChordQuality,
+) -> (Vec<Interval>, Vec<i32>) {
     let n = sorted_semitones.len();
     let mut intervals = Vec::with_capacity(n);
     let mut octaves = Vec::with_capacity(n);
     for i in 0..n {
         let idx = (inv + i) % n;
-        intervals.push(semitone_to_interval(sorted_semitones[idx]));
+        intervals.push(semitone_to_interval(sorted_semitones[idx], quality));
         // Notes that wrapped around (original index < inv) get octave +1.
         if idx < inv {
             octaves.push(1);
@@ -215,6 +236,9 @@ pub fn generate_all_voice_sets_with_abstraction(
     let mut results: Vec<(VoiceSet, u16, &'static str)> = Vec::new();
 
     combinations(&available, note_count, &mut |subset| {
+        if has_duplicate_degree(subset, quality) {
+            return;
+        }
         let stability = subset_stability(&table, subset);
         if stability < min_total_stability as u16 {
             return;
@@ -225,7 +249,7 @@ pub fn generate_all_voice_sets_with_abstraction(
 
         for &transform in transforms_for_count {
             for inv in 0..note_count {
-                let (close_intervals, close_octaves) = close_inversion(sorted, inv);
+                let (close_intervals, close_octaves) = close_inversion(sorted, inv, quality);
 
                 let (final_intervals, final_octaves) = match transform {
                     Transform::Close => (close_intervals, close_octaves),

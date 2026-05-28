@@ -153,6 +153,63 @@ pub fn adjusted_threshold(base_threshold: u8, abstraction: f32) -> u8 {
     (base_threshold as f32 * scale).round() as u8
 }
 
+/// Returns the scale degree class (1-7) for a semitone, given the chord context.
+///
+/// Semitone 6 is ambiguous: #4 (4th class) vs b5 (5th class).
+/// Semitone 9 is ambiguous: 6/13 (6th class) vs dim7 (7th class).
+/// The quality's explicit intervals resolve the ambiguity.
+pub fn degree_class(semitone: u8, quality: &ChordQuality) -> u8 {
+    let s = semitone % 12;
+    match s {
+        0 => 1,
+        1 | 2 => 2,
+        3 | 4 => 3,
+        5 => 4,
+        6 => {
+            // b5 (5th class) if quality uses it as a 5th; #4 (4th class) otherwise
+            let has_b5_as_chord_tone = quality.intervals.iter().any(|iv| {
+                iv.semitones % 12 == 6
+            });
+            let has_natural_5 = quality.intervals.iter().any(|iv| {
+                iv.semitones % 12 == 7
+            });
+            if has_b5_as_chord_tone && !has_natural_5 {
+                5 // b5 = 5th class
+            } else {
+                4 // #4 = 4th class
+            }
+        }
+        7 => 5,
+        8 => 6,
+        9 => {
+            // dim7 (7th class) if quality has dim7; otherwise 6/13 (6th class)
+            let has_dim7 = quality.intervals.iter().any(|iv| {
+                iv.semitones % 12 == 9 && iv.name == "dim7"
+            });
+            if has_dim7 {
+                7
+            } else {
+                6
+            }
+        }
+        10 | 11 => 7,
+        _ => 0,
+    }
+}
+
+/// Check if a subset has two semitones from the same degree class.
+pub fn has_duplicate_degree(semitones: &[u8], quality: &ChordQuality) -> bool {
+    let classes: Vec<u8> = semitones.iter().map(|&s| degree_class(s, quality)).collect();
+    for i in 0..classes.len() {
+        for j in (i + 1)..classes.len() {
+            if classes[i] == classes[j] {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn subset_stability(table: &StabilityTable, semitones: &[u8]) -> u16 {
     semitones
         .iter()
