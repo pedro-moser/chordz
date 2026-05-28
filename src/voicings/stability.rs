@@ -111,20 +111,37 @@ pub fn apply_abstraction(table: &mut StabilityTable, quality: &ChordQuality, abs
         .map(|iv| iv.semitones % 12)
         .collect();
 
+    let third_semitones: &[u8] = match () {
+        _ if explicit.contains(&4) => &[4],    // M3
+        _ if explicit.contains(&3) => &[3],    // m3
+        _ => &[],
+    };
+
     for (i, entry) in table.iter_mut().enumerate() {
         let s = *entry;
         if s <= 1 {
             continue;
         }
-        let is_core = explicit.contains(&(i as u8));
-        if is_core {
-            // Grounded(0): no change. Abstract(1): 4→2, 3→2
-            let new_val = s as f32 * (1.0 - abstraction * 0.6);
+        let sem = i as u8;
+        let is_core = explicit.contains(&sem);
+        if !is_core {
+            if s >= 2 {
+                let boost = (abstraction * 2.0).round() as u8;
+                *entry = (s + boost).min(4);
+            }
+            continue;
+        }
+        let is_root = sem == 0;
+        let is_third = third_semitones.contains(&sem);
+        if is_root || is_third {
+            // R and 3rd are the most "obvious" — drop aggressively
+            // Abstract(1.0): 4→1, Open(0.6): 4→2, Balanced(0.3): 4→3
+            let new_val = s as f32 * (1.0 - abstraction * 0.8);
             *entry = (new_val.round() as u8).max(1);
-        } else if s >= 2 {
-            // Boost extensions: Balanced(0.3): +1, Abstract(1.0): +2
-            let boost = (abstraction * 2.0).round() as u8;
-            *entry = (s + boost).min(4);
+        } else {
+            // 5th, 7th: drop less — still useful for structure
+            let new_val = s as f32 * (1.0 - abstraction * 0.5);
+            *entry = (new_val.round() as u8).max(2);
         }
     }
 }

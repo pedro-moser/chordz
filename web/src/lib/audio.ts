@@ -60,7 +60,7 @@ function playInterleaved(samples: Float32Array, sampleRate = 44100) {
   };
 }
 
-function playBuffer(samples: Float32Array, sampleRate = 44100) {
+function playBuffer(samples: Float32Array, gain = 1.0, sampleRate = 44100) {
   const audioCtx = getContext();
   const numFrames = samples.length / 2;
   const buffer = audioCtx.createBuffer(2, numFrames, sampleRate);
@@ -72,15 +72,24 @@ function playBuffer(samples: Float32Array, sampleRate = 44100) {
   }
   const source = audioCtx.createBufferSource();
   source.buffer = buffer;
-  source.connect(audioCtx.destination);
+  if (gain !== 1.0) {
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.value = gain;
+    source.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+  } else {
+    source.connect(audioCtx.destination);
+  }
   source.start();
   return source;
 }
 
+export let bassVolume = 0.7;
+
 export function playBass(rootPc: number, duration = 2.0) {
   const { synth_bass_note } = getWasmSync();
   const samples = synth_bass_note(rootPc, duration);
-  if (samples.length > 0) playBuffer(new Float32Array(samples));
+  if (samples.length > 0) playBuffer(new Float32Array(samples), bassVolume);
 }
 
 export function playStrum(positions: (number | null)[]) {

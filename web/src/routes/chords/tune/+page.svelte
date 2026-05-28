@@ -4,7 +4,8 @@
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import ChartGrid from '$lib/components/ChartGrid.svelte';
   import { solveChart, solveChartWithLocks, getPresets } from '$lib/wasm';
-  import { playStrum, playClick, playBass, stopAll } from '$lib/audio';
+  import { playStrum, playClick, playBass, stopAll, bassVolume } from '$lib/audio';
+  import * as audio from '$lib/audio';
   import type { SolvedChange, SolverConfig, Preset } from '$lib/wasm';
 
   const chordTabs = [
@@ -369,6 +370,18 @@
           <label class="click-label">
             <input type="checkbox" bind:checked={bassEnabled} /> Bass
           </label>
+          {#if bassEnabled}
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={audio.bassVolume}
+              oninput={(e) => audio.bassVolume = Number((e.target as HTMLInputElement).value)}
+              class="bass-vol"
+              title="Bass volume"
+            />
+          {/if}
         </div>
         {#if playingAll}
           <button class="action-btn playing" onclick={stopPlayAll}>Stop</button>
@@ -690,7 +703,12 @@
     cursor: pointer;
   }
 
-  .click-label input {
+  .click-label input[type="checkbox"] {
+    accent-color: var(--primary);
+  }
+
+  .bass-vol {
+    width: 60px;
     accent-color: var(--primary);
   }
 
