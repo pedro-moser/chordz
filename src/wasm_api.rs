@@ -165,7 +165,7 @@ pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usi
                 });
                 rank_fingerings(&mut fingerings, voice_set, &fb);
 
-                for fingering in fingerings.iter().take(3) {
+                for fingering in fingerings.iter().take(6) {
                     let positions: Vec<Option<u8>> = fingering.positions.to_vec();
                     let notes: Vec<_> = fingering.notes(&fb).into_iter().map(|n| {
                         n.map(|note| serde_json::json!({"pc": note.pitch_class, "name": PC_NAMES[note.pitch_class as usize]}))
