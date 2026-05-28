@@ -11,6 +11,7 @@ type Audio = AudioEngine;
 type Audio = ();
 use crate::theory::chart::PRESETS as TUNE_PRESETS;
 use crate::theory::chords::{self, ChordFamily, ChordQuality};
+use crate::theory::line_engine::NoteEvent;
 use crate::theory::line_pattern::{Pattern, RhythmicFigure};
 use crate::theory::position::NeckPosition;
 use crate::theory::intervals::Interval;
@@ -60,8 +61,7 @@ pub(crate) struct GmcTuneState {
     pub(crate) figure: RhythmicFigure,
     pub(crate) position: NeckPosition,
     pub(crate) pattern: Pattern,
-    // line_engine::NoteEvent not yet available; placeholder until that module lands
-    pub(crate) generated: Option<Vec<()>>,
+    pub(crate) generated: Option<Vec<NoteEvent>>,
     pub(crate) selected_measure: usize,
     pub(crate) playback_start: Option<Instant>,
     pub(crate) last_clicked_measure: Option<usize>,
