@@ -1,6 +1,41 @@
+import { createEffectsChain, type EffectsChain } from './effects';
+import { loadSampler, playSample, isSamplerReady, samplerFailed } from './guitarSampler';
+
 let ctx: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 let clickBuffer: AudioBuffer | null = null;
+
+let effects: EffectsChain | null = null;
+function getEffects(audioCtx: AudioContext): EffectsChain {
+  if (!effects) effects = createEffectsChain(audioCtx);
+  return effects;
+}
+
+/** Kick off sample loading + ambience control. Call once at app init. */
+export function initGuitarAudio() {
+  const audioCtx = getContext();
+  getEffects(audioCtx);
+  loadSampler(audioCtx).catch(() => { /* falls back to WASM synth */ });
+}
+
+/** 0 = dry, 1 = max reverb. */
+export function setAmbience(amount: number) {
+  effects?.setAmbience(amount);
+}
+
+/** Standard-tuning open-string MIDI (low E to high E). Fretted MIDI = open + fret. */
+const OPEN_STRING_MIDI = [40, 45, 50, 55, 59, 64];
+
+/** Convert fret positions per string to the sounding MIDI notes (skips muted strings). */
+function positionsToMidi(positions: (number | null)[]): number[] {
+  const midi: number[] = [];
+  for (let s = 0; s < positions.length && s < OPEN_STRING_MIDI.length; s++) {
+    const fret = positions[s];
+    if (fret == null) continue;
+    midi.push(OPEN_STRING_MIDI[s] + fret);
+  }
+  return midi;
+}
 
 // Sample rate the Rust synth (src/audio/synth.rs SAMPLE_RATE) renders at. The
 // AudioContext usually runs at the hardware rate (e.g. 48000); Web Audio resamples
@@ -106,18 +141,45 @@ export function getBassVolume() { return bassVolume; }
 export function setBassVolume(v: number) { bassVolume = v; }
 
 export function playBass(rootPc: number, duration = 2.0) {
+  const audioCtx = getContext();
+  if (isSamplerReady() && !samplerFailed()) {
+    const midi = 36 + (rootPc % 12);
+    const src = playSample(audioCtx, getEffects(audioCtx).input, midi, getAudioTime(), duration, 0.9);
+    if (src) registerScheduled(src);
+    return;
+  }
   const { synth_bass_note } = getWasmSync();
   const samples = synth_bass_note(rootPc, duration);
   if (samples.length > 0) playBuffer(new Float32Array(samples), bassVolume);
 }
 
 export function playStrum(positions: (number | null)[]) {
+  const audioCtx = getContext();
+  if (isSamplerReady() && !samplerFailed()) {
+    const fx = getEffects(audioCtx);
+    const when = getAudioTime();
+    for (const midi of positionsToMidi(positions)) {
+      const src = playSample(audioCtx, fx.input, midi, when, 2.0);
+      if (src) registerScheduled(src);
+    }
+    return;
+  }
   const { synth_chord } = getWasmSync();
   const samples = synth_chord(positions, 2.0);
   if (samples.length > 0) playInterleaved(new Float32Array(samples));
 }
 
 export function playArpeggio(positions: (number | null)[]) {
+  const audioCtx = getContext();
+  if (isSamplerReady() && !samplerFailed()) {
+    const fx = getEffects(audioCtx);
+    const when = getAudioTime();
+    positionsToMidi(positions).forEach((midi, i) => {
+      const src = playSample(audioCtx, fx.input, midi, when + i * 0.06, 0.4);
+      if (src) registerScheduled(src);
+    });
+    return;
+  }
   const { synth_arpeggio } = getWasmSync();
   const samples = synth_arpeggio(positions, 0.4);
   if (samples.length > 0) playInterleaved(new Float32Array(samples));
@@ -135,8 +197,13 @@ function registerScheduled(source: AudioBufferSourceNode) {
 }
 
 export function playNote(midi: number, duration = 0.3) {
-  const { synth_single_note } = getWasmSync();
-  const samples: Float32Array = synth_single_note(midi, duration);
+  const audioCtx = getContext();
+  if (isSamplerReady() && !samplerFailed()) {
+    const src = playSample(audioCtx, getEffects(audioCtx).input, midi, getAudioTime(), duration);
+    if (src) registerScheduled(src);
+    return;
+  }
+  const samples: Float32Array = getWasmSync().synth_single_note(midi, duration);
   if (samples.length > 0) playBuffer(samples);
 }
 
@@ -150,17 +217,24 @@ export function scheduleNotes(
   startTime = getAudioTime(),
 ) {
   stopScheduled();
-  const { synth_single_note } = getWasmSync();
   const audioCtx = getContext();
+  const fx = getEffects(audioCtx);
+  const useSampler = isSamplerReady() && !samplerFailed();
+  const synth = useSampler ? null : getWasmSync().synth_single_note;
   for (const n of notes) {
     if (!Number.isFinite(n.time) || !Number.isFinite(n.duration) || n.duration <= 0) continue;
-    const samples: Float32Array = synth_single_note(n.midi, n.duration);
-    if (samples.length === 0) continue;
-    const source = audioCtx.createBufferSource();
-    source.buffer = interleavedToBuffer(audioCtx, samples);
-    source.connect(audioCtx.destination);
-    source.start(startTime + n.time);
-    registerScheduled(source);
+    if (useSampler) {
+      const src = playSample(audioCtx, fx.input, n.midi, startTime + n.time, n.duration);
+      if (src) registerScheduled(src);
+    } else {
+      const samples: Float32Array = synth!(n.midi, n.duration);
+      if (samples.length === 0) continue;
+      const source = audioCtx.createBufferSource();
+      source.buffer = interleavedToBuffer(audioCtx, samples);
+      source.connect(audioCtx.destination);
+      source.start(startTime + n.time);
+      registerScheduled(source);
+    }
   }
 }
 
@@ -174,20 +248,27 @@ export function scheduleBass(
   notes: { rootPc: number; time: number; duration: number }[],
   startTime = getAudioTime(),
 ) {
-  const { synth_bass_note } = getWasmSync();
   const audioCtx = getContext();
+  const fx = getEffects(audioCtx);
+  const useSampler = isSamplerReady() && !samplerFailed();
   for (const n of notes) {
     if (!Number.isFinite(n.time) || !Number.isFinite(n.duration) || n.duration <= 0) continue;
-    const samples: Float32Array = synth_bass_note(n.rootPc, n.duration);
-    if (samples.length === 0) continue;
-    const source = audioCtx.createBufferSource();
-    source.buffer = interleavedToBuffer(audioCtx, samples);
-    const gainNode = audioCtx.createGain();
-    gainNode.gain.value = bassVolume;
-    source.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    source.start(startTime + n.time);
-    registerScheduled(source);
+    if (useSampler) {
+      const midi = 36 + (n.rootPc % 12); // octave-2 root (C2 = 36), inside guitar range
+      const src = playSample(audioCtx, fx.input, midi, startTime + n.time, n.duration, 0.9);
+      if (src) registerScheduled(src);
+    } else {
+      const samples: Float32Array = getWasmSync().synth_bass_note(n.rootPc, n.duration);
+      if (samples.length === 0) continue;
+      const source = audioCtx.createBufferSource();
+      source.buffer = interleavedToBuffer(audioCtx, samples);
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = bassVolume;
+      source.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      source.start(startTime + n.time);
+      registerScheduled(source);
+    }
   }
 }
 
