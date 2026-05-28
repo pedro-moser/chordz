@@ -42,8 +42,8 @@
 
   // State
   let presets = $state<Preset[]>([]);
-  let chartInput = $state('Dm7 | G7 | Cmaj7 | Cmaj7');
-  let titleInput = $state('Untitled');
+  let chartInput = $state('Em7b5 | A7b9 | Cm7 | F7 | Fm7 | Bb7 | Ebmaj7 | Ab7#11 | Bbmaj7 | Em7b5 A7b9 | Dm7 | Bbm7 Eb7 | Fmaj7 | Em7b5 | Ebmaj7 | D7b9 | G7b13 | % | Cm7 | % | Ab7#11 | % | Bbmaj7 | % | Em7b5 | A7b9 | Dm7b5 | G7b9 | Cm7b5 | F7b9 | Bbmaj7 | %');
+  let titleInput = $state('Stella by Starlight');
   let solved = $state<SolvedChange[] | null>(null);
   let error = $state<string | null>(null);
   let selectedChord = $state(0);
