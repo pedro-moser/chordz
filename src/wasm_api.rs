@@ -14,6 +14,11 @@ use crate::audio::synth;
 use crate::theory::notes::Note;
 use crate::voicings::solver::{self, SolvedAlternative, SolvedChart, SolverConfig, RelaxationLevel};
 
+#[wasm_bindgen(start)]
+pub fn wasm_init() {
+    console_error_panic_hook::set_once();
+}
+
 fn to_js(value: &impl serde::Serialize) -> JsValue {
     let json = serde_json::to_string(value).unwrap();
     js_sys::JSON::parse(&json).unwrap_or(JsValue::NULL)
