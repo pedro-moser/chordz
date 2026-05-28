@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
+  import ChartGrid from '$lib/components/ChartGrid.svelte';
   import { solveChart, solveChartWithLocks, getPresets } from '$lib/wasm';
   import { playStrum, playClick, stopAll } from '$lib/audio';
   import type { SolvedChange, SolverConfig, Preset } from '$lib/wasm';
@@ -308,7 +309,6 @@
   <!-- Results -->
   {#if solved}
     <div class="tune-result">
-      <!-- Lock status + play all -->
       <div class="result-actions">
         <div class="bpm-control">
           <label class="bpm-label" for="bpm-input">BPM</label>
@@ -326,61 +326,54 @@
           <span class="lock-count">{lockedCount} locked</span>
           <button class="action-btn" onclick={clearLocks}>Clear locks</button>
         {/if}
+        <span class="hint">←→ navigate · h/l swap · Space strum</span>
       </div>
 
-      <!-- Chord navigation -->
-      <div class="chord-nav">
-        <button class="nav-btn" disabled={selectedChord === 0} onclick={() => selectedChord--}>&#9664;</button>
-        {#each solved as change, i}
-          <button
-            class="chord-btn"
-            class:active={i === selectedChord}
-            class:locked={locked[i]}
-            onclick={() => selectedChord = i}
-          >
-            {#if locked[i]}<span class="lock-icon">&#128274;</span>{/if}
-            {change.chord}
-          </button>
-        {/each}
-        <button class="nav-btn" disabled={selectedChord >= solved.length - 1} onclick={() => selectedChord++}>&#9654;</button>
-        <span class="hint">{selectedChord + 1}/{solved.length}</span>
-      </div>
+      <div class="chart-and-detail">
+        <!-- Chart grid (left) -->
+        <div class="chart-side">
+          <ChartGrid
+            changes={solved}
+            selectedIndex={selectedChord}
+            {locked}
+            onselect={(i) => selectedChord = i}
+          />
+        </div>
 
-      <!-- Detail panel -->
-      {#if selected}
-        <div class="chord-detail">
-          <div class="detail-header">
-            <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
-            {#if selected.relaxation !== 'exact'}
-              <span class="relaxation-tag">{selected.relaxation}</span>
-            {/if}
-          </div>
-          <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
+        <!-- Voicing detail (right) -->
+        <div class="detail-side">
+          {#if selected}
+            <div class="detail-header">
+              <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
+              {#if selected.relaxation !== 'exact'}
+                <span class="relaxation-tag">{selected.relaxation}</span>
+              {/if}
+            </div>
+            <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
 
-          <div class="detail-controls">
-            <button class="play-btn" onclick={() => playStrum(selected!.positions)}>Strum (Space)</button>
+            <div class="detail-controls">
+              <button class="play-btn" onclick={() => playStrum(selected!.positions)}>Strum</button>
 
-            <div class="swap-controls">
-              <button class="swap-btn" disabled={selectedAltCount <= 1} onclick={() => swapAlt(-1)} title="Previous alternative (h)">&#9664;</button>
-              <span class="alt-counter">{selectedAltIdx + 1}/{selectedAltCount}</span>
-              <button class="swap-btn" disabled={selectedAltCount <= 1} onclick={() => swapAlt(1)} title="Next alternative (l)">&#9654;</button>
+              <div class="swap-controls">
+                <button class="swap-btn" disabled={selectedAltCount <= 1} onclick={() => swapAlt(-1)}>◀</button>
+                <span class="alt-counter">{selectedAltIdx + 1}/{selectedAltCount}</span>
+                <button class="swap-btn" disabled={selectedAltCount <= 1} onclick={() => swapAlt(1)}>▶</button>
+              </div>
+
+              <label class="lock-toggle">
+                <input type="checkbox" checked={locked[selectedChord] ?? false} onchange={() => toggleLock(selectedChord)} />
+                Lock
+              </label>
             </div>
 
-            <label class="lock-toggle">
-              <input type="checkbox" checked={locked[selectedChord] ?? false} onchange={() => toggleLock(selectedChord)} />
-              Lock
-            </label>
-          </div>
-
-          <VoicingFretboard
-            positions={selected.positions}
-            notes={selected.notes}
-            intervals={selected.intervals ?? []}
-          />
-
-          <p class="keyboard-hint">j/k navigate | h/l swap | Space strum | Enter solve</p>
+            <VoicingFretboard
+              positions={selected.positions}
+              notes={selected.notes}
+              intervals={selected.intervals ?? []}
+            />
+          {/if}
         </div>
-      {/if}
+      </div>
     </div>
   {/if}
 </div>
@@ -584,6 +577,27 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-height: 0;
+  }
+
+  .chart-and-detail {
+    flex: 1;
+    display: flex;
+    gap: 16px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .chart-side {
+    flex: 1;
+    overflow-y: auto;
+    min-width: 300px;
+  }
+
+  .detail-side {
+    width: 280px;
+    flex-shrink: 0;
+    overflow-y: auto;
   }
 
   .result-actions {
@@ -654,56 +668,10 @@
     border-color: var(--primary);
   }
 
-  .chord-nav {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  .chord-btn {
-    padding: 4px 10px;
-    font-size: var(--font-label);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    position: relative;
-  }
-
-  .chord-btn.active {
-    background: var(--primary-muted);
-    border-color: var(--primary);
-    color: var(--text);
-  }
-
-  .chord-btn.locked {
-    border-color: var(--primary);
-  }
-
-  .lock-icon {
-    font-size: 9px;
-    margin-right: 2px;
-  }
-
-  .nav-btn {
-    padding: 4px 8px;
-    font-size: var(--font-label);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-  }
-
-  .nav-btn:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  .nav-btn:not(:disabled):hover {
-    background: var(--primary-muted);
-  }
-
   .hint {
     font-size: var(--font-label);
     color: var(--text-disabled);
-    margin-left: 8px;
+    margin-left: auto;
   }
 
   /* Detail panel */
