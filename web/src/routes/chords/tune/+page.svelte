@@ -60,15 +60,15 @@
   let tension = $state(0.3);
   let smoothness = $state(1.0);
   let variation = $state(0);
-  let noteFilterIdx = $state(0);
-  let fretMin = $state(0);
-  let fretMax = $state(15);
+  let noteFilterIdx = $state(2); // "4"
+  let fretMin = $state(5);
+  let fretMax = $state(9);
   let maxSpan = $state(5);
-  let allowOpenStrings = $state(true);
+  let allowOpenStrings = $state(false);
   let recipeFilterOn = $state(false);
   let recipes = $state(ALL_RECIPES.map(() => true));
-  let stringFilterOn = $state(false);
-  let strings = $state([true, true, true, true, true, true]);
+  let stringFilterOn = $state(true);
+  let strings = $state([false, true, true, true, true, false]);
 
   onMount(() => {
     presets = getPresets();
