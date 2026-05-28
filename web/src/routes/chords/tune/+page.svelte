@@ -60,6 +60,8 @@
   let expandBasicChords = $state(true);
   let recipeFilterOn = $state(false);
   let recipes = $state(ALL_RECIPES.map(() => true));
+  let stringFilterOn = $state(false);
+  let strings = $state([true, true, true, true, true, true]);
 
   onMount(() => {
     presets = getPresets();
@@ -115,6 +117,9 @@
       allowOpenStrings,
       expandBasicChords,
     };
+    if (stringFilterOn) {
+      cfg.allowedStrings = strings;
+    }
     if (recipeFilterOn) {
       const selected = ALL_RECIPES.filter((_, i) => recipes[i]);
       if (selected.length > 0 && selected.length < ALL_RECIPES.length) {
@@ -321,6 +326,20 @@
             {#each ALL_RECIPES as name, i}
               <label class="recipe-label">
                 <input type="checkbox" bind:checked={recipes[i]} /> {name}
+              </label>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <div class="constraint-row">
+        <label>
+          <input type="checkbox" bind:checked={stringFilterOn} /> String filter
+        </label>
+        {#if stringFilterOn}
+          <div class="recipe-checks">
+            {#each ['E', 'A', 'D', 'G', 'B', 'e'] as name, i}
+              <label class="recipe-label">
+                <input type="checkbox" bind:checked={strings[i]} /> {name}
               </label>
             {/each}
           </div>
