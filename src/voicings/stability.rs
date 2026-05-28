@@ -72,21 +72,8 @@ pub fn get_stability_table(
         HarmonicFamily::Diminished => DIM,
     };
 
-    let explicit: Vec<u8> = quality
-        .intervals
-        .iter()
-        .map(|iv| iv.semitones % 12)
-        .collect();
-
-    for &s in &explicit {
-        table[s as usize] = 4;
-    }
-
-    for &s in &explicit {
-        let below = if s == 0 { 11 } else { s - 1 };
-        if !explicit.contains(&below) && table[below as usize] > 1 {
-            table[below as usize] = 1;
-        }
+    for iv in quality.intervals {
+        table[iv.semitones as usize % 12] = 4;
     }
 
     table
