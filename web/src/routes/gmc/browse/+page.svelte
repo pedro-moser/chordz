@@ -16,7 +16,7 @@
   );
 
   let scaleOptions = $derived(
-    $scales.map((s, i) => ({ label: s.name, value: i }))
+    $scales.map((s, i) => ({ label: s.name, value: i, group: s.parent }))
   );
 
   let rootOptions = $derived(
@@ -29,7 +29,13 @@
   ];
 </script>
 
-<SubTabs tabs={gmcTabs} active="Browse" />
+<SubTabs tabs={gmcTabs} active="Browse">
+  {#snippet actions()}
+    <button class="drawer-toggle-btn" onclick={() => drawerOpen.update(v => !v)}>
+      {$drawerOpen ? '◀ Hide pairs' : '▶ Show pairs'}
+    </button>
+  {/snippet}
+</SubTabs>
 
 <div class="gmc-layout">
   <PairDrawer
@@ -50,9 +56,6 @@
         <input type="checkbox" bind:checked={$showIntervals} />
         Intervals
       </label>
-      {#if !$drawerOpen}
-        <button class="drawer-open-btn" onclick={() => drawerOpen.set(true)}>☰ Pairs</button>
-      {/if}
     </div>
 
     <div class="gmc-heading">
@@ -72,6 +75,19 @@
 </div>
 
 <style>
+  .drawer-toggle-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: var(--font-label);
+    cursor: pointer;
+    padding: 2px 8px;
+  }
+
+  .drawer-toggle-btn:hover {
+    color: var(--primary);
+  }
+
   .gmc-layout {
     flex: 1;
     display: flex;

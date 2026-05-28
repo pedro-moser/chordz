@@ -18,9 +18,6 @@
 <aside class="drawer" class:open>
   <div class="drawer-header">
     <span class="drawer-title">Pairs</span>
-    <button class="drawer-toggle" onclick={ontoggle}>
-      {open ? '◀' : '▶'}
-    </button>
   </div>
   {#if open}
     <ul class="pair-list">

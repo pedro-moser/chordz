@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+
   interface Tab {
     label: string;
     href: string;
@@ -7,9 +9,10 @@
   interface Props {
     tabs: Tab[];
     active: string;
+    actions?: Snippet;
   }
 
-  let { tabs, active }: Props = $props();
+  let { tabs, active, actions }: Props = $props();
 </script>
 
 <div class="subtabs">
@@ -18,6 +21,11 @@
       {tab.label}
     </a>
   {/each}
+  {#if actions}
+    <div class="subtab-actions">
+      {@render actions()}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -46,5 +54,12 @@
   .subtab.active {
     color: var(--primary);
     border-bottom-color: var(--primary);
+  }
+
+  .subtab-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 </style>
