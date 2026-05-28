@@ -23,7 +23,7 @@ export function createEffectsChain(ctx: AudioContext): EffectsChain {
   const input = ctx.createGain();
   const lowpass = ctx.createBiquadFilter();
   lowpass.type = 'lowpass';
-  lowpass.frequency.value = 1300; // warmth; lower = darker/closed, higher = brighter
+  lowpass.frequency.value = 2800; // gentle warmth (DI archtop is already mellow); tune by ear
   lowpass.Q.value = 0.7;
 
   const dry = ctx.createGain();

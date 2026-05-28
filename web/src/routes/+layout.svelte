@@ -29,7 +29,7 @@
       <div class="loading">Loading...</div>
     {/if}
     <footer class="attribution">
-      <small>Guitar samples: tonejs-instruments (CC-BY 3.0).</small>
+      <small>Guitar: Karoryfer Shinyguitar (CC0).</small>
     </footer>
   </main>
 </div>
