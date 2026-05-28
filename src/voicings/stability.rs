@@ -5,8 +5,8 @@ pub type StabilityTable = [u8; 12];
 // Major (maj7): R=40 b9=0 9=30 b3=10 3=40 11=0 #11=20 5=40 b13=10 13=30 b7=0 7=40
 const MAJOR: StabilityTable = [40, 0, 30, 10, 40, 0, 20, 40, 10, 30, 0, 40];
 
-// Minor (m7): R=40 b9=10 9=30 b3=40 3=0 11=40 #11=20 5=40 b13=20 13=20 b7=40 maj7=20
-const MINOR: StabilityTable = [40, 10, 30, 40, 0, 40, 20, 40, 20, 20, 40, 20];
+// Minor (m7): R=40 b9=5 9=30 b3=40 3=0 11=40 #11=20 5=40 b13=20 13=20 b7=40 maj7=20
+const MINOR: StabilityTable = [40, 5, 30, 40, 0, 40, 20, 40, 20, 20, 40, 20];
 
 // Dominant natural (→major): R=40 b9=20 9=30 #9=20 3=40 4/sus=20 #11=20 5=40 b13=20 13=30 b7=40 7=0
 const DOM_NATURAL: StabilityTable = [40, 20, 30, 20, 40, 20, 20, 40, 20, 30, 40, 0];
