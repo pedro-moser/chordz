@@ -102,4 +102,62 @@ mod tests {
         assert!(display.contains("2 4 6"), "expected intervals 2 4 6, got: {}", display);
         assert!(display.contains("b3 5 b7"), "expected intervals b3 5 b7, got: {}", display);
     }
+
+    #[test]
+    fn verify_major_scale_all_modes_t_t() {
+        // From Pedro's spreadsheet: Major scale, T/T row
+        // All columns use C as root
+        let expected: &[(&str, [u8; 3], [u8; 3])] = &[
+            // C Ionian: D,F,A + E,G,B
+            ("Ionian", [2, 5, 9], [4, 7, 11]),
+            // C Dorian: D,F,A + Eb,G,Bb
+            ("Dorian", [2, 5, 9], [3, 7, 10]),
+            // C Phrygian: Db,F,Ab + Eb,G,Bb
+            ("Phrygian", [1, 5, 8], [3, 7, 10]),
+            // C Lydian: D,F#,A + E,G,B
+            ("Lydian", [2, 6, 9], [4, 7, 11]),
+            // C Mixolydian: D,F,A + E,G,Bb
+            ("Mixolydian", [2, 5, 9], [4, 7, 10]),
+            // C Aeolian: D,F,Ab + Eb,G,Bb
+            ("Aeolian", [2, 5, 8], [3, 7, 10]),
+            // C Locrian: Db,F,Ab + Eb,Gb,Bb
+            ("Locrian", [1, 5, 8], [3, 6, 10]),
+        ];
+
+        for (name, exp_a, exp_b) in expected {
+            let scale = Scale::ALL.iter().find(|s| s.name == *name).unwrap();
+            let (a, b) = resolve_pair(0, scale, &PAIRS[0]);
+            assert_eq!(a, *exp_a, "T/T group A mismatch for C {}", name);
+            assert_eq!(b, *exp_b, "T/T group B mismatch for C {}", name);
+        }
+    }
+
+    #[test]
+    fn verify_melodic_minor_t_t() {
+        // From spreadsheet: Melodic Minor, T/T row, all C root
+        let expected: &[(&str, [u8; 3], [u8; 3])] = &[
+            // CmΔ7: D,F,A + Eb,G,B
+            ("Melodic Minor", [2, 5, 9], [3, 7, 11]),
+            // C Altered: Db,Fb(4),Ab + Eb,Gb,Bb
+            ("Altered", [1, 4, 8], [3, 6, 10]),
+        ];
+
+        for (name, exp_a, exp_b) in expected {
+            let scale = Scale::ALL.iter().find(|s| s.name == *name).unwrap();
+            let (a, b) = resolve_pair(0, scale, &PAIRS[0]);
+            assert_eq!(a, *exp_a, "T/T group A mismatch for C {}", name);
+            assert_eq!(b, *exp_b, "T/T group B mismatch for C {}", name);
+        }
+    }
+
+    #[test]
+    fn verify_dorian_clus_clus() {
+        // Spreadsheet: C Dorian, Clus/Clus: F,Eb,D + Bb,A,G
+        // sorted by PC: D(2),Eb(3),F(5) + G(7),A(9),Bb(10)
+        let dorian = Scale::ALL.iter().find(|s| s.name == "Dorian").unwrap();
+        let (a, b) = resolve_pair(0, dorian, &PAIRS[6]); // Clus/Clus
+        // indices [0,1,2] + [3,4,5] on [2,3,5,7,9,10]
+        assert_eq!(a, [2, 3, 5]); // D, Eb, F
+        assert_eq!(b, [7, 9, 10]); // G, A, Bb
+    }
 }
