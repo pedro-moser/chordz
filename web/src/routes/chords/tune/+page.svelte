@@ -3,7 +3,7 @@
   import SubTabs from '$lib/components/SubTabs.svelte';
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import { solveChart, solveChartWithLocks, getPresets } from '$lib/wasm';
-  import { playStrum, stopAll } from '$lib/audio';
+  import { playStrum, playClick, stopAll } from '$lib/audio';
   import type { SolvedChange, SolverConfig, Preset } from '$lib/wasm';
 
   const chordTabs = [
@@ -31,6 +31,8 @@
   let locked = $state<boolean[]>([]);
   let constraintsOpen = $state(false);
   let playingAll = $state(false);
+  let bpm = $state(120);
+  let clickEnabled = $state(true);
 
   // Solver constraints
   let tension = $state(0.3);
@@ -184,14 +186,17 @@
   async function playAll() {
     if (!solved || playingAll) return;
     playingAll = true;
-    const bpm = 120;
+    const beatMs = 60000 / bpm;
     for (let i = 0; i < solved.length; i++) {
       if (!playingAll) break;
       selectedChord = i;
       playStrum(solved[i].positions);
       const beats = solved[i].beats;
-      const ms = (beats / bpm) * 60 * 1000;
-      await new Promise(r => setTimeout(r, ms));
+      for (let b = 0; b < beats; b++) {
+        if (!playingAll) break;
+        if (clickEnabled && b > 0) playClick();
+        await new Promise(r => setTimeout(r, beatMs));
+      }
     }
     playingAll = false;
   }
@@ -305,14 +310,21 @@
     <div class="tune-result">
       <!-- Lock status + play all -->
       <div class="result-actions">
-        {#if lockedCount > 0}
-          <span class="lock-count">{lockedCount} locked</span>
-          <button class="action-btn" onclick={clearLocks}>Clear locks</button>
-        {/if}
+        <div class="bpm-control">
+          <label class="bpm-label" for="bpm-input">BPM</label>
+          <input id="bpm-input" type="number" min="40" max="300" bind:value={bpm} class="bpm-input" />
+          <label class="click-label">
+            <input type="checkbox" bind:checked={clickEnabled} /> Click
+          </label>
+        </div>
         {#if playingAll}
           <button class="action-btn playing" onclick={stopPlayAll}>Stop</button>
         {:else}
           <button class="action-btn" onclick={playAll}>Play all</button>
+        {/if}
+        {#if lockedCount > 0}
+          <span class="lock-count">{lockedCount} locked</span>
+          <button class="action-btn" onclick={clearLocks}>Clear locks</button>
         {/if}
       </div>
 
@@ -576,8 +588,45 @@
 
   .result-actions {
     display: flex;
-    gap: 8px;
+    gap: 12px;
     align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .bpm-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .bpm-label {
+    font-size: var(--font-label);
+    color: var(--text-muted);
+  }
+
+  .bpm-input {
+    width: 56px;
+    padding: 3px 6px;
+    font-family: var(--font);
+    font-size: var(--font-label);
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    text-align: center;
+  }
+
+  .click-label {
+    font-size: var(--font-label);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+
+  .click-label input {
+    accent-color: var(--primary);
   }
 
   .lock-count {

@@ -1,9 +1,35 @@
 let ctx: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
+let clickBuffer: AudioBuffer | null = null;
 
 function getContext(): AudioContext {
-  if (!ctx) ctx = new AudioContext();
+  if (!ctx) {
+    ctx = new AudioContext();
+    clickBuffer = createClickBuffer(ctx);
+  }
   return ctx;
+}
+
+function createClickBuffer(audioCtx: AudioContext): AudioBuffer {
+  const sr = audioCtx.sampleRate;
+  const len = Math.floor(sr * 0.02);
+  const buffer = audioCtx.createBuffer(1, len, sr);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    const envelope = Math.exp(-t * 300);
+    data[i] = envelope * Math.sin(2 * Math.PI * 1000 * t) * 0.4;
+  }
+  return buffer;
+}
+
+export function playClick() {
+  const audioCtx = getContext();
+  if (!clickBuffer) return;
+  const source = audioCtx.createBufferSource();
+  source.buffer = clickBuffer;
+  source.connect(audioCtx.destination);
+  source.start();
 }
 
 export function stopAll() {
