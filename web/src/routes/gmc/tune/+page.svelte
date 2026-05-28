@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import { generateGmcLine, getPresets, getPairs, getAllScales } from '$lib/wasm';
-  import { scheduleNotes, scheduleBass, stopScheduled, getAudioTime } from '$lib/audio';
+  import { scheduleNotes, scheduleBass, stopScheduled, getAudioTime, initGuitarAudio, setAmbience } from '$lib/audio';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
 
   const gmcTabs = [
@@ -86,6 +86,7 @@
   })());
 
   onMount(() => {
+    initGuitarAudio();
     presets = getPresets();
     pairs = getPairs();
     scales = getAllScales();
@@ -216,6 +217,8 @@
   // Playback
   let bpm = $state(120);
   let bassEnabled = $state(false);
+  let ambient = $state(true);
+  $effect(() => { setAmbience(ambient ? 0.35 : 0.0); });
   let rafId: number | null = null;
 
   function playThrough() {
@@ -476,6 +479,9 @@
         </div>
         <label class="toggle-label">
           <input type="checkbox" bind:checked={bassEnabled} /> Bass
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" bind:checked={ambient} /> Ambient
         </label>
         <span class="keyboard-hint">←/→ navigate  Space play/pause</span>
       </div>
