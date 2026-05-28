@@ -3,4 +3,5 @@ pub mod chords;
 pub mod gmc;
 pub mod intervals;
 pub mod notes;
+pub mod scale_defaults;
 pub mod scales;
