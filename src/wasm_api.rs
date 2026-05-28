@@ -472,16 +472,26 @@ pub fn solve_chart_with_locks(
 // Audio
 // ---------------------------------------------------------------------------
 
+/// Duplicate a mono buffer into interleaved L/R stereo for the Web Audio bridge.
+fn interleave_mono(mono: &[f32]) -> Vec<f32> {
+    let mut interleaved = Vec::with_capacity(mono.len() * 2);
+    for &s in mono {
+        interleaved.push(s);
+        interleaved.push(s);
+    }
+    interleaved
+}
+
+#[wasm_bindgen]
+pub fn synth_single_note(midi: i32, duration: f32) -> Vec<f32> {
+    let note = Note::from_midi(midi);
+    interleave_mono(&synth::generate_pluck(note, duration))
+}
+
 #[wasm_bindgen]
 pub fn synth_bass_note(root_pc: u8, duration: f32) -> Vec<f32> {
     let note = Note::new(root_pc as i32, 2); // octave 2 = bass register
-    let pluck = synth::generate_pluck(note, duration);
-    let mut interleaved = Vec::with_capacity(pluck.len() * 2);
-    for s in &pluck {
-        interleaved.push(*s);
-        interleaved.push(*s);
-    }
-    interleaved
+    interleave_mono(&synth::generate_pluck(note, duration))
 }
 
 #[wasm_bindgen]

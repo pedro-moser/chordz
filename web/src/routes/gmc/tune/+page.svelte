@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import { generateGmcLine, getPresets, getPairs, getAllScales } from '$lib/wasm';
+  import { scheduleNotes, scheduleBass, stopScheduled, getAudioTime } from '$lib/audio';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
 
   const gmcTabs = [
@@ -43,6 +44,17 @@
   let selectedMeasure = $state(0);
   let playing = $state(false);
   let controlsOpen = $state(true);
+  let scaleModalOpen = $state(false);
+  let fbLabelMode = $state<'order' | 'notes' | 'intervals'>('order');
+
+  const PC_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  const INTERVAL_NAMES = ['1', 'b2', '2', 'b3', '3', '4', 'b5', '5', 'b6', '6', 'b7', '7'];
+
+  function noteLabel(event: GmcLineEvent, chordRootPc: number): string {
+    if (fbLabelMode === 'notes') return PC_NAMES[event.pitchClass] ?? '?';
+    if (fbLabelMode === 'intervals') return INTERVAL_NAMES[(event.pitchClass - chordRootPc + 12) % 12] ?? '?';
+    return '';
+  }
 
   // Derived: measures with events grouped by chord change boundaries
   let measures = $derived((() => {
@@ -78,11 +90,20 @@
     pairs = getPairs();
     scales = getAllScales();
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      stopPlay(); // silence any scheduled melody/bass when leaving the page
+    };
   });
 
   function onKey(e: KeyboardEvent) {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+    // While the scale modal is open, only Escape (to close) is handled — don't let
+    // Space/arrows drive playback or navigation behind the overlay.
+    if (scaleModalOpen) {
+      if (e.key === 'Escape') { e.preventDefault(); scaleModalOpen = false; }
+      return;
+    }
     if (!measures.length) {
       if (e.key === 'Enter') { e.preventDefault(); generate(); }
       return;
@@ -193,27 +214,72 @@
   }
 
   // Playback
-  let playTimer: ReturnType<typeof setTimeout> | null = null;
+  let bpm = $state(120);
+  let bassEnabled = $state(false);
+  let rafId: number | null = null;
 
-  async function playThrough() {
-    if (!measures.length || playing) return;
+  function playThrough() {
+    if (!result?.events || !measures.length || playing) return;
     playing = true;
-    const bpm = 120;
-    const beatMs = 60000 / bpm;
-    for (let i = selectedMeasure; i < measures.length; i++) {
-      if (!playing) break;
-      selectedMeasure = i;
-      const beats = measures[i].chord.beats;
-      await new Promise<void>(r => {
-        playTimer = setTimeout(r, beatMs * beats);
-      });
+
+    // Clamp: the BPM <input> min/max are only HTML hints, so a typed 0 / cleared field
+    // would otherwise yield Infinity timings (and crash the WASM synth on a huge buffer).
+    const safeBpm = Number.isFinite(bpm) && bpm > 0 ? Math.min(300, Math.max(40, bpm)) : 120;
+    const beatSecs = 60 / safeBpm;
+    const startBeat = measures[selectedMeasure]?.startBeat ?? 0;
+
+    // Melody: each note's length is the spacing to the next event (from the baked
+    // beats), so it stays correct even if figureIndex changed without regenerating.
+    const evs = result.events.filter(e => e.beat >= startBeat - 0.001);
+    const audioNotes = evs.map((e, i) => {
+      const nextBeat = i + 1 < evs.length ? evs[i + 1].beat : e.beat + 0.5;
+      const span = Math.max(0.05, nextBeat - e.beat);
+      return {
+        midi: e.midi,
+        time: (e.beat - startBeat) * beatSecs,
+        duration: span * beatSecs * 0.9,
+      };
+    });
+
+    // Single audio-clock origin shared by melody + bass so they stay phase-locked.
+    const startTime = getAudioTime();
+    scheduleNotes(audioNotes, startTime);
+
+    if (bassEnabled) {
+      let cumBeat = 0;
+      const bassNotes: { rootPc: number; time: number; duration: number }[] = [];
+      for (const m of measures) {
+        if (cumBeat >= startBeat - 0.001) {
+          bassNotes.push({
+            rootPc: m.chord.rootPc,
+            time: (cumBeat - startBeat) * beatSecs,
+            duration: m.chord.beats * beatSecs,
+          });
+        }
+        cumBeat += m.chord.beats;
+      }
+      scheduleBass(bassNotes, startTime);
     }
-    playing = false;
+
+    // Drive the measure highlight off the audio clock (no wall-clock drift, no dangling
+    // timer promise on stop). Self-terminates at the end of the chart.
+    const totalBeats = measures.reduce((sum, m) => sum + m.chord.beats, 0);
+    const tick = () => {
+      if (!playing) return;
+      const elapsedBeats = startBeat + (getAudioTime() - startTime) / beatSecs;
+      if (elapsedBeats >= totalBeats - 0.001) { stopPlay(); return; }
+      for (let i = 0; i < measures.length; i++) {
+        if (elapsedBeats < measures[i].endBeat - 0.001) { selectedMeasure = i; break; }
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
   }
 
   function stopPlay() {
     playing = false;
-    if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+    stopScheduled();
   }
 
   // Scale options for dropdown (grouped by parent)
@@ -386,32 +452,10 @@
       {/if}
     </div>
 
-    <!-- Scale overrides section -->
     {#if result?.changes}
-      <div class="scale-overrides">
-        <div class="section-title">Scale Overrides</div>
-        <div class="overrides-grid">
-          {#each result.changes as change, i}
-            <div class="override-row">
-              <span class="override-chord">{change.chord}</span>
-              <select
-                class="override-select"
-                class:overridden={change.isOverride}
-                value={scaleOverrides[i] ?? change.defaultScaleIndex ?? 0}
-                onchange={(e) => {
-                  const val = parseInt((e.target as HTMLSelectElement).value);
-                  const isDefault = val === change.defaultScaleIndex;
-                  setScaleOverride(i, isDefault ? null : val);
-                }}
-              >
-                {#each scales as s, si}
-                  <option value={si}>{s.name}{si === change.defaultScaleIndex ? ' *' : ''}</option>
-                {/each}
-              </select>
-            </div>
-          {/each}
-        </div>
-      </div>
+      <button class="scales-btn" onclick={() => scaleModalOpen = true}>
+        Scales {scaleOverrides.some(o => o !== null) ? '(edited)' : ''}
+      </button>
     {/if}
   </div>
 
@@ -426,6 +470,13 @@
           <button class="action-btn" onclick={playThrough}>Play</button>
         {/if}
         <span class="measure-counter">{selectedMeasure + 1}/{measures.length}</span>
+        <div class="bpm-control">
+          <label class="bpm-label" for="gmc-bpm">BPM</label>
+          <input id="gmc-bpm" type="number" min="40" max="300" bind:value={bpm} class="bpm-input" />
+        </div>
+        <label class="toggle-label">
+          <input type="checkbox" bind:checked={bassEnabled} /> Bass
+        </label>
         <span class="keyboard-hint">←/→ navigate  Space play/pause</span>
       </div>
 
@@ -565,6 +616,11 @@
             <span class="fb-chord">{selectedMeasureData.chord.chord}</span>
             <span class="fb-scale" class:override={selectedMeasureData.chord.isOverride}>{selectedMeasureData.chord.activeScale}</span>
             <span class="fb-position">Position {POSITION_LABELS[positionFret - 1]}</span>
+            <div class="fb-label-toggle">
+              <button class="fb-toggle-btn" class:active={fbLabelMode === 'order'} onclick={() => fbLabelMode = 'order'}>#</button>
+              <button class="fb-toggle-btn" class:active={fbLabelMode === 'notes'} onclick={() => fbLabelMode = 'notes'}>Notes</button>
+              <button class="fb-toggle-btn" class:active={fbLabelMode === 'intervals'} onclick={() => fbLabelMode = 'intervals'}>Intervals</button>
+            </div>
           </div>
           <div class="fb-container">
             <svg
@@ -639,6 +695,7 @@
                 {@const x = fbNoteX(event.fret)}
                 {@const y = fbStringY(event.string)}
                 {@const color = event.triad === 'T1' ? T1_COLOR : T2_COLOR}
+                {@const label = fbLabelMode === 'order' ? String(ei + 1) : noteLabel(event, selectedMeasureData.chord.rootPc)}
                 <circle
                   cx={x}
                   cy={y}
@@ -652,10 +709,10 @@
                   text-anchor="middle"
                   dominant-baseline="central"
                   fill="var(--bg-base)"
-                  font-size="10"
+                  font-size={fbLabelMode === 'order' ? '10' : '8'}
                   font-weight="700"
                   font-family="var(--font)"
-                >{ei + 1}</text>
+                >{label}</text>
               {/each}
             </svg>
           </div>
@@ -666,6 +723,44 @@
     {/if}
   </div>
 </div>
+
+<!-- Scale overrides modal -->
+{#if scaleModalOpen && result?.changes}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="modal-backdrop"
+    onclick={(e) => { if (e.target === e.currentTarget) scaleModalOpen = false; }}
+    onkeydown={(e) => e.key === 'Escape' && (scaleModalOpen = false)}
+  >
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Scale per chord</span>
+        <button class="modal-close" onclick={() => scaleModalOpen = false}>✕</button>
+      </div>
+      <div class="modal-body">
+        {#each result.changes as change, i}
+          <div class="override-row">
+            <span class="override-chord">{change.chord}</span>
+            <select
+              class="override-select"
+              class:overridden={scaleOverrides[i] !== null}
+              value={scaleOverrides[i] ?? change.defaultScaleIndex ?? 0}
+              onchange={(e) => {
+                const val = parseInt((e.target as HTMLSelectElement).value);
+                const isDefault = val === change.defaultScaleIndex;
+                setScaleOverride(i, isDefault ? null : val);
+              }}
+            >
+              {#each scales as s, si}
+                <option value={si}>{s.name}{si === change.defaultScaleIndex ? ' (default)' : ''}</option>
+              {/each}
+            </select>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .tune-layout {
@@ -907,47 +1002,99 @@
     font-size: var(--font-label);
   }
 
-  /* Scale overrides */
-  .scale-overrides {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-top: 4px;
-  }
-
-  .section-title {
-    font-size: var(--font-label);
+  /* Scales button */
+  .scales-btn {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
     color: var(--text-muted);
-    font-weight: 700;
+    padding: 4px 12px;
+    font-size: var(--font-label);
+    cursor: pointer;
+    width: 100%;
   }
 
-  .overrides-grid {
+  .scales-btn:hover {
+    background: var(--primary-muted);
+    color: var(--text);
+  }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal {
+    background: var(--bg-surface, var(--bg-raised));
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 400px;
+    max-height: 80vh;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    max-height: 200px;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-title {
+    font-size: var(--font-heading);
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  .modal-close:hover {
+    color: var(--text);
+  }
+
+  .modal-body {
+    padding: 12px 16px;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
 
   .override-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
   }
 
   .override-chord {
-    font-size: var(--font-label);
+    font-size: var(--font-body);
     color: var(--text);
-    min-width: 72px;
+    min-width: 80px;
     font-weight: 700;
   }
 
   .override-select {
-    font-size: 10px;
-    padding: 1px 4px;
+    font-size: var(--font-label);
+    padding: 3px 6px;
     flex: 1;
     min-width: 0;
     color: var(--text-muted);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
   }
 
   .override-select.overridden {
@@ -970,6 +1117,43 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .bpm-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .bpm-label {
+    font-size: var(--font-label);
+    color: var(--text-muted);
+  }
+
+  .bpm-input {
+    width: 52px;
+    padding: 3px 6px;
+    font-family: var(--font);
+    font-size: var(--font-label);
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    text-align: center;
+  }
+
+  .toggle-label {
+    font-size: var(--font-label);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+
+  .toggle-label input[type="checkbox"] {
+    accent-color: var(--primary);
   }
 
   .action-btn {
@@ -1029,8 +1213,29 @@
 
   .fb-header {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 10px;
+  }
+
+  .fb-label-toggle {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+  }
+
+  .fb-toggle-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .fb-toggle-btn.active {
+    background: var(--primary-muted);
+    border-color: var(--primary);
+    color: var(--text);
   }
 
   .fb-chord {

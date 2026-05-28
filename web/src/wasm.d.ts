@@ -16,4 +16,7 @@ declare module '$wasm/chordz.js' {
   export function synth_chord(positions: any, duration: number): Float32Array;
   export function synth_arpeggio(positions: any, note_duration: number): Float32Array;
   export function synth_bass_note(root_pc: number, duration: number): Float32Array;
+  export function synth_single_note(midi: number, duration: number): Float32Array;
+  export function generate_gmc_line(chart_text: string, title: string, pair_index: number, scale_overrides_js: any, figure_index: number, position_fret: number, pattern_js: any): any;
+  export function get_default_scale_index(quality_name: string): any;
 }

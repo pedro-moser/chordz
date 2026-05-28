@@ -203,6 +203,10 @@ export function generateGmcLine(
   return getWasm().generate_gmc_line(chartText, title, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
 }
 
+export function synthSingleNote(midi: number, duration: number): Float32Array {
+  return new Float32Array(getWasm().synth_single_note(midi, duration));
+}
+
 export function getDefaultScaleIndex(qualityName: string): number | null {
   return getWasm().get_default_scale_index(qualityName);
 }

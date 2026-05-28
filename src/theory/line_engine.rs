@@ -58,7 +58,11 @@ fn find_nearest(notes: &[FretNote], current_midi: i32, direction: Direction) -> 
 }
 
 fn find_closest(notes: &[FretNote], current_midi: i32) -> Option<&FretNote> {
-    notes.iter().min_by_key(|n| (n.midi - current_midi).abs())
+    notes
+        .iter()
+        .filter(|n| n.midi != current_midi)
+        .min_by_key(|n| (n.midi - current_midi).abs())
+        .or_else(|| notes.first())
 }
 
 pub fn generate_line(
@@ -102,6 +106,7 @@ pub fn generate_line(
 
     let mut block_remaining = 0u8;
     let mut block_triad = TriadId::T1;
+    let mut block_first = false;
 
     for event_idx in 0..total_events {
         let beat = event_idx as f32 * beat_dur;
@@ -120,6 +125,7 @@ pub fn generate_line(
                 block_remaining = block.count;
                 block_triad = block.triad;
                 current_direction = block.direction;
+                block_first = true;
             }
         }
 
@@ -132,6 +138,9 @@ pub fn generate_line(
 
         let chosen = if first_note {
             pool.first()
+        } else if block_first {
+            // Connect to the nearest note in the new triad, then continue in direction
+            find_closest(pool, current_midi)
         } else {
             let candidate = find_nearest(pool, current_midi, current_direction);
             if candidate.is_some() {
@@ -146,6 +155,7 @@ pub fn generate_line(
                 }
             }
         };
+        block_first = false;
 
         if let Some(note) = chosen {
             events.push(NoteEvent {
@@ -273,5 +283,60 @@ mod tests {
         config.figure = RhythmicFigure::Triplet;
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
         assert_eq!(events.len(), 12);
+    }
+
+    #[test]
+    fn block_boundary_connects_to_nearest_distinct_note() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = simple_config();
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+
+        // preset_alternating = 3xT1 then 3xT2: index 3 is the first note of the new
+        // (T2) block — the "connecting" note produced by the block_first branch.
+        assert_eq!(events[3].triad, TriadId::T2);
+        // It must not simply repeat the previous pitch when an alternative exists.
+        assert_ne!(events[3].midi, events[2].midi);
+
+        // And it must be exactly the closest distinct note of the new triad's pool to
+        // the previous note — the find_closest contract this feature depends on. (This
+        // guards against silently reverting to the plain find_nearest path.)
+        let scale = crate::theory::scale_defaults::default_scale(chart.changes[0].quality);
+        let tn = super::resolve_triad_notes(
+            chart.changes[0].root_pc,
+            scale,
+            &PAIRS[0],
+            &config.position,
+            &fb,
+        );
+        let expected = super::find_closest(tn.notes_for(TriadId::T2), events[2].midi).unwrap();
+        assert_eq!(events[3].midi, expected.midi);
+    }
+
+    #[test]
+    fn find_closest_skips_the_current_note() {
+        // Pool drawn from a real triad position so we exercise actual FretNote data.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = simple_config();
+        let scale = crate::theory::scale_defaults::default_scale(chart.changes[0].quality);
+        let tn = super::resolve_triad_notes(
+            chart.changes[0].root_pc,
+            scale,
+            &PAIRS[0],
+            &config.position,
+            &fb,
+        );
+        let pool = tn.notes_for(TriadId::T1);
+        let target = pool[0].midi;
+        let has_distinct = pool.iter().any(|n| n.midi != target);
+        let got = super::find_closest(pool, target).unwrap();
+        if has_distinct {
+            // Filter branch: skip the equal-pitch note when an alternative exists.
+            assert_ne!(got.midi, target);
+        } else {
+            // or_else fallback: a single repeated pitch is the only valid choice.
+            assert_eq!(got.midi, target);
+        }
     }
 }

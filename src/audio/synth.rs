@@ -7,6 +7,13 @@ const SAMPLE_RATE: u32 = 44100;
 /// Uses a sine wave with harmonics and an exponential decay envelope.
 /// This is a placeholder — swap with real guitar .wav samples later.
 pub fn generate_pluck(note: Note, duration_secs: f32) -> Vec<f32> {
+    // Guard against non-finite / non-positive / absurd durations: a float->int cast
+    // saturates to usize::MAX, which would make Vec::with_capacity panic and abort the
+    // WASM module. Clamp so no caller (including #[wasm_bindgen] entry points) can crash us.
+    let duration_secs = sanitize_duration(duration_secs);
+    if duration_secs == 0.0 {
+        return Vec::new();
+    }
     let freq = midi_to_freq(note.midi());
     let num_samples = (SAMPLE_RATE as f32 * duration_secs) as usize;
     let mut samples = Vec::with_capacity(num_samples);
@@ -30,8 +37,19 @@ pub fn generate_pluck(note: Note, duration_secs: f32) -> Vec<f32> {
     samples
 }
 
+/// Clamp a requested duration to a finite, positive, bounded range (seconds).
+/// Returns 0.0 for non-finite or non-positive input so callers emit silence.
+fn sanitize_duration(duration_secs: f32) -> f32 {
+    if duration_secs.is_finite() && duration_secs > 0.0 {
+        duration_secs.min(30.0)
+    } else {
+        0.0
+    }
+}
+
 /// Generate a chord sample by mixing multiple notes.
 pub fn generate_chord(notes: &[Note], duration_secs: f32) -> StereoSamples {
+    let duration_secs = sanitize_duration(duration_secs);
     let num_samples = (SAMPLE_RATE as f32 * duration_secs) as usize;
     let mut left = vec![0.0f32; num_samples];
     let mut right = vec![0.0f32; num_samples];

@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 
 echo "Building WASM..."
 wasm-pack build --target web --features wasm
+rm -rf web/pkg          # avoid mv nesting pkg inside an existing web/pkg
 mv pkg web/pkg
 
 echo "Building Svelte..."

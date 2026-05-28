@@ -4,8 +4,7 @@
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import ChartGrid from '$lib/components/ChartGrid.svelte';
   import { solveChart, solveChartWithLocks, getPresets } from '$lib/wasm';
-  import { playStrum, playClick, playBass, stopAll, bassVolume } from '$lib/audio';
-  import * as audio from '$lib/audio';
+  import { playStrum, playClick, playBass, stopAll, getBassVolume, setBassVolume } from '$lib/audio';
   import type { SolvedChange, SolverConfig, Preset } from '$lib/wasm';
 
   const chordTabs = [
@@ -89,7 +88,10 @@
   onMount(() => {
     presets = getPresets();
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      stopPlayAll(); // stop any playback when leaving the page
+    };
   });
 
   function onKey(e: KeyboardEvent) {
@@ -393,8 +395,8 @@
               min="0"
               max="1"
               step="0.1"
-              value={audio.bassVolume}
-              oninput={(e) => audio.bassVolume = Number((e.target as HTMLInputElement).value)}
+              value={getBassVolume()}
+              oninput={(e) => setBassVolume(Number((e.target as HTMLInputElement).value))}
               class="bass-vol"
               title="Bass volume"
             />
