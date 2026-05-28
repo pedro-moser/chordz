@@ -9,6 +9,7 @@ use crate::theory::notes::PC_NAMES;
 use crate::theory::scales::Scale;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::{map_voice_set, Fingering};
+use crate::voicings::procedural::generate_all_voice_sets;
 use crate::voicings::ranking::{rank_fingerings, rank_fingerings_with_crunch};
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
@@ -156,6 +157,7 @@ pub fn generate_voicings(
         return to_js(&serde_json::json!({"error": "invalid family_index"}));
     };
     let mut groups: Vec<serde_json::Value> = Vec::new();
+    let min_stability = 10u8;
 
     for quality_name in family.quality_names() {
         let Some(quality) = ChordQuality::ALL.iter().find(|q| q.name == *quality_name) else {
@@ -163,46 +165,45 @@ pub fn generate_voicings(
         };
         let chord_label = chords::chord_name(root_name, quality);
 
-        for recipe in VoicingRecipe::all() {
-            let voice_sets = recipe.generate_voice_sets(root_pc, quality);
-            for voice_set in voice_sets.iter().filter(|vs| vs.len() == note_count) {
-                let mut fingerings = map_voice_set(voice_set, &fb, &rules);
-                fingerings.retain(|f| {
-                    let mut pcs: Vec<u8> = f
-                        .notes(&fb)
-                        .into_iter()
-                        .flatten()
-                        .map(|n| n.pitch_class)
-                        .collect();
-                    pcs.sort();
-                    pcs.dedup();
-                    pcs.len() == f.played_count()
-                });
-                if prefer_crunch {
-                    rank_fingerings_with_crunch(&mut fingerings, voice_set, &fb);
-                } else {
-                    rank_fingerings(&mut fingerings, voice_set, &fb);
-                }
+        let voice_sets = generate_all_voice_sets(root_pc, quality, note_count, None, min_stability);
 
-                for fingering in fingerings.iter().take(6) {
-                    let positions: Vec<Option<u8>> = fingering.positions.to_vec();
-                    let notes: Vec<_> = fingering.notes(&fb).into_iter().map(|n| {
-                        n.map(|note| serde_json::json!({"pc": note.pitch_class, "name": PC_NAMES[note.pitch_class as usize]}))
-                    }).collect();
-                    let intervals: Vec<_> = fingering
-                        .played_intervals()
-                        .iter()
-                        .map(|iv| iv.name)
-                        .collect();
+        for (voice_set, _stability, label) in &voice_sets {
+            let mut fingerings = map_voice_set(voice_set, &fb, &rules);
+            fingerings.retain(|f| {
+                let mut pcs: Vec<u8> = f
+                    .notes(&fb)
+                    .into_iter()
+                    .flatten()
+                    .map(|n| n.pitch_class)
+                    .collect();
+                pcs.sort();
+                pcs.dedup();
+                pcs.len() == f.played_count()
+            });
+            if prefer_crunch {
+                rank_fingerings_with_crunch(&mut fingerings, voice_set, &fb);
+            } else {
+                rank_fingerings(&mut fingerings, voice_set, &fb);
+            }
 
-                    groups.push(serde_json::json!({
-                        "chord": chord_label,
-                        "recipe": recipe.short_label(),
-                        "positions": positions,
-                        "notes": notes,
-                        "intervals": intervals,
-                    }));
-                }
+            for fingering in fingerings.iter().take(6) {
+                let positions: Vec<Option<u8>> = fingering.positions.to_vec();
+                let notes: Vec<_> = fingering.notes(&fb).into_iter().map(|n| {
+                    n.map(|note| serde_json::json!({"pc": note.pitch_class, "name": PC_NAMES[note.pitch_class as usize]}))
+                }).collect();
+                let intervals: Vec<_> = fingering
+                    .played_intervals()
+                    .iter()
+                    .map(|iv| iv.name)
+                    .collect();
+
+                groups.push(serde_json::json!({
+                    "chord": chord_label,
+                    "recipe": label,
+                    "positions": positions,
+                    "notes": notes,
+                    "intervals": intervals,
+                }));
             }
         }
     }
@@ -263,11 +264,6 @@ fn parse_solver_config(config_js: JsValue) -> SolverConfig {
         .get("allowOpenStrings")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let expand_basic_chords = obj
-        .get("expandBasicChords")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-
     let recipes = if let Some(arr) = obj.get("recipes").and_then(|v| v.as_array()) {
         let selected: Vec<VoicingRecipe> = arr
             .iter()
@@ -315,7 +311,6 @@ fn parse_solver_config(config_js: JsValue) -> SolverConfig {
         min_fret,
         allowed_strings,
         allow_open_strings,
-        expand_basic_chords,
         tension_target,
         tension_weight: 6.0,
         rank_weight: 1,

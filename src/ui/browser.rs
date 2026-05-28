@@ -11,6 +11,7 @@ use super::fretboard::{compact_interval_name, paint_fretboard};
 use crate::theory::chords;
 use crate::theory::chords::ChordFamily;
 use crate::voicings::generate::{map_voice_set, Fingering};
+use crate::voicings::procedural::generate_all_voice_sets;
 use crate::voicings::ranking::rank_fingerings;
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
@@ -42,17 +43,7 @@ impl ChordzApp {
             require_root: false,
         };
         let root_pc = chords::root_to_pc(self.root()).unwrap();
-        let recipes = [
-            VoicingRecipe::Shell,
-            VoicingRecipe::Closed,
-            VoicingRecipe::Drop2,
-            VoicingRecipe::Drop3,
-            VoicingRecipe::RootlessA,
-            VoicingRecipe::RootlessB,
-            VoicingRecipe::Quartal,
-            VoicingRecipe::UpperStructureTriad,
-            VoicingRecipe::TriadPair,
-        ];
+        let min_stability = 10u8;
 
         struct FlatEntry {
             quality: &'static chords::ChordQuality,
@@ -65,21 +56,21 @@ impl ChordzApp {
 
         for quality_name in self.family().quality_names() {
             let quality = find_quality(quality_name);
-            for recipe in recipes {
-                let voice_sets = recipe.generate_voice_sets(root_pc, quality);
-                for voice_set in voice_sets.iter().filter(|vs| vs.len() == note_count) {
-                    let mut fingerings = map_voice_set(voice_set, &self.fretboard, &rules);
-                    fingerings.retain(|f| has_unique_pitch_classes(f, &self.fretboard));
-                    rank_fingerings(&mut fingerings, voice_set, &self.fretboard);
-                    flat.extend(fingerings.into_iter().take(VOICINGS_PER_VOICE_SET).map(
-                        |fingering| FlatEntry {
-                            quality,
-                            recipe: voice_set.recipe,
-                            tension: tension_label(quality, voice_set.recipe),
-                            fingering,
-                        },
-                    ));
-                }
+            let voice_sets =
+                generate_all_voice_sets(root_pc, quality, note_count, None, min_stability);
+
+            for (voice_set, _stability, _label) in &voice_sets {
+                let mut fingerings = map_voice_set(voice_set, &self.fretboard, &rules);
+                fingerings.retain(|f| has_unique_pitch_classes(f, &self.fretboard));
+                rank_fingerings(&mut fingerings, voice_set, &self.fretboard);
+                flat.extend(fingerings.into_iter().take(VOICINGS_PER_VOICE_SET).map(
+                    |fingering| FlatEntry {
+                        quality,
+                        recipe: voice_set.recipe,
+                        tension: tension_label(quality, voice_set.recipe),
+                        fingering,
+                    },
+                ));
             }
         }
 
