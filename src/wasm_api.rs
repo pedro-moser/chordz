@@ -546,3 +546,117 @@ pub fn synth_arpeggio(positions_js: JsValue, note_duration: f32) -> Vec<f32> {
     }
     interleaved
 }
+
+// ---------------------------------------------------------------------------
+// GMC Tune mode: line generation
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen]
+pub fn generate_gmc_line(
+    chart_text: &str,
+    title: &str,
+    pair_index: usize,
+    scale_overrides_js: JsValue,
+    figure_index: usize,     // 0=Eighth, 1=Sixteenth, 2=Triplet
+    position_fret: u8,       // base fret 1-12
+    pattern_js: JsValue,     // array of {count, direction, triad}
+) -> JsValue {
+    use crate::theory::line_engine::{self, LineConfig};
+    use crate::theory::line_pattern::{Direction, Pattern, PatternBlock, RhythmicFigure, TriadId};
+    use crate::theory::position::NeckPosition;
+    use crate::theory::scale_defaults;
+
+    // Parse chart
+    let chart = match Chart::parse(title, chart_text) {
+        Ok(c) => c,
+        Err(e) => return to_js(&serde_json::json!({"error": format!("{}", e)})),
+    };
+
+    // Parse scale overrides: array of (number | null)
+    let overrides_raw: Vec<Option<usize>> = serde_wasm_bindgen::from_value(scale_overrides_js)
+        .unwrap_or_default();
+
+    // Parse pattern blocks
+    let blocks_raw: Vec<serde_json::Value> = serde_wasm_bindgen::from_value(pattern_js)
+        .unwrap_or_default();
+    let blocks: Vec<PatternBlock> = blocks_raw.iter().map(|b| {
+        PatternBlock {
+            count: b["count"].as_u64().unwrap_or(3) as u8,
+            direction: if b["direction"].as_str() == Some("desc") { Direction::Descending } else { Direction::Ascending },
+            triad: if b["triad"].as_str() == Some("T2") { TriadId::T2 } else { TriadId::T1 },
+        }
+    }).collect();
+
+    if blocks.is_empty() {
+        return to_js(&serde_json::json!({"error": "empty pattern"}));
+    }
+
+    let pattern = Pattern { name: "custom", blocks };
+    let figure = match figure_index {
+        1 => RhythmicFigure::Sixteenth,
+        2 => RhythmicFigure::Triplet,
+        _ => RhythmicFigure::Eighth,
+    };
+
+    let pair = match PAIRS.get(pair_index) {
+        Some(p) => p,
+        None => return to_js(&serde_json::json!({"error": "invalid pair_index"})),
+    };
+
+    let config = LineConfig {
+        pattern,
+        figure,
+        position: NeckPosition::new(position_fret),
+    };
+
+    let fretboard = Fretboard::standard_tuning();
+    let events = line_engine::generate_line(&chart, &overrides_raw, &fretboard, pair, &config);
+
+    // Build response with events and chord info
+    let changes_info: Vec<_> = chart.changes.iter().enumerate().map(|(i, c)| {
+        let default_scale = scale_defaults::default_scale(c.quality);
+        let actual_scale = overrides_raw
+            .get(i)
+            .and_then(|o| o.map(|idx| &Scale::ALL[idx]))
+            .unwrap_or(default_scale);
+        let is_override = overrides_raw.get(i).map(|o| o.is_some()).unwrap_or(false);
+        serde_json::json!({
+            "chord": chords::chord_name(&c.root, c.quality),
+            "rootPc": c.root_pc,
+            "beats": c.beats,
+            "defaultScale": default_scale.name,
+            "defaultScaleIndex": Scale::ALL.iter().position(|s| s.name == default_scale.name),
+            "activeScale": actual_scale.name,
+            "isOverride": is_override,
+        })
+    }).collect();
+
+    let events_json: Vec<_> = events.iter().map(|e| {
+        serde_json::json!({
+            "beat": e.beat,
+            "string": e.string,
+            "fret": e.fret,
+            "triad": if e.triad == TriadId::T1 { "T1" } else { "T2" },
+            "pitchClass": e.pitch_class,
+            "midi": e.midi,
+        })
+    }).collect();
+
+    to_js(&serde_json::json!({
+        "events": events_json,
+        "changes": changes_info,
+        "totalBeats": chart.total_beats(),
+    }))
+}
+
+#[wasm_bindgen]
+pub fn get_default_scale_index(quality_name: &str) -> JsValue {
+    use crate::theory::scale_defaults;
+    let quality = match ChordQuality::ALL.iter().find(|q| q.name == quality_name) {
+        Some(q) => q,
+        None => return JsValue::NULL,
+    };
+    let scale = scale_defaults::default_scale(quality);
+    let idx = Scale::ALL.iter().position(|s| s.name == scale.name);
+    to_js(&idx)
+}

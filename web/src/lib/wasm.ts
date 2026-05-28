@@ -156,3 +156,53 @@ export function solveChartWithLocks(
 ): SolveResult {
   return getWasm().solve_chart_with_locks(chartText, title, config ?? {}, locks);
 }
+
+// --- GMC Tune Mode ---
+
+export interface GmcLineEvent {
+  beat: number;
+  string: number;
+  fret: number;
+  triad: 'T1' | 'T2';
+  pitchClass: number;
+  midi: number;
+}
+
+export interface GmcChordInfo {
+  chord: string;
+  rootPc: number;
+  beats: number;
+  defaultScale: string;
+  defaultScaleIndex: number;
+  activeScale: string;
+  isOverride: boolean;
+}
+
+export interface GmcLineResult {
+  events?: GmcLineEvent[];
+  changes?: GmcChordInfo[];
+  totalBeats?: number;
+  error?: string;
+}
+
+export interface GmcPatternBlock {
+  count: number;
+  direction: 'asc' | 'desc';
+  triad: 'T1' | 'T2';
+}
+
+export function generateGmcLine(
+  chartText: string,
+  title: string,
+  pairIndex: number,
+  scaleOverrides: (number | null)[],
+  figureIndex: number,
+  positionFret: number,
+  pattern: GmcPatternBlock[],
+): GmcLineResult {
+  return getWasm().generate_gmc_line(chartText, title, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
+}
+
+export function getDefaultScaleIndex(qualityName: string): number | null {
+  return getWasm().get_default_scale_index(qualityName);
+}
