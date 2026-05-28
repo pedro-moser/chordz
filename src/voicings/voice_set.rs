@@ -69,6 +69,33 @@ impl VoiceSet {
         }
     }
 
+    /// Create a `VoiceSet` for procedural generation, skipping the check that
+    /// all intervals belong to the source chord quality.
+    ///
+    /// This is needed because the procedural generator builds intervals from
+    /// the stability pool, which may include extensions not in the base quality.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `intervals` is empty or its length differs from `octave_offsets`.
+    pub fn new_procedural(
+        root_pc: u8,
+        intervals: Vec<Interval>,
+        octave_offsets: Vec<i32>,
+        recipe: VoicingRecipe,
+        source_quality: &'static ChordQuality,
+    ) -> Self {
+        assert!(!intervals.is_empty());
+        assert_eq!(intervals.len(), octave_offsets.len());
+        Self {
+            root_pc,
+            intervals,
+            octave_offsets,
+            recipe,
+            source_quality,
+        }
+    }
+
     /// Compute the pitch class for each interval, accounting for octave offsets.
     pub fn pitch_classes(&self) -> Vec<u8> {
         self.intervals
