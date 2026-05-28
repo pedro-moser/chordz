@@ -23,7 +23,7 @@
 
   // State
   let presets = $state<Preset[]>([]);
-  let chartInput = $state('Dm7 | G7 | Cmaj7 | Cmaj7');
+  let chartInput = $state('Dm7 | G7 | Cmaj7 | %');
   let titleInput = $state('Untitled');
   let solved = $state<SolvedChange[] | null>(null);
   let error = $state<string | null>(null);
