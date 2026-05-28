@@ -31,7 +31,7 @@ pub enum VoicingRecipe {
 }
 
 impl VoicingRecipe {
-    /// Human-readable name for display.
+    /// Full name for display (e.g. in ASCII diagrams, exports).
     pub fn name(&self) -> &'static str {
         match self {
             Self::Closed => "closed",
@@ -43,6 +43,21 @@ impl VoicingRecipe {
             Self::Quartal => "quartal",
             Self::UpperStructureTriad => "upper-structure-triad",
             Self::TriadPair => "triad-pair",
+        }
+    }
+
+    /// Short label for compact UI (sidebar, status bar).
+    pub fn short_label(&self) -> &'static str {
+        match self {
+            Self::Closed => "closed",
+            Self::Shell => "shell",
+            Self::RootlessA => "rless-a",
+            Self::RootlessB => "rless-b",
+            Self::Drop2 => "drop2",
+            Self::Drop3 => "drop3",
+            Self::Quartal => "quartal",
+            Self::UpperStructureTriad => "upper",
+            Self::TriadPair => "triads",
         }
     }
 
@@ -101,23 +116,7 @@ impl VoicingRecipe {
     /// Returns an empty vec for chord qualities that cannot form a shell
     /// (e.g., diminished chords without a recognizable 3rd/7th pair).
     pub fn generate_shell(&self, root_pc: u8, quality: &'static ChordQuality) -> Vec<VoiceSet> {
-        // Determine chord family from the quality's intervals.
-        let has_m3 = quality.intervals.contains(&Interval::M3);
-        let has_m7 = quality.intervals.contains(&Interval::M7);
-        let has_m3b = quality.intervals.contains(&Interval::m3);
-        let has_m7b = quality.intervals.contains(&Interval::m7);
-
-        let (third, seventh): (Interval, Interval) = if has_m3 && has_m7 {
-            // Major: M3 + M7
-            (Interval::M3, Interval::M7)
-        } else if has_m3 && has_m7b {
-            // Dominant: M3 + m7
-            (Interval::M3, Interval::m7)
-        } else if has_m3b && has_m7b {
-            // Minor: m3 + m7
-            (Interval::m3, Interval::m7)
-        } else {
-            // Unsupported chord quality for shell voicings.
+        let Some((third, seventh)) = guide_tones(quality) else {
             return Vec::new();
         };
 
@@ -159,23 +158,7 @@ impl VoicingRecipe {
     /// Returns an empty vec for chord qualities that cannot form a
     /// rootless voicing (no recognizable 3rd/7th pair).
     pub fn generate_rootless(&self, root_pc: u8, quality: &'static ChordQuality) -> Vec<VoiceSet> {
-        // Determine chord family from the quality's intervals.
-        let has_m3 = quality.intervals.contains(&Interval::M3);
-        let has_m7 = quality.intervals.contains(&Interval::M7);
-        let has_m3b = quality.intervals.contains(&Interval::m3);
-        let has_m7b = quality.intervals.contains(&Interval::m7);
-
-        let (third, seventh): (Interval, Interval) = if has_m3 && has_m7 {
-            // Major: M3 + M7
-            (Interval::M3, Interval::M7)
-        } else if has_m3 && has_m7b {
-            // Dominant: M3 + m7
-            (Interval::M3, Interval::m7)
-        } else if has_m3b && has_m7b {
-            // Minor: m3 + m7
-            (Interval::m3, Interval::m7)
-        } else {
-            // Unsupported chord quality for rootless voicings.
+        let Some((third, seventh)) = guide_tones(quality) else {
             return Vec::new();
         };
 
@@ -559,7 +542,7 @@ impl VoicingRecipe {
     }
 }
 
-fn guide_tones(quality: &ChordQuality) -> Option<(Interval, Interval)> {
+pub fn guide_tones(quality: &ChordQuality) -> Option<(Interval, Interval)> {
     if quality.intervals.contains(&Interval::M3) && quality.intervals.contains(&Interval::M7) {
         Some((Interval::M3, Interval::M7))
     } else if quality.intervals.contains(&Interval::M3) && quality.intervals.contains(&Interval::m7)

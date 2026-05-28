@@ -24,10 +24,7 @@ impl Note {
 
     /// Transpose this note by a given number of semitones.
     pub fn transpose(self, semitones: i32) -> Self {
-        Self::new(
-            self.pitch_class as i32 + semitones,
-            self.octave as i32 as i8,
-        )
+        Self::new(self.pitch_class as i32 + semitones, self.octave)
     }
 
     /// The MIDI note number for this note.

@@ -196,8 +196,8 @@ const QUALITY_ALIASES: &[(&str, &str)] = &[
     ("°7", "dim7"),
     ("°", "dim7"),
     // Augmented
-    ("aug7", "aug7"),
-    ("+7", "aug7"),
+    ("aug7", "dom7#5"),
+    ("+7", "dom7#5"),
 ];
 
 /// Normalize unicode accidentals to ASCII equivalents.

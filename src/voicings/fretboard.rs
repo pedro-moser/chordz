@@ -69,20 +69,19 @@ mod tests {
             fb.get_note(0, 0).unwrap().pitch_class
         );
     }
-}
 
-#[test]
-fn test_invalid_string_returns_none() {
-    let fb = Fretboard::standard_tuning();
-    assert!(fb.get_note(6, 0).is_none());
-    assert!(fb.get_note(7, 0).is_none());
-}
+    #[test]
+    fn test_invalid_string_returns_none() {
+        let fb = Fretboard::standard_tuning();
+        assert!(fb.get_note(6, 0).is_none());
+        assert!(fb.get_note(7, 0).is_none());
+    }
 
-#[test]
-fn test_fret_beyond_num_frets_returns_none() {
-    let fb = Fretboard::standard_tuning();
-    // num_frets = 24, so fret 25 is out of bounds
-    assert!(fb.get_note(0, 24).is_some());
-    assert!(fb.get_note(0, 25).is_none());
-    assert!(fb.get_note(0, 100).is_none());
+    #[test]
+    fn test_fret_beyond_num_frets_returns_none() {
+        let fb = Fretboard::standard_tuning();
+        assert!(fb.get_note(0, 24).is_some());
+        assert!(fb.get_note(0, 25).is_none());
+        assert!(fb.get_note(0, 100).is_none());
+    }
 }

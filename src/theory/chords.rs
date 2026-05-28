@@ -183,11 +183,6 @@ impl ChordQuality {
                 Interval::dim7,
             ],
         },
-        // Augmented
-        Self {
-            name: "aug7",
-            intervals: &[Interval::UNISON, Interval::M3, Interval::m6, Interval::m7],
-        },
     ];
 }
 
@@ -230,7 +225,6 @@ pub fn chord_name(root: &str, quality: &ChordQuality) -> String {
             )
         }
         "dim7" => format!("{}dim7", root),
-        "aug7" => format!("{}aug7", root),
         _ => format!("{}{}", root, quality.name),
     }
 }
