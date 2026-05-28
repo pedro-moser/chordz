@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use eframe::egui;
 
-use super::fretboard::{compact_interval_name, paint_fretboard};
+use super::fretboard::{compact_interval_name, paint_fretboard, paint_panoramic_fretboard};
 use crate::audio::engine::AudioEngine;
 use crate::theory::chart::Chart;
 use crate::theory::chords::{self, ChordQuality};
+use crate::theory::gmc::{self, PAIRS};
+use crate::theory::scales::Scale;
 use crate::theory::intervals::Interval;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::{map_voice_set, Fingering};
@@ -81,19 +84,38 @@ pub struct VoicingGroup {
 pub enum AppMode {
     Browser,
     Tune,
+    Gmc,
+}
+
+struct GmcState {
+    root_index: usize,
+    scale_index: usize,
+    pair_index: usize,
+    show_intervals: bool,
+}
+
+impl Default for GmcState {
+    fn default() -> Self {
+        Self {
+            root_index: 0,
+            scale_index: 1, // Dorian
+            pair_index: 0,
+            show_intervals: false,
+        }
+    }
 }
 
 const TUNE_BPM: f32 = 120.0;
-const TUNE_RECIPES: [(VoicingRecipe, &str); 9] = [
-    (VoicingRecipe::Shell, "shell"),
-    (VoicingRecipe::Closed, "closed"),
-    (VoicingRecipe::Drop2, "drop2"),
-    (VoicingRecipe::Drop3, "drop3"),
-    (VoicingRecipe::RootlessA, "rless-a"),
-    (VoicingRecipe::RootlessB, "rless-b"),
-    (VoicingRecipe::Quartal, "quartal"),
-    (VoicingRecipe::UpperStructureTriad, "upper"),
-    (VoicingRecipe::TriadPair, "triads"),
+const TUNE_RECIPES: [VoicingRecipe; 9] = [
+    VoicingRecipe::Shell,
+    VoicingRecipe::Closed,
+    VoicingRecipe::Drop2,
+    VoicingRecipe::Drop3,
+    VoicingRecipe::RootlessA,
+    VoicingRecipe::RootlessB,
+    VoicingRecipe::Quartal,
+    VoicingRecipe::UpperStructureTriad,
+    VoicingRecipe::TriadPair,
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -190,7 +212,7 @@ impl TuneConstraints {
             let selected: Vec<VoicingRecipe> = TUNE_RECIPES
                 .iter()
                 .enumerate()
-                .filter_map(|(i, (recipe, _))| self.recipes[i].then_some(*recipe))
+                .filter_map(|(i, recipe)| self.recipes[i].then_some(*recipe))
                 .collect();
             if selected.is_empty() {
                 VoicingRecipe::all().to_vec()
@@ -268,6 +290,7 @@ pub struct ChordzApp {
     fretboard: Fretboard,
     audio: Option<AudioEngine>,
     tune: TuneState,
+    gmc: GmcState,
 }
 
 impl ChordzApp {
@@ -284,6 +307,7 @@ impl ChordzApp {
             fretboard: Fretboard::standard_tuning(),
             audio,
             tune: TuneState::default(),
+            gmc: GmcState::default(),
         };
         app.refresh_voicings();
         app
@@ -415,40 +439,25 @@ impl ChordzApp {
 
         let fretboard = &self.fretboard;
         let mut groups: Vec<VoicingGroup> = Vec::new();
+        let mut group_index: HashMap<(&str, VoicingRecipe, u16), usize> = HashMap::new();
 
         for entry in flat {
-            let mut pcs: Vec<u8> = entry
+            let pc_bits: u16 = entry
                 .fingering
                 .notes(fretboard)
                 .into_iter()
                 .flatten()
-                .map(|n| n.pitch_class)
-                .collect();
-            pcs.sort();
-            pcs.dedup();
+                .fold(0u16, |bits, n| bits | (1 << n.pitch_class));
 
-            let existing = groups.iter_mut().find(|g| {
-                g.quality.name == entry.quality.name && g.recipe == entry.recipe && {
-                    let mut g_pcs: Vec<u8> = g.entries[0]
-                        .fingering
-                        .notes(fretboard)
-                        .into_iter()
-                        .flatten()
-                        .map(|n| n.pitch_class)
-                        .collect();
-                    g_pcs.sort();
-                    g_pcs.dedup();
-                    g_pcs == pcs
-                }
-            });
-
-            if let Some(group) = existing {
-                group.entries.push(VoicingEntry {
+            let key = (entry.quality.name, entry.recipe, pc_bits);
+            if let Some(&idx) = group_index.get(&key) {
+                groups[idx].entries.push(VoicingEntry {
                     recipe: entry.recipe,
                     tension: entry.tension,
                     fingering: entry.fingering,
                 });
             } else {
+                let idx = groups.len();
                 let intervals = entry.fingering.played_intervals();
                 groups.push(VoicingGroup {
                     quality: entry.quality,
@@ -460,6 +469,7 @@ impl ChordzApp {
                         fingering: entry.fingering,
                     }],
                 });
+                group_index.insert(key, idx);
             }
         }
 
@@ -486,10 +496,12 @@ impl eframe::App for ChordzApp {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.mode, AppMode::Browser, "Browser");
                 ui.selectable_value(&mut self.mode, AppMode::Tune, "Tune");
+                ui.selectable_value(&mut self.mode, AppMode::Gmc, "GMC");
                 ui.separator();
                 match self.mode {
                     AppMode::Browser => self.show_selectors(ui),
                     AppMode::Tune => self.show_tune_controls(ui),
+                    AppMode::Gmc => self.show_gmc_controls(ui),
                 }
             });
         });
@@ -497,6 +509,7 @@ impl eframe::App for ChordzApp {
         match self.mode {
             AppMode::Browser => self.update_browser(ctx),
             AppMode::Tune => self.update_tune(ctx),
+            AppMode::Gmc => self.update_gmc(ctx),
         }
     }
 }
@@ -894,7 +907,7 @@ impl ChordzApp {
                             relax,
                             i + 1,
                             chord_name,
-                            recipe_label(change.recipe),
+                            change.recipe.short_label(),
                             fret_lo,
                             fret_hi,
                             dist,
@@ -991,8 +1004,8 @@ impl ChordzApp {
         ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut c.recipe_filter_on, "Recipes");
             if c.recipe_filter_on {
-                for (i, (_, label)) in TUNE_RECIPES.iter().enumerate() {
-                    ui.checkbox(&mut c.recipes[i], *label);
+                for (i, recipe) in TUNE_RECIPES.iter().enumerate() {
+                    ui.checkbox(&mut c.recipes[i], recipe.short_label());
                 }
             }
         });
@@ -1029,7 +1042,7 @@ impl ChordzApp {
         ui.heading(format!(
             "{}  {}  ({}/{})",
             chord_name,
-            recipe_label(recipe),
+            recipe.short_label(),
             idx + 1,
             total,
         ));
@@ -1245,7 +1258,7 @@ impl ChordzApp {
                 let label = format!(
                     "{:<8} {:>7}  {}  ({})",
                     chord_name,
-                    recipe_label(group.recipe),
+                    group.recipe.short_label(),
                     intervals.join(" "),
                     count,
                 );
@@ -1266,7 +1279,7 @@ impl ChordzApp {
             ui.heading(format!(
                 "{}  {}  {}",
                 chord_name,
-                recipe_label(entry.recipe),
+                entry.recipe.short_label(),
                 entry.tension,
             ));
             ui.separator();
@@ -1333,6 +1346,81 @@ impl ChordzApp {
     }
 }
 
+// --- GMC mode ---
+
+impl ChordzApp {
+    fn show_gmc_controls(&mut self, ui: &mut egui::Ui) {
+        ui.label("Root:");
+        egui::ComboBox::from_id_salt("gmc_root")
+            .selected_text(chords::ROOTS[self.gmc.root_index])
+            .show_ui(ui, |ui| {
+                for (i, name) in chords::ROOTS.iter().enumerate() {
+                    ui.selectable_value(&mut self.gmc.root_index, i, *name);
+                }
+            });
+
+        ui.add_space(8.0);
+        ui.label("Scale:");
+        let current_scale = &Scale::ALL[self.gmc.scale_index];
+        egui::ComboBox::from_id_salt("gmc_scale")
+            .selected_text(current_scale.name)
+            .show_ui(ui, |ui| {
+                let mut last_parent = None;
+                for (i, scale) in Scale::ALL.iter().enumerate() {
+                    if last_parent != Some(scale.parent) {
+                        if last_parent.is_some() {
+                            ui.separator();
+                        }
+                        ui.label(scale.parent.name());
+                        last_parent = Some(scale.parent);
+                    }
+                    ui.selectable_value(&mut self.gmc.scale_index, i, scale.name);
+                }
+            });
+
+        ui.add_space(8.0);
+        ui.checkbox(&mut self.gmc.show_intervals, "Intervals");
+    }
+
+    fn update_gmc(&mut self, ctx: &egui::Context) {
+        let scale = &Scale::ALL[self.gmc.scale_index];
+        let root_pc = self.gmc.root_index as u8;
+        let pair = &PAIRS[self.gmc.pair_index];
+        let (triad_a, triad_b) = gmc::resolve_pair(root_pc, scale, pair);
+
+        egui::SidePanel::left("gmc_pairs").default_width(220.0).show(ctx, |ui| {
+            ui.heading("Pairs");
+            ui.separator();
+            for (i, p) in PAIRS.iter().enumerate() {
+                let display = gmc::pair_display(root_pc, scale, p);
+                let label = format!("{:<10} {}", p.label, display);
+                if ui.selectable_label(i == self.gmc.pair_index, label).clicked() {
+                    self.gmc.pair_index = i;
+                }
+            }
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading(format!(
+                "{} {} — {}",
+                chords::ROOTS[self.gmc.root_index],
+                scale.name,
+                pair.label,
+            ));
+            ui.separator();
+            paint_panoramic_fretboard(
+                ui,
+                &self.fretboard,
+                root_pc,
+                &triad_a,
+                &triad_b,
+                scale,
+                self.gmc.show_intervals,
+            );
+        });
+    }
+}
+
 // --- Pure logic helpers (no UI dependency) ---
 
 fn find_quality(name: &str) -> &'static ChordQuality {
@@ -1351,32 +1439,11 @@ fn has_unique_pitch_classes(fingering: &Fingering, fretboard: &Fretboard) -> boo
     true
 }
 
-fn recipe_label(recipe: VoicingRecipe) -> &'static str {
-    match recipe {
-        VoicingRecipe::Closed => "closed",
-        VoicingRecipe::Shell => "shell",
-        VoicingRecipe::RootlessA => "rless-a",
-        VoicingRecipe::RootlessB => "rless-b",
-        VoicingRecipe::Drop2 => "drop2",
-        VoicingRecipe::Drop3 => "drop3",
-        VoicingRecipe::Quartal => "quartal",
-        VoicingRecipe::UpperStructureTriad => "upper",
-        VoicingRecipe::TriadPair => "triads",
-    }
-}
-
 fn recipe_order(recipe: VoicingRecipe) -> usize {
-    match recipe {
-        VoicingRecipe::Shell => 0,
-        VoicingRecipe::Closed => 1,
-        VoicingRecipe::Drop2 => 2,
-        VoicingRecipe::Drop3 => 3,
-        VoicingRecipe::RootlessA => 4,
-        VoicingRecipe::RootlessB => 5,
-        VoicingRecipe::Quartal => 6,
-        VoicingRecipe::UpperStructureTriad => 7,
-        VoicingRecipe::TriadPair => 8,
-    }
+    VoicingRecipe::all()
+        .iter()
+        .position(|r| *r == recipe)
+        .unwrap_or(usize::MAX)
 }
 
 fn quality_order(family: ChordFamily, quality: &ChordQuality) -> usize {
