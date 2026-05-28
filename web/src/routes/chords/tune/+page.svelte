@@ -18,7 +18,7 @@
     { label: 'Grounded', value: 0.0, tensionRange: [0.0, 0.3] },
     { label: 'Balanced', value: 0.3, tensionRange: [0.0, 0.7] },
     { label: 'Open', value: 0.6, tensionRange: [0.3, 1.0] },
-    { label: 'Abstract', value: 1.0, tensionRange: [0.7, 1.0] },
+    { label: 'Abstract', value: 1.0, tensionRange: [0.3, 1.0] },
   ];
   const TENSION_PRESETS = [
     { label: 'Low', value: 0.0 },
