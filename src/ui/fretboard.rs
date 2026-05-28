@@ -37,8 +37,8 @@ pub(crate) fn paint_fretboard(ui: &mut egui::Ui, fingering: &Fingering, fretboar
     let origin = response.rect.left_top();
 
     let string_labels = ["E", "A", "D", "G", "B", "e"];
-    let stroke_thin = egui::Stroke::new(1.0, egui::Color32::GRAY);
-    let stroke_thick = egui::Stroke::new(2.0, egui::Color32::WHITE);
+    let stroke_thin = egui::Stroke::new(1.0_f32, egui::Color32::GRAY);
+    let stroke_thick = egui::Stroke::new(2.0_f32, egui::Color32::WHITE);
 
     for (s, label) in string_labels.iter().enumerate() {
         let x = origin.x + left_margin + s as f32 * string_spacing;
@@ -102,7 +102,7 @@ pub(crate) fn paint_fretboard(ui: &mut egui::Ui, fingering: &Fingering, fretboar
                 painter.circle_stroke(
                     egui::pos2(x, origin.y + top_margin - 12.0),
                     6.0,
-                    egui::Stroke::new(1.5, egui::Color32::WHITE),
+                    egui::Stroke::new(1.5_f32, egui::Color32::WHITE),
                 );
             }
             Some(fret) => {
@@ -180,8 +180,8 @@ pub(crate) fn paint_panoramic_fretboard(
 
     let color_a = egui::Color32::from_rgb(100, 160, 255);
     let color_b = egui::Color32::from_rgb(255, 140, 50);
-    let stroke_thin = egui::Stroke::new(1.0, egui::Color32::GRAY);
-    let stroke_nut = egui::Stroke::new(2.5, egui::Color32::WHITE);
+    let stroke_thin = egui::Stroke::new(1.0_f32, egui::Color32::GRAY);
+    let stroke_nut = egui::Stroke::new(2.5_f32, egui::Color32::WHITE);
 
     // Draw fret lines (vertical)
     for f in 0..=num_frets {

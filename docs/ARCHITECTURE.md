@@ -19,8 +19,6 @@ The app should help a player answer questions like:
 
 - UI: `eframe` / `egui` native desktop window.
 - Audio: `kira` playback with generated in-memory WAV buffers.
-- Persistence dependency: `dirs` is present, but favorites/presets are still a
-  placeholder.
 - Tests: focused Rust unit tests across theory, rendering, voicings, solver, and
   synth modules.
 
@@ -39,7 +37,6 @@ src/
   render/              Pure ASCII diagram renderer and golden tests.
   audio/               Synth sample generation and kira playback engine.
   ui/                  egui application state, views, widgets, and commands.
-  storage/             Future user data persistence.
 ```
 
 ## Module Responsibilities
@@ -75,8 +72,7 @@ Important files:
 - `fretboard.rs`: standard tuning and safe string/fret note lookup.
 - `recipe.rs`: `VoicingRecipe` plus recipe-to-`VoiceSet` generation.
 - `voice_set.rs`: abstract selected intervals before guitar mapping.
-- `generate.rs`: legacy full-stack `Voicing` generator and modern
-  `VoiceSet -> Fingering` mapper.
+- `generate.rs`: `VoiceSet -> Fingering` mapper (`map_voice_set`).
 - `ranking.rs`: musical and ergonomic scoring for mapped fingerings.
 - `voice_leading.rs`: distance metric between two fingerings.
 - `solver.rs`: chart-level dynamic programming solver with tension and optional
@@ -171,11 +167,6 @@ Rules:
   stop it.
 - Long generated progressions may block the UI today; moving synthesis off the
   UI thread is a good future improvement.
-
-### storage
-
-Currently a placeholder. Intended ownership is user data only: favorites,
-presets, and config files under the platform config directory.
 
 ## Quality Gates
 

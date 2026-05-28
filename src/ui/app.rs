@@ -14,8 +14,8 @@ type Audio = ();
 use crate::theory::chart::Chart;
 use crate::theory::chords::{self, ChordQuality};
 use crate::theory::gmc::{self, PAIRS};
-use crate::theory::scales::Scale;
 use crate::theory::intervals::Interval;
+use crate::theory::scales::Scale;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::{map_voice_set, Fingering};
 use crate::voicings::ranking::rank_fingerings;
@@ -1408,17 +1408,22 @@ impl ChordzApp {
         let pair = &PAIRS[self.gmc.pair_index];
         let (triad_a, triad_b) = gmc::resolve_pair(root_pc, scale, pair);
 
-        egui::SidePanel::left("gmc_pairs").default_width(220.0).show(ctx, |ui| {
-            ui.heading("Pairs");
-            ui.separator();
-            for (i, p) in PAIRS.iter().enumerate() {
-                let display = gmc::pair_display(root_pc, scale, p);
-                let label = format!("{:<10} {}", p.label, display);
-                if ui.selectable_label(i == self.gmc.pair_index, label).clicked() {
-                    self.gmc.pair_index = i;
+        egui::SidePanel::left("gmc_pairs")
+            .default_width(220.0)
+            .show(ctx, |ui| {
+                ui.heading("Pairs");
+                ui.separator();
+                for (i, p) in PAIRS.iter().enumerate() {
+                    let display = gmc::pair_display(root_pc, scale, p);
+                    let label = format!("{:<10} {}", p.label, display);
+                    if ui
+                        .selectable_label(i == self.gmc.pair_index, label)
+                        .clicked()
+                    {
+                        self.gmc.pair_index = i;
+                    }
                 }
-            }
-        });
+            });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading(format!(

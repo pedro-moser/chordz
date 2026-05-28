@@ -14,15 +14,9 @@ omit the fifth.
 
 ## Current Engine Shape
 
-The project now has two generators:
-
-- Legacy `generate`: maps every interval in a `ChordQuality` exactly once. Keep
-  this around for baseline tests and simple closed voicings.
-- Modern recipe pipeline: expands a `VoicingRecipe` into `VoiceSet` candidates,
-  maps each `VoiceSet` to `Fingering`, ranks the results, and optionally solves
-  chart-level voice leading.
-
-The modern path is the target behavior for new work.
+The engine uses a single recipe pipeline: expands a `VoicingRecipe` into
+`VoiceSet` candidates, maps each `VoiceSet` to `Fingering` via `map_voice_set`,
+ranks the results, and optionally solves chart-level voice leading.
 
 ```text
 root_pc + ChordQuality

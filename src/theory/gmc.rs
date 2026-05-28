@@ -7,16 +7,46 @@ pub struct TriadPairSet {
 }
 
 pub const PAIRS: [TriadPairSet; 10] = [
-    TriadPairSet { label: "T/T", indices: ([0, 2, 4], [1, 3, 5]) },
-    TriadPairSet { label: "T/7no5", indices: ([0, 3, 5], [1, 2, 4]) },
-    TriadPairSet { label: "T/7no3", indices: ([0, 2, 5], [1, 3, 4]) },
-    TriadPairSet { label: "Sus/Sus", indices: ([0, 3, 4], [1, 2, 5]) },
-    TriadPairSet { label: "Sus/7no5", indices: ([0, 1, 4], [2, 3, 5]) },
-    TriadPairSet { label: "Sus/7no3", indices: ([1, 4, 5], [0, 2, 3]) },
-    TriadPairSet { label: "Clus/Clus", indices: ([0, 1, 2], [3, 4, 5]) },
-    TriadPairSet { label: "Clus/7no5", indices: ([1, 2, 3], [0, 4, 5]) },
-    TriadPairSet { label: "Clus/7no3", indices: ([2, 3, 4], [0, 1, 5]) },
-    TriadPairSet { label: "7no5/7no3", indices: ([2, 4, 5], [0, 1, 3]) },
+    TriadPairSet {
+        label: "T/T",
+        indices: ([0, 2, 4], [1, 3, 5]),
+    },
+    TriadPairSet {
+        label: "T/7no5",
+        indices: ([0, 3, 5], [1, 2, 4]),
+    },
+    TriadPairSet {
+        label: "T/7no3",
+        indices: ([0, 2, 5], [1, 3, 4]),
+    },
+    TriadPairSet {
+        label: "Sus/Sus",
+        indices: ([0, 3, 4], [1, 2, 5]),
+    },
+    TriadPairSet {
+        label: "Sus/7no5",
+        indices: ([0, 1, 4], [2, 3, 5]),
+    },
+    TriadPairSet {
+        label: "Sus/7no3",
+        indices: ([1, 4, 5], [0, 2, 3]),
+    },
+    TriadPairSet {
+        label: "Clus/Clus",
+        indices: ([0, 1, 2], [3, 4, 5]),
+    },
+    TriadPairSet {
+        label: "Clus/7no5",
+        indices: ([1, 2, 3], [0, 4, 5]),
+    },
+    TriadPairSet {
+        label: "Clus/7no3",
+        indices: ([2, 3, 4], [0, 1, 5]),
+    },
+    TriadPairSet {
+        label: "7no5/7no3",
+        indices: ([2, 4, 5], [0, 1, 3]),
+    },
 ];
 
 pub fn resolve_pair(root_pc: u8, scale: &Scale, pair: &TriadPairSet) -> ([u8; 3], [u8; 3]) {
@@ -36,8 +66,18 @@ pub fn resolve_pair(root_pc: u8, scale: &Scale, pair: &TriadPairSet) -> ([u8; 3]
 
 pub fn pair_display(root_pc: u8, scale: &Scale, pair: &TriadPairSet) -> String {
     let tones = scale.non_root_semitones();
-    let intervals_a: Vec<&str> = pair.indices.0.iter().map(|&i| scale.interval_name(tones[i])).collect();
-    let intervals_b: Vec<&str> = pair.indices.1.iter().map(|&i| scale.interval_name(tones[i])).collect();
+    let intervals_a: Vec<&str> = pair
+        .indices
+        .0
+        .iter()
+        .map(|&i| scale.interval_name(tones[i]))
+        .collect();
+    let intervals_b: Vec<&str> = pair
+        .indices
+        .1
+        .iter()
+        .map(|&i| scale.interval_name(tones[i]))
+        .collect();
     let (pcs_a, pcs_b) = resolve_pair(root_pc, scale, pair);
     let notes_a: Vec<&str> = pcs_a.iter().map(|&pc| PC_NAMES[pc as usize]).collect();
     let notes_b: Vec<&str> = pcs_b.iter().map(|&pc| PC_NAMES[pc as usize]).collect();
@@ -60,21 +100,31 @@ mod tests {
             let mut all_indices: Vec<usize> = pair.indices.0.to_vec();
             all_indices.extend_from_slice(&pair.indices.1);
             all_indices.sort();
-            assert_eq!(all_indices, vec![0, 1, 2, 3, 4, 5], "pair {} missing indices", pair.label);
+            assert_eq!(
+                all_indices,
+                vec![0, 1, 2, 3, 4, 5],
+                "pair {} missing indices",
+                pair.label
+            );
         }
     }
 
     #[test]
     fn no_duplicate_pairs() {
-        for i in 0..PAIRS.len() {
-            for j in (i + 1)..PAIRS.len() {
-                let mut a_i: Vec<usize> = PAIRS[i].indices.0.to_vec();
+        for (i, pair_i) in PAIRS.iter().enumerate() {
+            for (j, pair_j) in PAIRS.iter().enumerate().skip(i + 1) {
+                let mut a_i: Vec<usize> = pair_i.indices.0.to_vec();
                 a_i.sort();
-                let mut a_j: Vec<usize> = PAIRS[j].indices.0.to_vec();
+                let mut a_j: Vec<usize> = pair_j.indices.0.to_vec();
                 a_j.sort();
-                let mut b_j: Vec<usize> = PAIRS[j].indices.1.to_vec();
+                let mut b_j: Vec<usize> = pair_j.indices.1.to_vec();
                 b_j.sort();
-                assert!(a_i != a_j && a_i != b_j, "duplicate pair at {} and {}", i, j);
+                assert!(
+                    a_i != a_j && a_i != b_j,
+                    "duplicate pair at {} and {}",
+                    i,
+                    j
+                );
             }
         }
     }
@@ -99,8 +149,16 @@ mod tests {
     fn pair_display_shows_intervals_and_notes() {
         let dorian = Scale::ALL.iter().find(|s| s.name == "Dorian").unwrap();
         let display = pair_display(0, dorian, &PAIRS[0]);
-        assert!(display.contains("2 4 6"), "expected intervals 2 4 6, got: {}", display);
-        assert!(display.contains("b3 5 b7"), "expected intervals b3 5 b7, got: {}", display);
+        assert!(
+            display.contains("2 4 6"),
+            "expected intervals 2 4 6, got: {}",
+            display
+        );
+        assert!(
+            display.contains("b3 5 b7"),
+            "expected intervals b3 5 b7, got: {}",
+            display
+        );
     }
 
     #[test]
@@ -156,7 +214,7 @@ mod tests {
         // sorted by PC: D(2),Eb(3),F(5) + G(7),A(9),Bb(10)
         let dorian = Scale::ALL.iter().find(|s| s.name == "Dorian").unwrap();
         let (a, b) = resolve_pair(0, dorian, &PAIRS[6]); // Clus/Clus
-        // indices [0,1,2] + [3,4,5] on [2,3,5,7,9,10]
+                                                         // indices [0,1,2] + [3,4,5] on [2,3,5,7,9,10]
         assert_eq!(a, [2, 3, 5]); // D, Eb, F
         assert_eq!(b, [7, 9, 10]); // G, A, Bb
     }

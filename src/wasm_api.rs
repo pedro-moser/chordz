@@ -1,8 +1,10 @@
 use wasm_bindgen::prelude::*;
 
+use crate::audio::synth;
 use crate::theory::chart::Chart;
 use crate::theory::chords::{self, ChordQuality};
 use crate::theory::gmc::{self, PAIRS};
+use crate::theory::notes::Note;
 use crate::theory::notes::PC_NAMES;
 use crate::theory::scales::Scale;
 use crate::voicings::fretboard::Fretboard;
@@ -10,9 +12,9 @@ use crate::voicings::generate::{map_voice_set, Fingering};
 use crate::voicings::ranking::{rank_fingerings, rank_fingerings_with_crunch};
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
-use crate::audio::synth;
-use crate::theory::notes::Note;
-use crate::voicings::solver::{self, SolvedAlternative, SolvedChart, SolverConfig, RelaxationLevel};
+use crate::voicings::solver::{
+    self, RelaxationLevel, SolvedAlternative, SolvedChart, SolverConfig,
+};
 
 #[wasm_bindgen(start)]
 pub fn wasm_init() {
@@ -70,8 +72,12 @@ pub fn get_pairs() -> JsValue {
 
 #[wasm_bindgen]
 pub fn resolve_pair(root_pc: u8, scale_index: usize, pair_index: usize) -> JsValue {
-    let scale = &Scale::ALL[scale_index];
-    let pair = &PAIRS[pair_index];
+    let Some(scale) = Scale::ALL.get(scale_index) else {
+        return to_js(&serde_json::json!({"error": "invalid scale_index"}));
+    };
+    let Some(pair) = PAIRS.get(pair_index) else {
+        return to_js(&serde_json::json!({"error": "invalid pair_index"}));
+    };
     let (a, b) = gmc::resolve_pair(root_pc, scale, pair);
     let result = serde_json::json!({
         "triadA": a,
@@ -82,8 +88,12 @@ pub fn resolve_pair(root_pc: u8, scale_index: usize, pair_index: usize) -> JsVal
 
 #[wasm_bindgen]
 pub fn pair_display(root_pc: u8, scale_index: usize, pair_index: usize) -> String {
-    let scale = &Scale::ALL[scale_index];
-    let pair = &PAIRS[pair_index];
+    let Some(scale) = Scale::ALL.get(scale_index) else {
+        return String::new();
+    };
+    let Some(pair) = PAIRS.get(pair_index) else {
+        return String::new();
+    };
     gmc::pair_display(root_pc, scale, pair)
 }
 
@@ -115,7 +125,9 @@ pub fn get_interval_name(semitone: u8) -> String {
 fn family_quality_names(family_index: usize) -> &'static [&'static str] {
     match family_index {
         0 => &["maj7", "maj9", "maj13", "maj7#11"],
-        1 => &["dom7", "dom9", "dom13", "dom7b9", "dom7#9", "dom7#5", "dom7#11", "dom7b13"],
+        1 => &[
+            "dom7", "dom9", "dom13", "dom7b9", "dom7#9", "dom7#5", "dom7#11", "dom7b13",
+        ],
         2 => &["m7", "m9", "m11", "m13"],
         3 => &["m7b5", "m9b11"],
         4 => &["dim7"],
@@ -134,7 +146,15 @@ pub fn get_families() -> JsValue {
 }
 
 #[wasm_bindgen]
-pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usize, prefer_crunch: bool) -> JsValue {
+pub fn generate_voicings(
+    root_index: usize,
+    family_index: usize,
+    note_count: usize,
+    prefer_crunch: bool,
+) -> JsValue {
+    let Some(root_name) = chords::ROOTS.get(root_index) else {
+        return to_js(&serde_json::json!({"error": "invalid root_index"}));
+    };
     let root_pc = root_index as u8;
     let fb = Fretboard::standard_tuning();
     let rules = VoicingRules {
@@ -151,14 +171,19 @@ pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usi
         let Some(quality) = ChordQuality::ALL.iter().find(|q| q.name == *quality_name) else {
             continue;
         };
-        let chord_label = chords::chord_name(chords::ROOTS[root_index], quality);
+        let chord_label = chords::chord_name(root_name, quality);
 
         for recipe in VoicingRecipe::all() {
             let voice_sets = recipe.generate_voice_sets(root_pc, quality);
             for voice_set in voice_sets.iter().filter(|vs| vs.len() == note_count) {
                 let mut fingerings = map_voice_set(voice_set, &fb, &rules);
                 fingerings.retain(|f| {
-                    let mut pcs: Vec<u8> = f.notes(&fb).into_iter().flatten().map(|n| n.pitch_class).collect();
+                    let mut pcs: Vec<u8> = f
+                        .notes(&fb)
+                        .into_iter()
+                        .flatten()
+                        .map(|n| n.pitch_class)
+                        .collect();
                     pcs.sort();
                     pcs.dedup();
                     pcs.len() == f.played_count()
@@ -174,7 +199,11 @@ pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usi
                     let notes: Vec<_> = fingering.notes(&fb).into_iter().map(|n| {
                         n.map(|note| serde_json::json!({"pc": note.pitch_class, "name": PC_NAMES[note.pitch_class as usize]}))
                     }).collect();
-                    let intervals: Vec<_> = fingering.played_intervals().iter().map(|iv| iv.name).collect();
+                    let intervals: Vec<_> = fingering
+                        .played_intervals()
+                        .iter()
+                        .map(|iv| iv.name)
+                        .collect();
 
                     groups.push(serde_json::json!({
                         "chord": chord_label,
@@ -265,18 +294,33 @@ fn parse_solver_config(config_js: JsValue) -> SolverConfig {
     let max_fret_span = obj.get("maxFretSpan").and_then(|v| v.as_u64()).unwrap_or(5) as u8;
     let max_fret = obj.get("maxFret").and_then(|v| v.as_u64()).unwrap_or(15) as u8;
     let min_fret = obj.get("minFret").and_then(|v| v.as_u64()).unwrap_or(0) as u8;
-    let tension_target = obj.get("tensionTarget").and_then(|v| v.as_f64()).unwrap_or(0.3) as f32;
-    let smoothness_weight = obj.get("smoothnessWeight").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+    let tension_target = obj
+        .get("tensionTarget")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.3) as f32;
+    let smoothness_weight = obj
+        .get("smoothnessWeight")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0) as f32;
     let jitter = obj.get("jitter").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    let allow_open_strings = obj.get("allowOpenStrings").and_then(|v| v.as_bool()).unwrap_or(true);
-    let expand_basic_chords = obj.get("expandBasicChords").and_then(|v| v.as_bool()).unwrap_or(true);
+    let allow_open_strings = obj
+        .get("allowOpenStrings")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let expand_basic_chords = obj
+        .get("expandBasicChords")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     let recipes = if let Some(arr) = obj.get("recipes").and_then(|v| v.as_array()) {
         let selected: Vec<VoicingRecipe> = arr
             .iter()
             .filter_map(|v| v.as_str())
             .filter_map(|name| {
-                RECIPE_NAMES.iter().find(|(n, _)| *n == name).map(|(_, r)| *r)
+                RECIPE_NAMES
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, r)| *r)
             })
             .collect();
         if selected.is_empty() {
@@ -487,7 +531,8 @@ pub fn synth_bass_note(root_pc: u8, duration: f32) -> Vec<f32> {
 
 #[wasm_bindgen]
 pub fn synth_chord(positions_js: JsValue, duration: f32) -> Vec<f32> {
-    let positions: Vec<Option<u8>> = serde_wasm_bindgen::from_value(positions_js).unwrap_or_default();
+    let positions: Vec<Option<u8>> =
+        serde_wasm_bindgen::from_value(positions_js).unwrap_or_default();
     let fb = Fretboard::standard_tuning();
     let notes: Vec<Note> = positions
         .iter()
@@ -508,7 +553,8 @@ pub fn synth_chord(positions_js: JsValue, duration: f32) -> Vec<f32> {
 
 #[wasm_bindgen]
 pub fn synth_arpeggio(positions_js: JsValue, note_duration: f32) -> Vec<f32> {
-    let positions: Vec<Option<u8>> = serde_wasm_bindgen::from_value(positions_js).unwrap_or_default();
+    let positions: Vec<Option<u8>> =
+        serde_wasm_bindgen::from_value(positions_js).unwrap_or_default();
     let fb = Fretboard::standard_tuning();
     let notes: Vec<Note> = positions
         .iter()

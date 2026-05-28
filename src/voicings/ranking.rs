@@ -51,9 +51,8 @@ pub fn rank_fingerings_with_crunch(
     voice_set: &VoiceSet,
     fretboard: &Fretboard,
 ) {
-    fingerings.sort_by_key(|fingering| {
-        Reverse(score_with_crunch(fingering, voice_set, fretboard, true))
-    });
+    fingerings
+        .sort_by_key(|fingering| Reverse(score_with_crunch(fingering, voice_set, fretboard, true)));
 }
 
 fn guide_tone_score(fingering: &Fingering, voice_set: &VoiceSet) -> i32 {
@@ -109,7 +108,7 @@ fn crunch_bonus(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
     let mut small_intervals = 0;
     for i in 1..midis.len() {
         let gap = midis[i] - midis[i - 1];
-        if gap >= 1 && gap <= 2 {
+        if (1..=2).contains(&gap) {
             small_intervals += 1;
         }
     }
