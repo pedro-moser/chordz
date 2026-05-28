@@ -11,8 +11,8 @@ const MINOR: StabilityTable = [4, 1, 3, 4, 0, 4, 2, 4, 2, 2, 4, 2];
 // Dominant natural (→major): R=4 b9=2 9=3 #9=2 3=4 4/sus=3 #11=2 5=4 b13=2 13=3 b7=4 7=0
 const DOM_NATURAL: StabilityTable = [4, 2, 3, 2, 4, 3, 2, 4, 2, 3, 4, 0];
 
-// Dominant altered (→minor/tritone sub): R=4 b9=3 9=2 #9=3 3=4 4/sus=2 #11=2 5=4 b13=3 13=1 b7=4 7=0
-const DOM_ALTERED: StabilityTable = [4, 3, 2, 3, 4, 2, 2, 4, 3, 1, 4, 0];
+// Dominant altered (→minor/tritone sub): R=4 b9=3 9=2 #9=3 3=4 4/sus=1 #11=3 5=4 b13=3 13=1 b7=4 7=0
+const DOM_ALTERED: StabilityTable = [4, 3, 2, 3, 4, 1, 3, 4, 3, 1, 4, 0];
 
 // Half-diminished (m7b5): R=4 b9=1 9=2 b3=4 3=0 11=3 b5=4 5=0 b13=2 13=1 b7=4 7=1
 const HALF_DIM: StabilityTable = [4, 1, 2, 4, 0, 3, 4, 0, 2, 1, 4, 1];
