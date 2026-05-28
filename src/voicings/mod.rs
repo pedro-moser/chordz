@@ -1,8 +1,10 @@
 pub mod fretboard;
 pub mod generate;
+pub mod procedural;
 pub mod ranking;
 pub mod recipe;
 pub mod rules;
 pub mod solver;
+pub mod stability;
 pub mod voice_leading;
 pub mod voice_set;
