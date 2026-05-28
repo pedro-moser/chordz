@@ -13,6 +13,18 @@
   ];
 
   const ALL_RECIPES = ['shell', 'closed', 'drop2', 'drop3', 'rless-a', 'rless-b', 'quartal', 'upper', 'triads'];
+  const VOICING_STYLES = [
+    { label: 'Grounded', value: 0.0 },
+    { label: 'Balanced', value: 0.3 },
+    { label: 'Open', value: 0.6 },
+    { label: 'Abstract', value: 1.0 },
+  ];
+  const SMOOTHNESS_PRESETS = [
+    { label: 'Free', value: 0.0 },
+    { label: 'Normal', value: 1.0 },
+    { label: 'Smooth', value: 2.0 },
+    { label: 'Tight', value: 3.0 },
+  ];
   const NOTE_FILTERS: { label: string; min: number; max: number }[] = [
     { label: '3-4', min: 3, max: 4 },
     { label: '3', min: 3, max: 3 },
@@ -249,12 +261,20 @@
     {#if constraintsOpen}
     <div class="constraints-panel">
       <div class="constraint-row">
-        <label>Tension <span class="val">{tension.toFixed(2)}</span></label>
-        <input type="range" min="0" max="1" step="0.05" bind:value={tension} />
+        <label>Style</label>
+        <div class="btn-group">
+          {#each VOICING_STYLES as vs}
+            <button class="filter-btn" class:active={tension === vs.value} onclick={() => tension = vs.value}>{vs.label}</button>
+          {/each}
+        </div>
       </div>
       <div class="constraint-row">
-        <label>Smoothness <span class="val">{smoothness.toFixed(1)}</span></label>
-        <input type="range" min="0" max="3" step="0.1" bind:value={smoothness} />
+        <label>Movement</label>
+        <div class="btn-group">
+          {#each SMOOTHNESS_PRESETS as sp}
+            <button class="filter-btn" class:active={smoothness === sp.value} onclick={() => smoothness = sp.value}>{sp.label}</button>
+          {/each}
+        </div>
       </div>
       <div class="constraint-row">
         <label>Variation <span class="val">{variation}</span></label>
