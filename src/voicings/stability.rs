@@ -8,11 +8,11 @@ const MAJOR: StabilityTable = [4, 0, 3, 1, 4, 1, 2, 4, 1, 3, 0, 4];
 // Minor (m7): R=4 b9=1 9=3 b3=4 3=0 11=4 #11=2 5=4 b13=2 13=2 b7=4 maj7=2
 const MINOR: StabilityTable = [4, 1, 3, 4, 0, 4, 2, 4, 2, 2, 4, 2];
 
-// Dominant natural (→major): R=4 b9=2 9=3 #9=2 3=4 4/sus=3 #11=2 5=4 b13=2 13=3 b7=4 7=0
-const DOM_NATURAL: StabilityTable = [4, 2, 3, 2, 4, 3, 2, 4, 2, 3, 4, 0];
+// Dominant natural (→major): R=4 b9=2 9=3 #9=2 3=4 4/sus=2 #11=2 5=4 b13=2 13=3 b7=4 7=0
+const DOM_NATURAL: StabilityTable = [4, 2, 3, 2, 4, 2, 2, 4, 2, 3, 4, 0];
 
-// Dominant altered (→minor/tritone sub): R=4 b9=3 9=2 #9=3 3=4 4/sus=1 #11=3 5=4 b13=3 13=1 b7=4 7=0
-const DOM_ALTERED: StabilityTable = [4, 3, 2, 3, 4, 1, 3, 4, 3, 1, 4, 0];
+// Dominant altered (→minor/tritone sub): R=4 b9=3 9=2 #9=3 3=4 4/sus=1 #11=3 5=4 b13=2 13=1 b7=4 7=0
+const DOM_ALTERED: StabilityTable = [4, 3, 2, 3, 4, 1, 3, 4, 2, 1, 4, 0];
 
 // Half-diminished (m7b5): R=4 b9=1 9=2 b3=4 3=0 11=3 b5=4 5=0 b13=2 13=1 b7=4 7=1
 const HALF_DIM: StabilityTable = [4, 1, 2, 4, 0, 3, 4, 0, 2, 1, 4, 1];
@@ -135,8 +135,8 @@ pub fn apply_abstraction(table: &mut StabilityTable, quality: &ChordQuality, abs
         let is_third = third_semitones.contains(&sem);
         if is_root || is_third {
             // R and 3rd are the most "obvious" — drop aggressively
-            // Abstract(1.0): 4→1, Open(0.6): 4→2, Balanced(0.3): 4→3
-            let new_val = s as f32 * (1.0 - abstraction * 0.8);
+            // Abstract(1.0): 4→1, Open(0.6): 4→1, Balanced(0.3): 4→2
+            let new_val = s as f32 * (1.0 - abstraction);
             *entry = (new_val.round() as u8).max(1);
         } else {
             // 5th, 7th: drop less — still useful for structure
