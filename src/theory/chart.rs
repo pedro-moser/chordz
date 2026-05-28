@@ -1,5 +1,40 @@
 use crate::theory::chords::{self, ChordQuality};
 
+/// Built-in tune presets: (title, chord changes).
+pub const PRESETS: &[(&str, &str)] = &[
+    (
+        "Stella by Starlight",
+        "Em7b5 | A7b9 | Cm7 | F7 | Fm7 | Bb7 | Ebmaj7 | Ab7#11 | \
+         Bbmaj7 | Em7b5 A7b9 | Dm7 | Bbm7 Eb7 | Fmaj7 | Em7b5 | Ebmaj7 | D7b9 | \
+         G7b13 | % | Cm7 | % | Ab7#11 | % | Bbmaj7 | % | \
+         Em7b5 | A7b9 | Dm7b5 | G7b9 | Cm7b5 | F7b9 | Bbmaj7 | %",
+    ),
+    (
+        "Just Friends",
+        "Cmaj7 | % | Cm7 | F7 | Gmaj7 | % | Bbm7 | Eb7 | \
+         Am7 | D7 | Gmaj7 | Em7 | A7 | % | Am7 | D7 G7 | \
+         Cmaj7 | % | Cm7 | F7 | Gmaj7 | % | Bbm7 | Eb7 | \
+         Am7 | D7 | F#m7b5 B7b9 | Em7 | A7 | Am7 D7 | Gmaj7 | Dm7 G7",
+    ),
+    (
+        "Moment's Notice",
+        "Em7 A7 | Fm7 Bb7 | Ebmaj7 | Abm7 Db7 | \
+         Dm7 G7 | Ebm7 Ab7 | Dbmaj7 | Dm7 G7 | \
+         Cm7 B7 | Bbm7 Eb7 | Abmaj7 | Abm7 Db7 | \
+         Gm7 C7 | Abm7 Db7 | Gbmaj7 | Fm7 Bb7 | \
+         Gm7 C7 | Fm7 Bb7 | Ebmaj7 | Fm7 | \
+         Gm7 | Fm7 | Ebmaj7 Fm7 | Gm7 Fm7 | \
+         Ebmaj7 | %",
+    ),
+    (
+        "Giant Steps",
+        "Bmaj7 D7 | Gmaj7 Bb7 | Ebmaj7 | Am7 D7 | \
+         Gmaj7 Bb7 | Ebmaj7 F#7 | Bmaj7 | Fm7 Bb7 | \
+         Ebmaj7 | Am7 D7 | Gmaj7 | C#m7 F#7 | \
+         Bmaj7 | Fm7 Bb7 | Ebmaj7 | C#m7 F#7",
+    ),
+];
+
 /// A single chord change in a progression.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChordChange {

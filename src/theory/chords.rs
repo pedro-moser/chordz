@@ -229,6 +229,50 @@ pub fn chord_name(root: &str, quality: &ChordQuality) -> String {
     }
 }
 
+/// Grouping of chord qualities by musical family.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChordFamily {
+    Major,
+    Dominant,
+    Minor,
+    HalfDiminished,
+    Diminished,
+}
+
+impl ChordFamily {
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Major,
+            Self::Dominant,
+            Self::Minor,
+            Self::HalfDiminished,
+            Self::Diminished,
+        ]
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Major => "Major",
+            Self::Dominant => "Dominant",
+            Self::Minor => "Minor",
+            Self::HalfDiminished => "Half-dim",
+            Self::Diminished => "Diminished",
+        }
+    }
+
+    pub const fn quality_names(self) -> &'static [&'static str] {
+        match self {
+            Self::Major => &["maj7", "maj9", "maj13", "maj7#11"],
+            Self::Dominant => &[
+                "dom7", "dom9", "dom13", "dom7b9", "dom7#9", "dom7#5", "dom7#11", "dom7b13",
+            ],
+            Self::Minor => &["m7", "m9", "m11", "m13"],
+            Self::HalfDiminished => &["m7b5", "m9b11"],
+            Self::Diminished => &["dim7"],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

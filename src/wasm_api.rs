@@ -1,8 +1,8 @@
 use wasm_bindgen::prelude::*;
 
 use crate::audio::synth;
-use crate::theory::chart::Chart;
-use crate::theory::chords::{self, ChordQuality};
+use crate::theory::chart::{Chart, PRESETS};
+use crate::theory::chords::{self, ChordFamily, ChordQuality};
 use crate::theory::gmc::{self, PAIRS};
 use crate::theory::notes::Note;
 use crate::theory::notes::PC_NAMES;
@@ -122,25 +122,12 @@ pub fn get_interval_name(semitone: u8) -> String {
     scale.interval_name(semitone).to_string()
 }
 
-fn family_quality_names(family_index: usize) -> &'static [&'static str] {
-    match family_index {
-        0 => &["maj7", "maj9", "maj13", "maj7#11"],
-        1 => &[
-            "dom7", "dom9", "dom13", "dom7b9", "dom7#9", "dom7#5", "dom7#11", "dom7b13",
-        ],
-        2 => &["m7", "m9", "m11", "m13"],
-        3 => &["m7b5", "m9b11"],
-        4 => &["dim7"],
-        _ => &[],
-    }
-}
-
 #[wasm_bindgen]
 pub fn get_families() -> JsValue {
-    let families: Vec<_> = ["Major", "Dominant", "Minor", "Half-dim", "Diminished"]
+    let families: Vec<_> = ChordFamily::all()
         .iter()
         .enumerate()
-        .map(|(i, name)| serde_json::json!({"index": i, "name": name}))
+        .map(|(i, f)| serde_json::json!({"index": i, "name": f.name()}))
         .collect();
     to_js(&families)
 }
@@ -165,9 +152,12 @@ pub fn generate_voicings(
         require_root: false,
     };
 
+    let Some(family) = ChordFamily::all().get(family_index) else {
+        return to_js(&serde_json::json!({"error": "invalid family_index"}));
+    };
     let mut groups: Vec<serde_json::Value> = Vec::new();
 
-    for quality_name in family_quality_names(family_index) {
+    for quality_name in family.quality_names() {
         let Some(quality) = ChordQuality::ALL.iter().find(|q| q.name == *quality_name) else {
             continue;
         };
@@ -224,43 +214,9 @@ pub fn generate_voicings(
 // Tune mode: presets
 // ---------------------------------------------------------------------------
 
-const TUNE_PRESETS: &[(&str, &str)] = &[
-    (
-        "Stella by Starlight",
-        "Em7b5 | A7b9 | Cm7 | F7 | Fm7 | Bb7 | Ebmaj7 | Ab7#11 | \
-         Bbmaj7 | Em7b5 A7b9 | Dm7 | Bbm7 Eb7 | Fmaj7 | Em7b5 | Ebmaj7 | D7b9 | \
-         G7b13 | % | Cm7 | % | Ab7#11 | % | Bbmaj7 | % | \
-         Em7b5 | A7b9 | Dm7b5 | G7b9 | Cm7b5 | F7b9 | Bbmaj7 | %",
-    ),
-    (
-        "Just Friends",
-        "Cmaj7 | % | Cm7 | F7 | Gmaj7 | % | Bbm7 | Eb7 | \
-         Am7 | D7 | Gmaj7 | Em7 | A7 | % | Am7 | D7 G7 | \
-         Cmaj7 | % | Cm7 | F7 | Gmaj7 | % | Bbm7 | Eb7 | \
-         Am7 | D7 | F#m7b5 B7b9 | Em7 | A7 | Am7 D7 | Gmaj7 | Dm7 G7",
-    ),
-    (
-        "Moment's Notice",
-        "Em7 A7 | Fm7 Bb7 | Ebmaj7 | Abm7 Db7 | \
-         Dm7 G7 | Ebm7 Ab7 | Dbmaj7 | Dm7 G7 | \
-         Cm7 B7 | Bbm7 Eb7 | Abmaj7 | Abm7 Db7 | \
-         Gm7 C7 | Abm7 Db7 | Gbmaj7 | Fm7 Bb7 | \
-         Gm7 C7 | Fm7 Bb7 | Ebmaj7 | Fm7 | \
-         Gm7 | Fm7 | Ebmaj7 Fm7 | Gm7 Fm7 | \
-         Ebmaj7 | %",
-    ),
-    (
-        "Giant Steps",
-        "Bmaj7 D7 | Gmaj7 Bb7 | Ebmaj7 | Am7 D7 | \
-         Gmaj7 Bb7 | Ebmaj7 F#7 | Bmaj7 | Fm7 Bb7 | \
-         Ebmaj7 | Am7 D7 | Gmaj7 | C#m7 F#7 | \
-         Bmaj7 | Fm7 Bb7 | Ebmaj7 | C#m7 F#7",
-    ),
-];
-
 #[wasm_bindgen]
 pub fn get_presets() -> JsValue {
-    let presets: Vec<_> = TUNE_PRESETS
+    let presets: Vec<_> = PRESETS
         .iter()
         .map(|(title, chart)| serde_json::json!({"title": title, "chart": chart}))
         .collect();
