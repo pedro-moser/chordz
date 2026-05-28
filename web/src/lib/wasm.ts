@@ -79,6 +79,15 @@ export interface VoicingInfo {
   intervals: string[];
 }
 
+export interface SolvedAlternative {
+  positions: (number | null)[];
+  notes: ({ pc: number; name: string } | null)[];
+  intervals: string[];
+  recipe: string;
+  tension: number;
+  relaxation: string;
+}
+
 export interface SolvedChange {
   chord: string;
   recipe: string;
@@ -86,11 +95,34 @@ export interface SolvedChange {
   notes: ({ pc: number; name: string } | null)[];
   intervals: string[];
   beats: number;
+  alternatives: SolvedAlternative[];
+  relaxation: string;
+  tension: number;
 }
 
 export interface SolveResult {
   changes?: SolvedChange[];
   error?: string;
+}
+
+export interface SolverConfig {
+  minStrings?: number;
+  maxStrings?: number;
+  maxFretSpan?: number;
+  maxFret?: number;
+  minFret?: number;
+  tensionTarget?: number;
+  smoothnessWeight?: number;
+  jitter?: number;
+  allowOpenStrings?: boolean;
+  expandBasicChords?: boolean;
+  recipes?: string[];
+  allowedStrings?: boolean[];
+}
+
+export interface Preset {
+  title: string;
+  chart: string;
 }
 
 export interface FamilyInfo {
@@ -106,6 +138,19 @@ export function generateVoicings(rootIndex: number, familyIndex: number, noteCou
   return getWasm().generate_voicings(rootIndex, familyIndex, noteCount);
 }
 
-export function solveChart(chartText: string, title: string): SolveResult {
-  return getWasm().solve_chart(chartText, title);
+export function getPresets(): Preset[] {
+  return getWasm().get_presets();
+}
+
+export function solveChart(chartText: string, title: string, config?: SolverConfig): SolveResult {
+  return getWasm().solve_chart(chartText, title, config ?? {});
+}
+
+export function solveChartWithLocks(
+  chartText: string,
+  title: string,
+  config: SolverConfig,
+  locks: (Pick<SolvedAlternative, 'positions' | 'recipe'> | null)[],
+): SolveResult {
+  return getWasm().solve_chart_with_locks(chartText, title, config ?? {}, locks);
 }

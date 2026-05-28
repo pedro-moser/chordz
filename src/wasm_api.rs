@@ -6,13 +6,13 @@ use crate::theory::gmc::{self, PAIRS};
 use crate::theory::notes::PC_NAMES;
 use crate::theory::scales::Scale;
 use crate::voicings::fretboard::Fretboard;
-use crate::voicings::generate::map_voice_set;
+use crate::voicings::generate::{map_voice_set, Fingering};
 use crate::voicings::ranking::rank_fingerings;
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
 use crate::audio::synth;
 use crate::theory::notes::Note;
-use crate::voicings::solver::{self, SolverConfig};
+use crate::voicings::solver::{self, SolvedAlternative, SolvedChart, SolverConfig, RelaxationLevel};
 
 fn to_js(value: &impl serde::Serialize) -> JsValue {
     let json = serde_json::to_string(value).unwrap();
@@ -182,39 +182,268 @@ pub fn generate_voicings(root_index: usize, family_index: usize, note_count: usi
     to_js(&groups)
 }
 
+// ---------------------------------------------------------------------------
+// Tune mode: presets
+// ---------------------------------------------------------------------------
+
+const TUNE_PRESETS: &[(&str, &str)] = &[
+    (
+        "Stella by Starlight",
+        "Em7b5 | A7b9 | Cm7 | F7 | Fm7 | Bb7 | Ebmaj7 | Ab7#11 | \
+         Bbmaj7 | Em7b5 A7b9 | Dm7 | Bbm7 Eb7 | Fmaj7 | Em7b5 | Ebmaj7 | D7b9 | \
+         G7b13 | % | Cm7 | % | Ab7#11 | % | Bbmaj7 | % | \
+         Em7b5 | A7b9 | Dm7b5 | G7b9 | Cm7b5 | F7b9 | Bbmaj7 | %",
+    ),
+    (
+        "Just Friends",
+        "Cmaj7 | % | Cm7 | F7 | Gmaj7 | % | Bbm7 | Eb7 | \
+         Am7 | D7 | Gmaj7 | Em7 | A7 | % | Am7 | D7 G7 | \
+         Cmaj7 | % | Cm7 | F7 | Gmaj7 | % | Bbm7 | Eb7 | \
+         Am7 | D7 | F#m7b5 B7b9 | Em7 | A7 | Am7 D7 | Gmaj7 | Dm7 G7",
+    ),
+];
+
 #[wasm_bindgen]
-pub fn solve_chart(chart_text: &str, title: &str) -> JsValue {
+pub fn get_presets() -> JsValue {
+    let presets: Vec<_> = TUNE_PRESETS
+        .iter()
+        .map(|(title, chart)| serde_json::json!({"title": title, "chart": chart}))
+        .collect();
+    to_js(&presets)
+}
+
+// ---------------------------------------------------------------------------
+// Tune mode: solver config parsing
+// ---------------------------------------------------------------------------
+
+const RECIPE_NAMES: &[(&str, VoicingRecipe)] = &[
+    ("shell", VoicingRecipe::Shell),
+    ("closed", VoicingRecipe::Closed),
+    ("drop2", VoicingRecipe::Drop2),
+    ("drop3", VoicingRecipe::Drop3),
+    ("rless-a", VoicingRecipe::RootlessA),
+    ("rless-b", VoicingRecipe::RootlessB),
+    ("quartal", VoicingRecipe::Quartal),
+    ("upper", VoicingRecipe::UpperStructureTriad),
+    ("triads", VoicingRecipe::TriadPair),
+];
+
+fn parse_solver_config(config_js: JsValue) -> SolverConfig {
+    let obj: serde_json::Value = match serde_wasm_bindgen::from_value(config_js) {
+        Ok(v) => v,
+        Err(_) => return SolverConfig::default(),
+    };
+
+    let min_strings = obj.get("minStrings").and_then(|v| v.as_u64()).unwrap_or(3) as u8;
+    let max_strings = obj.get("maxStrings").and_then(|v| v.as_u64()).unwrap_or(4) as u8;
+    let max_fret_span = obj.get("maxFretSpan").and_then(|v| v.as_u64()).unwrap_or(5) as u8;
+    let max_fret = obj.get("maxFret").and_then(|v| v.as_u64()).unwrap_or(15) as u8;
+    let min_fret = obj.get("minFret").and_then(|v| v.as_u64()).unwrap_or(0) as u8;
+    let tension_target = obj.get("tensionTarget").and_then(|v| v.as_f64()).unwrap_or(0.3) as f32;
+    let smoothness_weight = obj.get("smoothnessWeight").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+    let jitter = obj.get("jitter").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let allow_open_strings = obj.get("allowOpenStrings").and_then(|v| v.as_bool()).unwrap_or(true);
+    let expand_basic_chords = obj.get("expandBasicChords").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let recipes = if let Some(arr) = obj.get("recipes").and_then(|v| v.as_array()) {
+        let selected: Vec<VoicingRecipe> = arr
+            .iter()
+            .filter_map(|v| v.as_str())
+            .filter_map(|name| {
+                RECIPE_NAMES.iter().find(|(n, _)| *n == name).map(|(_, r)| *r)
+            })
+            .collect();
+        if selected.is_empty() {
+            VoicingRecipe::all().to_vec()
+        } else {
+            selected
+        }
+    } else {
+        VoicingRecipe::all().to_vec()
+    };
+
+    let allowed_strings = if let Some(arr) = obj.get("allowedStrings").and_then(|v| v.as_array()) {
+        if arr.len() == 6 {
+            let mut strings = [true; 6];
+            for (i, v) in arr.iter().enumerate() {
+                strings[i] = v.as_bool().unwrap_or(true);
+            }
+            Some(strings)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    SolverConfig {
+        rules: VoicingRules {
+            min_strings,
+            max_strings,
+            max_fret_span,
+            max_fret,
+            require_root: false,
+        },
+        recipes,
+        max_candidates: 256,
+        min_fret,
+        allowed_strings,
+        allow_open_strings,
+        expand_basic_chords,
+        tension_target,
+        tension_weight: 6.0,
+        rank_weight: 1,
+        smoothness_weight,
+        jitter,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tune mode: serialization helpers
+// ---------------------------------------------------------------------------
+
+fn serialize_fingering(f: &Fingering, recipe: VoicingRecipe, fb: &Fretboard) -> serde_json::Value {
+    let positions: Vec<Option<u8>> = f.positions.to_vec();
+    let notes: Vec<_> = f.notes(fb).into_iter().map(|n| {
+        n.map(|note| serde_json::json!({"pc": note.pitch_class, "name": PC_NAMES[note.pitch_class as usize]}))
+    }).collect();
+    let intervals: Vec<_> = f.played_intervals().iter().map(|iv| iv.name).collect();
+    serde_json::json!({
+        "positions": positions,
+        "notes": notes,
+        "intervals": intervals,
+        "recipe": recipe.short_label(),
+    })
+}
+
+fn serialize_solved(solved: &SolvedChart, fb: &Fretboard) -> JsValue {
+    let changes: Vec<_> = solved.fingerings.iter().enumerate().map(|(i, c)| {
+        let alts: Vec<serde_json::Value> = solved.alternatives.get(i).map(|a| {
+            a.iter().take(10).map(|alt| {
+                let mut obj = serialize_fingering(&alt.fingering, alt.recipe, fb);
+                obj.as_object_mut().unwrap().insert(
+                    "tension".to_string(),
+                    serde_json::json!(alt.normalized_tension),
+                );
+                obj.as_object_mut().unwrap().insert(
+                    "relaxation".to_string(),
+                    serde_json::json!(alt.relaxation.label()),
+                );
+                obj
+            }).collect()
+        }).unwrap_or_default();
+
+        let chord_label = chords::chord_name(&c.root, c.quality);
+        serde_json::json!({
+            "chord": chord_label,
+            "recipe": c.recipe.short_label(),
+            "positions": c.fingering.positions.to_vec() as Vec<Option<u8>>,
+            "notes": c.fingering.notes(fb).into_iter().map(|n| {
+                n.map(|note| serde_json::json!({"pc": note.pitch_class, "name": PC_NAMES[note.pitch_class as usize]}))
+            }).collect::<Vec<_>>(),
+            "intervals": c.fingering.played_intervals().iter().map(|iv| iv.name).collect::<Vec<_>>(),
+            "beats": c.beats,
+            "alternatives": alts,
+            "relaxation": c.relaxation.label(),
+            "tension": c.normalized_tension,
+        })
+    }).collect();
+    to_js(&serde_json::json!({"changes": changes}))
+}
+
+// ---------------------------------------------------------------------------
+// Tune mode: solve_chart (with config + alternatives)
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen]
+pub fn solve_chart(chart_text: &str, title: &str, config_js: JsValue) -> JsValue {
     let chart = match Chart::parse(title, chart_text) {
         Ok(c) => c,
-        Err(_) => return to_js(&serde_json::json!({"error": "Parse error"})),
+        Err(e) => return to_js(&serde_json::json!({"error": format!("{}", e)})),
     };
 
     let fb = Fretboard::standard_tuning();
-    let config = SolverConfig::default();
+    let config = parse_solver_config(config_js);
 
     match solver::solve(&chart, &fb, &config) {
-        Some(solved) => {
-            let changes: Vec<_> = solved.fingerings.iter().map(|c| {
-                let positions: Vec<Option<u8>> = c.fingering.positions.to_vec();
-                let notes: Vec<_> = c.fingering.notes(&fb).into_iter().map(|n| {
-                    n.map(|note| serde_json::json!({"pc": note.pitch_class, "name": PC_NAMES[note.pitch_class as usize]}))
-                }).collect();
-                let intervals: Vec<_> = c.fingering.played_intervals().iter().map(|iv| iv.name).collect();
-                let chord_label = chords::chord_name(&c.root, c.quality);
-                serde_json::json!({
-                    "chord": chord_label,
-                    "recipe": c.recipe.short_label(),
-                    "positions": positions,
-                    "notes": notes,
-                    "intervals": intervals,
-                    "beats": c.beats,
-                })
-            }).collect();
-            to_js(&serde_json::json!({"changes": changes}))
-        }
+        Some(solved) => serialize_solved(&solved, &fb),
         None => to_js(&serde_json::json!({"error": "No solution found"})),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tune mode: solve_chart_with_locks
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen]
+pub fn solve_chart_with_locks(
+    chart_text: &str,
+    title: &str,
+    config_js: JsValue,
+    locks_js: JsValue,
+) -> JsValue {
+    let chart = match Chart::parse(title, chart_text) {
+        Ok(c) => c,
+        Err(e) => return to_js(&serde_json::json!({"error": format!("{}", e)})),
+    };
+
+    let fb = Fretboard::standard_tuning();
+    let config = parse_solver_config(config_js);
+
+    // Parse locks: array of {positions: [...], recipe: "..."} | null
+    let locks_raw: Vec<Option<serde_json::Value>> =
+        serde_wasm_bindgen::from_value(locks_js).unwrap_or_default();
+
+    let locks: Vec<Option<SolvedAlternative>> = locks_raw
+        .into_iter()
+        .map(|lock_opt| {
+            let obj = lock_opt?;
+            let positions_arr = obj.get("positions")?.as_array()?;
+            if positions_arr.len() != 6 {
+                return None;
+            }
+            let mut positions = [None; 6];
+            for (i, v) in positions_arr.iter().enumerate() {
+                positions[i] = if v.is_null() {
+                    None
+                } else {
+                    Some(v.as_u64()? as u8)
+                };
+            }
+
+            let recipe_name = obj.get("recipe")?.as_str()?;
+            let recipe = RECIPE_NAMES
+                .iter()
+                .find(|(n, _)| *n == recipe_name)
+                .map(|(_, r)| *r)?;
+
+            // Reconstruct a minimal Fingering (intervals will be blank but
+            // the solver only compares positions for locked alternatives).
+            let fingering = Fingering {
+                positions,
+                intervals: [None; 6],
+            };
+
+            Some(SolvedAlternative {
+                fingering,
+                recipe,
+                tension: 0.0,
+                normalized_tension: 0.0,
+                rank_score: 0,
+                relaxation: RelaxationLevel::Exact,
+            })
+        })
+        .collect();
+
+    match solver::solve_with_locks(&chart, &fb, &config, &locks) {
+        Some(solved) => serialize_solved(&solved, &fb),
+        None => to_js(&serde_json::json!({"error": "No solution found"})),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Audio
+// ---------------------------------------------------------------------------
 
 #[wasm_bindgen]
 pub fn synth_chord(positions_js: JsValue, duration: f32) -> Vec<f32> {
