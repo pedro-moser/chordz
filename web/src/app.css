@@ -1,0 +1,78 @@
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg-base: #1a1a1a;
+  --bg-surface: #242424;
+  --bg-raised: #2d2d2d;
+  --border: #3d3d3d;
+  --primary: #d4a574;
+  --primary-hover: #e0b68a;
+  --primary-muted: #5c4033;
+  --secondary: #8ecae6;
+  --secondary-muted: #2a4a5c;
+  --text: #f5e6d3;
+  --text-muted: #999;
+  --text-disabled: #555;
+
+  --font: 'JetBrains Mono', monospace;
+  --font-heading: 16px;
+  --font-body: 13px;
+  --font-label: 11px;
+  --font-dot: 8px;
+
+  --rail-width: 56px;
+  --subtab-height: 32px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--font-body);
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+select, button, input {
+  font-family: var(--font);
+  font-size: var(--font-body);
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  outline: none;
+}
+
+select:focus, button:focus, input:focus {
+  border-color: var(--primary);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--primary-muted);
+}
