@@ -15,10 +15,10 @@
 
   const ALL_RECIPES = ['shell', 'closed', 'drop2', 'drop3', 'rless-a', 'rless-b', 'quartal', 'upper', 'triads'];
   const ABSTRACTION_PRESETS = [
-    { label: 'Grounded', value: 0.0 },
-    { label: 'Balanced', value: 0.3 },
-    { label: 'Open', value: 0.6 },
-    { label: 'Abstract', value: 1.0 },
+    { label: 'Grounded', value: 0.0, tensionRange: [0.0, 0.3] },
+    { label: 'Balanced', value: 0.3, tensionRange: [0.0, 0.7] },
+    { label: 'Open', value: 0.6, tensionRange: [0.3, 1.0] },
+    { label: 'Abstract', value: 1.0, tensionRange: [0.7, 1.0] },
   ];
   const TENSION_PRESETS = [
     { label: 'Low', value: 0.0 },
@@ -49,7 +49,7 @@
   let selectedChord = $state(0);
   let altIndices = $state<number[]>([]);
   let locked = $state<boolean[]>([]);
-  let constraintsOpen = $state(false);
+  let constraintsOpen = $state(true);
   let playingAll = $state(false);
   let bpm = $state(120);
   let clickEnabled = $state(true);
@@ -58,6 +58,22 @@
   // Solver constraints
   let abstraction = $state(0.0);
   let tension = $state(0.3);
+
+  let tensionRange = $derived(
+    ABSTRACTION_PRESETS.find(p => p.value === abstraction)?.tensionRange ?? [0.0, 1.0]
+  );
+
+  function isTensionAllowed(value: number): boolean {
+    return value >= tensionRange[0] && value <= tensionRange[1];
+  }
+
+  function setAbstraction(value: number) {
+    abstraction = value;
+    const range = ABSTRACTION_PRESETS.find(p => p.value === value)?.tensionRange ?? [0.0, 1.0];
+    if (tension < range[0] || tension > range[1]) {
+      tension = range[0] <= 0.3 && range[1] >= 0.3 ? 0.3 : range[0];
+    }
+  }
   let smoothness = $state(1.0);
   let variation = $state(0);
   let noteFilterIdx = $state(2); // "4"
@@ -278,7 +294,7 @@
         <span class="constraint-label">Abstraction</span>
         <div class="btn-group">
           {#each ABSTRACTION_PRESETS as ap}
-            <button class="filter-btn" class:active={abstraction === ap.value} onclick={() => abstraction = ap.value}>{ap.label}</button>
+            <button class="filter-btn" class:active={abstraction === ap.value} onclick={() => setAbstraction(ap.value)}>{ap.label}</button>
           {/each}
         </div>
       </div>
@@ -286,7 +302,8 @@
         <span class="constraint-label">Tension</span>
         <div class="btn-group">
           {#each TENSION_PRESETS as tp}
-            <button class="filter-btn" class:active={tension === tp.value} onclick={() => tension = tp.value}>{tp.label}</button>
+            {@const allowed = isTensionAllowed(tp.value)}
+            <button class="filter-btn" class:active={tension === tp.value} class:disabled-btn={!allowed} disabled={!allowed} onclick={() => tension = tp.value}>{tp.label}</button>
           {/each}
         </div>
       </div>
@@ -615,6 +632,11 @@
     background: var(--primary-muted);
     border-color: var(--primary);
     color: var(--text);
+  }
+
+  .filter-btn.disabled-btn {
+    opacity: 0.25;
+    cursor: not-allowed;
   }
 
   .num-inputs {
