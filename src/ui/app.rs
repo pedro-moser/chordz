@@ -4,7 +4,13 @@ use std::time::Instant;
 use eframe::egui;
 
 use super::fretboard::{compact_interval_name, paint_fretboard, paint_panoramic_fretboard};
+#[cfg(feature = "native")]
 use crate::audio::engine::AudioEngine;
+
+#[cfg(feature = "native")]
+type Audio = AudioEngine;
+#[cfg(not(feature = "native"))]
+type Audio = ();
 use crate::theory::chart::Chart;
 use crate::theory::chords::{self, ChordQuality};
 use crate::theory::gmc::{self, PAIRS};
@@ -288,14 +294,17 @@ pub struct ChordzApp {
     selected_position: usize,
     groups: Vec<VoicingGroup>,
     fretboard: Fretboard,
-    audio: Option<AudioEngine>,
+    audio: Option<Audio>,
     tune: TuneState,
     gmc: GmcState,
 }
 
 impl ChordzApp {
     pub fn new() -> Self {
+        #[cfg(feature = "native")]
         let audio = AudioEngine::new().ok();
+        #[cfg(not(feature = "native"))]
+        let audio: Option<Audio> = None;
         let mut app = Self {
             mode: AppMode::Browser,
             root_index: 0,
@@ -483,6 +492,7 @@ impl eframe::App for ChordzApp {
             if i.key_pressed(egui::Key::Escape) {
                 if self.tune.playback_start.is_some() {
                     self.tune.playback_start = None;
+                    #[cfg(feature = "native")]
                     if let Some(audio) = &mut self.audio {
                         audio.stop_all();
                     }
@@ -548,6 +558,7 @@ impl ChordzApp {
             }
         });
 
+        #[cfg(feature = "native")]
         if play_strum {
             self.play_current_strum();
         }
@@ -605,6 +616,7 @@ impl ChordzApp {
                 }
                 ui.separator();
             }
+            #[cfg(feature = "native")]
             if self.audio.is_some() {
                 if self.tune.playback_start.is_some() {
                     if ui.button("Stop (Esc)").clicked() {
@@ -747,9 +759,11 @@ impl ChordzApp {
             self.swap_tune_voicing(-1);
         }
 
+        #[cfg(feature = "native")]
         if play_strum {
             self.play_tune_strum();
         }
+        #[cfg(feature = "native")]
         if play_all {
             self.play_tune_all();
         }
@@ -1078,6 +1092,7 @@ impl ChordzApp {
         }
 
         ui.horizontal(|ui| {
+            #[cfg(feature = "native")]
             if self.audio.is_some() && ui.button("Strum (Space)").clicked() {
                 self.play_tune_strum();
             }
@@ -1090,6 +1105,7 @@ impl ChordzApp {
         paint_fretboard(ui, &fingering, &self.fretboard);
     }
 
+    #[cfg(feature = "native")]
     fn play_tune_strum(&mut self) {
         self.tune.playback_start = None;
         let fingering = self
@@ -1176,6 +1192,7 @@ impl ChordzApp {
         solved.fingerings[idx].relaxation = alt.relaxation;
     }
 
+    #[cfg(feature = "native")]
     fn play_tune_all(&mut self) {
         let chords: Option<Vec<_>> = self.tune.solved.as_ref().map(|s| {
             s.fingerings
@@ -1311,6 +1328,7 @@ impl ChordzApp {
                 }
             });
 
+            #[cfg(feature = "native")]
             ui.horizontal(|ui| {
                 if self.audio.is_some() {
                     if ui.button("Strum (Space)").clicked() {
@@ -1329,6 +1347,7 @@ impl ChordzApp {
         }
     }
 
+    #[cfg(feature = "native")]
     fn play_current_strum(&mut self) {
         let fingering = self.selected_entry().map(|(_, e)| e.fingering.clone());
         if let (Some(audio), Some(f)) = (&mut self.audio, fingering) {
@@ -1337,6 +1356,7 @@ impl ChordzApp {
         }
     }
 
+    #[cfg(feature = "native")]
     fn play_current_arpeggio(&mut self) {
         let fingering = self.selected_entry().map(|(_, e)| e.fingering.clone());
         if let (Some(audio), Some(f)) = (&mut self.audio, fingering) {
