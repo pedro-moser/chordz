@@ -10,6 +10,8 @@ use crate::voicings::generate::map_voice_set;
 use crate::voicings::ranking::rank_fingerings;
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
+use crate::audio::synth;
+use crate::theory::notes::Note;
 use crate::voicings::solver::{self, SolverConfig};
 
 fn to_js(value: &impl serde::Serialize) -> JsValue {
@@ -212,4 +214,65 @@ pub fn solve_chart(chart_text: &str, title: &str) -> JsValue {
         }
         None => to_js(&serde_json::json!({"error": "No solution found"})),
     }
+}
+
+#[wasm_bindgen]
+pub fn synth_chord(positions_js: JsValue, duration: f32) -> Vec<f32> {
+    let positions: Vec<Option<u8>> = serde_wasm_bindgen::from_value(positions_js).unwrap_or_default();
+    let fb = Fretboard::standard_tuning();
+    let notes: Vec<Note> = positions
+        .iter()
+        .enumerate()
+        .filter_map(|(s, fret)| fret.and_then(|f| fb.get_note(s, f as usize)))
+        .collect();
+    if notes.is_empty() {
+        return Vec::new();
+    }
+    let stereo = synth::generate_chord(&notes, duration);
+    let mut interleaved = Vec::with_capacity(stereo.left.len() * 2);
+    for i in 0..stereo.left.len() {
+        interleaved.push(stereo.left[i]);
+        interleaved.push(stereo.right[i]);
+    }
+    interleaved
+}
+
+#[wasm_bindgen]
+pub fn synth_arpeggio(positions_js: JsValue, note_duration: f32) -> Vec<f32> {
+    let positions: Vec<Option<u8>> = serde_wasm_bindgen::from_value(positions_js).unwrap_or_default();
+    let fb = Fretboard::standard_tuning();
+    let notes: Vec<Note> = positions
+        .iter()
+        .enumerate()
+        .filter_map(|(s, fret)| fret.and_then(|f| fb.get_note(s, f as usize)))
+        .collect();
+    if notes.is_empty() {
+        return Vec::new();
+    }
+    let total_duration = note_duration * notes.len() as f32 + 0.5;
+    let sample_rate = 44100u32;
+    let total_samples = (sample_rate as f32 * total_duration) as usize;
+    let mut left = vec![0.0f32; total_samples];
+    let mut right = vec![0.0f32; total_samples];
+    let gain = 1.0 / notes.len() as f32;
+    for (i, &note) in notes.iter().enumerate() {
+        let offset = (sample_rate as f32 * note_duration * i as f32) as usize;
+        let pluck = synth::generate_pluck(note, note_duration + 0.3);
+        let pan = i as f32 / (notes.len() - 1).max(1) as f32;
+        let lg = gain * (1.0 - pan * 0.3);
+        let rg = gain * (0.7 + pan * 0.3);
+        for (j, &s) in pluck.iter().enumerate() {
+            let idx = offset + j;
+            if idx < total_samples {
+                left[idx] += s * lg;
+                right[idx] += s * rg;
+            }
+        }
+    }
+    let mut interleaved = Vec::with_capacity(total_samples * 2);
+    for i in 0..total_samples {
+        interleaved.push(left[i]);
+        interleaved.push(right[i]);
+    }
+    interleaved
 }

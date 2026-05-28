@@ -1,4 +1,3 @@
-#[cfg(feature = "native")]
 pub mod audio;
 #[cfg(feature = "wasm")]
 pub mod wasm_api;

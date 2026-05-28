@@ -5,6 +5,9 @@ export async function initWasm() {
     const mod = await import('$wasm/chordz.js');
     await mod.default();
     wasmModule = mod;
+    // Make raw wasm available for audio module
+    const { setWasmRef } = await import('./audio');
+    setWasmRef(mod);
   }
 }
 

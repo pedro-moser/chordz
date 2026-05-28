@@ -3,6 +3,7 @@
   import SubTabs from '$lib/components/SubTabs.svelte';
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import { solveChart } from '$lib/wasm';
+  import { playStrum } from '$lib/audio';
   import type { SolvedChange } from '$lib/wasm';
 
   const chordTabs = [
@@ -32,6 +33,10 @@
       case 'k': case 'ArrowLeft':
         e.preventDefault();
         if (selectedChord > 0) selectedChord--;
+        break;
+      case ' ':
+        e.preventDefault();
+        if (selected) playStrum(selected.positions);
         break;
     }
   }
@@ -90,6 +95,7 @@
         <div class="chord-detail">
           <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
           <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
+          <button class="play-btn" onclick={() => playStrum(selected.positions)}>Strum (Space)</button>
           <VoicingFretboard
             positions={selected.positions}
             notes={selected.notes}
@@ -209,6 +215,20 @@
     font-size: var(--font-label);
     color: var(--text-disabled);
     margin-left: 8px;
+  }
+
+  .play-btn {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 4px 12px;
+    font-size: var(--font-label);
+    margin-bottom: 12px;
+  }
+
+  .play-btn:hover {
+    background: var(--primary-muted);
+    color: var(--text);
   }
 
   .chord-detail h2 {

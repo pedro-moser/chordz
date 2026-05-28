@@ -5,6 +5,7 @@
   import { getRoots, getFamilies, generateVoicings } from '$lib/wasm';
   import type { VoicingInfo } from '$lib/wasm';
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
+  import { playStrum, playArpeggio } from '$lib/audio';
 
   const chordTabs = [
     { label: 'Browse', href: '/chords/browse' },
@@ -75,6 +76,14 @@
         e.preventDefault();
         if (selectedPos > 0) selectedPos--;
         break;
+      case ' ':
+        e.preventDefault();
+        if (entry) playStrum(entry.positions);
+        break;
+      case 'a':
+        e.preventDefault();
+        if (entry) playArpeggio(entry.positions);
+        break;
     }
   }
 
@@ -131,6 +140,10 @@
             <button class="pos-btn" disabled={selectedPos >= group.entries.length - 1} onclick={() => selectedPos++}>▶</button>
           </div>
         {/if}
+        <div class="play-buttons">
+          <button class="play-btn" onclick={() => playStrum(entry.positions)}>Strum (Space)</button>
+          <button class="play-btn" onclick={() => playArpeggio(entry.positions)}>Arpeggio (A)</button>
+        </div>
         <VoicingFretboard
           positions={entry.positions}
           notes={entry.notes}
@@ -242,6 +255,25 @@
     font-size: var(--font-body);
     color: var(--primary);
     font-weight: 400;
+  }
+
+  .play-buttons {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .play-btn {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 4px 12px;
+    font-size: var(--font-label);
+  }
+
+  .play-btn:hover {
+    background: var(--primary-muted);
+    color: var(--text);
   }
 
   .intervals-display {
