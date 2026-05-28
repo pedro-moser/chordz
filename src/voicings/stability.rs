@@ -5,17 +5,17 @@ pub type StabilityTable = [u8; 12];
 // Major (maj7): R=40 b9=0 9=30 b3=10 3=40 11=0 #11=20 5=40 b13=10 13=30 b7=0 7=40
 const MAJOR: StabilityTable = [40, 0, 30, 10, 40, 0, 20, 40, 10, 30, 0, 40];
 
-// Minor (m7): R=40 b9=5 9=30 b3=40 3=0 11=40 #11=20 5=40 b13=20 13=20 b7=40 maj7=20
-const MINOR: StabilityTable = [40, 5, 30, 40, 0, 40, 20, 40, 20, 20, 40, 20];
+// Minor (m7): R=40 b9=2 9=30 b3=40 3=0 11=40 #11=5 5=40 b13=7 13=20 b7=40 maj7=5
+const MINOR: StabilityTable = [40, 2, 30, 40, 0, 40, 5, 40, 7, 20, 40, 5];
 
-// Dominant natural (→major): R=40 b9=20 9=30 #9=20 3=40 4/sus=20 #11=20 5=40 b13=20 13=30 b7=40 7=0
-const DOM_NATURAL: StabilityTable = [40, 20, 30, 20, 40, 20, 20, 40, 20, 30, 40, 0];
+// Dominant natural (→major): R=40 b9=10 9=30 #9=10 3=40 4/sus=10 #11=10 5=40 b13=10 13=30 b7=40 7=0
+const DOM_NATURAL: StabilityTable = [40, 10, 30, 10, 40, 10, 10, 40, 10, 30, 40, 0];
 
-// Dominant altered (→minor/tritone sub): R=40 b9=30 9=20 #9=30 3=40 4/sus=10 #11=30 5=40 b13=20 13=10 b7=40 7=0
-const DOM_ALTERED: StabilityTable = [40, 30, 20, 30, 40, 10, 30, 40, 20, 10, 40, 0];
+// Dominant altered (→minor/tritone sub): R=40 b9=30 9=0 #9=30 3=40 4/sus=0 #11=30 5=40 b13=20 13=10 b7=40 7=0
+const DOM_ALTERED: StabilityTable = [40, 30, 0, 30, 40, 0, 30, 40, 20, 10, 40, 0];
 
-// Half-diminished (m7b5): R=40 b9=10 9=20 b3=40 3=0 11=30 b5=40 5=0 b13=20 13=10 b7=40 7=2
-const HALF_DIM: StabilityTable = [40, 10, 20, 40, 0, 30, 40, 0, 20, 10, 40, 2];
+// Half-diminished (m7b5): R=40 b9=5 9=20 b3=40 3=0 11=30 b5=40 5=0 b13=10 13=10 b7=40 7=0
+const HALF_DIM: StabilityTable = [40, 5, 20, 40, 0, 30, 40, 0, 10, 10, 40, 0];
 
 // Diminished (dim7): R=40 b9=20 9=20 b3=40 3=10 11=20 b5=40 5=10 b13=20 dim7=40 13=20 b7=10
 const DIM: StabilityTable = [40, 20, 20, 40, 10, 20, 40, 10, 20, 40, 20, 10];
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn dom_natural_vs_altered() {
-        assert_eq!(DOM_NATURAL[1], 20);
+        assert_eq!(DOM_NATURAL[1], 10);
         assert_eq!(DOM_ALTERED[1], 30);
     }
 
@@ -277,6 +277,6 @@ mod tests {
         let dom = ChordQuality::ALL.iter().find(|q| q.name == "dom7").unwrap();
         let maj = ChordQuality::ALL.iter().find(|q| q.name == "maj7").unwrap();
         let table = get_stability_table(dom, Some(maj));
-        assert_eq!(table[1], 20);
+        assert_eq!(table[1], 10);
     }
 }
