@@ -268,7 +268,7 @@
     {#if constraintsOpen}
     <div class="constraints-panel">
       <div class="constraint-row">
-        <label>Style</label>
+        <span class="constraint-label">Style</span>
         <div class="btn-group">
           {#each VOICING_STYLES as vs}
             <button class="filter-btn" class:active={tension === vs.value} onclick={() => tension = vs.value}>{vs.label}</button>
@@ -276,7 +276,7 @@
         </div>
       </div>
       <div class="constraint-row">
-        <label>Movement</label>
+        <span class="constraint-label">Movement</span>
         <div class="btn-group">
           {#each SMOOTHNESS_PRESETS as sp}
             <button class="filter-btn" class:active={smoothness === sp.value} onclick={() => smoothness = sp.value}>{sp.label}</button>
@@ -284,11 +284,11 @@
         </div>
       </div>
       <div class="constraint-row">
-        <label>Variation <span class="val">{variation}</span></label>
-        <input type="range" min="0" max="100" step="1" bind:value={variation} />
+        <label for="variation-slider">Variation <span class="val">{variation}</span></label>
+        <input id="variation-slider" type="range" min="0" max="100" step="1" bind:value={variation} />
       </div>
       <div class="constraint-row">
-        <label>Notes</label>
+        <span class="constraint-label">Notes</span>
         <div class="btn-group">
           {#each NOTE_FILTERS as nf, i}
             <button class="filter-btn" class:active={noteFilterIdx === i} onclick={() => noteFilterIdx = i}>{nf.label}</button>
@@ -296,16 +296,16 @@
         </div>
       </div>
       <div class="constraint-row">
-        <label>Fret range</label>
+        <label for="fret-min">Fret range</label>
         <div class="num-inputs">
-          <input type="number" min="0" max="15" bind:value={fretMin} class="num-input" />
+          <input id="fret-min" type="number" min="0" max="15" bind:value={fretMin} class="num-input" />
           <span>to</span>
-          <input type="number" min="0" max="15" bind:value={fretMax} class="num-input" />
+          <input id="fret-max" type="number" min="0" max="15" bind:value={fretMax} class="num-input" />
         </div>
       </div>
       <div class="constraint-row">
-        <label>Max span</label>
-        <input type="number" min="2" max="8" bind:value={maxSpan} class="num-input" />
+        <label for="max-span">Max span</label>
+        <input id="max-span" type="number" min="2" max="8" bind:value={maxSpan} class="num-input" />
       </div>
       <div class="constraint-row">
         <label>
@@ -555,6 +555,7 @@
     gap: 4px;
   }
 
+  .constraint-label,
   .constraint-row label {
     font-size: var(--font-label);
     color: var(--text-muted);
@@ -709,18 +710,7 @@
     border-color: var(--primary);
   }
 
-  .hint {
-    font-size: var(--font-label);
-    color: var(--text-disabled);
-    margin-left: auto;
-  }
-
   /* Detail panel */
-  .chord-detail h2 {
-    font-size: var(--font-heading);
-    color: var(--text);
-    margin-bottom: 4px;
-  }
 
   .detail-header {
     display: flex;

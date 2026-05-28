@@ -67,13 +67,6 @@
     letter-spacing: 0.5px;
   }
 
-  .drawer-toggle {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 2px 6px;
-  }
 
   .pair-list {
     list-style: none;

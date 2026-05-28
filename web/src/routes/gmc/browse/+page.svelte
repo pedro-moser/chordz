@@ -135,8 +135,4 @@
     accent-color: var(--primary);
   }
 
-  .drawer-open-btn {
-    background: var(--bg-raised);
-    font-size: var(--font-label);
-  }
 </style>

@@ -15,8 +15,8 @@ use crate::theory::intervals::Interval;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::Fingering;
 use crate::voicings::recipe::VoicingRecipe;
-use crate::voicings::solver::{self, SolvedChart, SolverConfig};
 use crate::voicings::rules::VoicingRules;
+use crate::voicings::solver::{self, SolvedChart, SolverConfig};
 
 pub(crate) const NOTE_COUNTS: [usize; 5] = [2, 3, 4, 5, 6];
 pub(crate) const VOICINGS_PER_VOICE_SET: usize = 4;
