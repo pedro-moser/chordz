@@ -1,10 +1,15 @@
-# GMC Tab — Generic Modal Compression (Phase 1)
+# GMC Tab — Generic Modal Compression
+
+## Status: Implemented
 
 ## Summary
 
-New app tab for visualizing triad pairs derived from the Tim Miller / Mick Goodrick
-Generic Modal Compression system. Shows a panoramic fretboard (15 frets) with two
-triads from a pair colored differently, covering all occurrences across the neck.
+App tab for visualizing triad pairs derived from the Tim Miller / Mick Goodrick
+Generic Modal Compression system. Shows a panoramic SVG fretboard (15 frets) with
+two triads from a pair colored differently, covering all occurrences across the neck.
+
+Implemented as a Svelte page (`web/src/routes/gmc/browse/`) consuming the Rust
+theory modules via WASM.
 
 ## Background
 
@@ -44,91 +49,58 @@ Applied to 6 notes at indices 0–5 (the scale tones minus root, ascending):
 
 ## Architecture
 
-### New files
+### Rust modules
 
-- `src/theory/scales.rs` — Scale struct, ParentScale enum, 28 modes as const ALL
-- `src/theory/gmc.rs` — PAIRS const (10 entries), resolve_pair() function
+- `src/theory/scales.rs` — `Scale`, `ParentScale`, 28 modes as `Scale::ALL`
+- `src/theory/gmc.rs` — `TriadPairSet`, `PAIRS` const, `resolve_pair()`, `pair_display()`
+- `src/wasm_api.rs` — WASM exports: `get_all_scales()`, `get_pairs()`, `resolve_pair()`,
+  `pair_display()`, `get_fretboard_notes()`, `get_interval_name()`
 
-### Modified files
+### Svelte frontend
 
-- `src/theory/mod.rs` — add `pub mod scales; pub mod gmc;`
-- `src/ui/app.rs` — AppMode::Gmc variant, GmcState struct, show_gmc(), show_gmc_controls()
-- `src/ui/fretboard.rs` — paint_panoramic_fretboard() function
-
-## Data Model
-
-### Scale
-
-```rust
-pub enum ParentScale { Major, HarmonicMinor, MelodicMinor, HarmonicMajor }
-
-pub struct Scale {
-    pub name: &'static str,
-    pub parent: ParentScale,
-    pub degree: u8,
-    pub semitones: [u8; 7],
-}
-
-impl Scale {
-    pub const ALL: &[Scale] = &[ /* 28 modes */ ];
-}
-```
-
-### GMC Pairs
-
-```rust
-pub struct TriadPairSet {
-    pub label: &'static str,
-    pub indices: ([usize; 3], [usize; 3]),
-}
-
-pub const PAIRS: [TriadPairSet; 10] = [ /* fixed index table */ ];
-
-pub fn resolve_pair(root_pc: u8, scale: &Scale, pair: &TriadPairSet) -> ([u8; 3], [u8; 3])
-```
-
-### App State
-
-```rust
-pub enum AppMode { Browser, Tune, Gmc }
-
-struct GmcState {
-    root_index: usize,      // 0..11
-    scale_index: usize,     // 0..27
-    pair_index: usize,      // 0..9
-    show_intervals: bool,
-}
-```
+- `web/src/routes/gmc/browse/+page.svelte` — main GMC Browse page
+- `web/src/lib/components/Fretboard.svelte` — SVG panoramic fretboard (15 frets)
+- `web/src/lib/components/PairDrawer.svelte` — collapsible pair list (260px)
+- `web/src/lib/stores.ts` — Svelte stores for root/scale/pair/interval state
 
 ## UI Layout
 
-### Sidebar (left panel)
+### Sub-tab bar
 
-1. **Root** — 12-note selector (same as browser)
-2. **Scale** — 28 modes grouped by ParentScale (Major, Harm. Minor, Mel. Minor, Harm. Major)
-3. **Pair** — 10-item list showing label + intervals + concrete notes side by side
-   - Example: `T/T  (2 4 6) + (b3 5 b7) = D F A + Eb G Bb`
-4. **Toggle** — "Notes" / "Intervals" switch for dot labels
+Browse | Tune tabs, with drawer toggle button ("▶ Show pairs" / "◀ Hide pairs")
+aligned right.
+
+### Controls (top of content area)
+
+- **Root** — 12-note dropdown
+- **Scale** — 28 modes grouped by ParentScale via `<optgroup>` (Major, Harm. Minor,
+  Mel. Minor, Harm. Major)
+- **Intervals** — checkbox to toggle dot labels between note names and intervals
+
+### Pair drawer (collapsible, left)
+
+- 260px wide when open, 0 when closed
+- Toggle via button in sub-tab bar
+- Lists all 10 pairs with label (bold) + display string (intervals = notes)
+- Selected pair highlighted with `--primary-muted` background
+- Slide transition 200ms
 
 ### Central panel
 
-Panoramic fretboard: 15 frets × 6 strings, horizontal orientation.
+SVG panoramic fretboard: 15 frets × 6 strings.
+- Background: `#222`
+- Strings: `#555`, 1px
+- Frets: `#3d3d3d`, 1px; nut: `#888`, 2.5px
+- Dots: 14px diameter (7px radius)
+  - Triad A: `--primary` (amber `#d4a574`)
+  - Triad B: `--secondary` (blue `#8ecae6`)
+  - Label: 8px bold `#1a1a1a` centered inside dot
 
-For each (string, fret):
-- Compute pitch class via `fretboard.get_note(s, fret)`
-- If PC ∈ triad_a → dot in color A (blue)
-- If PC ∈ triad_b → dot in color B (orange)
-- Else → empty
-- Dot label: note name or interval relative to root (per toggle)
+## Future (Phase 2)
 
-Dots are smaller than the current voicing fretboard to fit the wider view.
-
-## Non-goals (Phase 1)
-
-- No exercise/étude generation (Phase 2)
-- No voice-leading between pairs across chord changes (Phase 2)
-- No audio playback
-- No MIDI integration
+- GMC Tune: exercise/étude generation with triad pairs over chord changes
+- Melodic exercises over triad pair material
+- Voice-leading between pairs across chord changes
 
 ## Reference
 
