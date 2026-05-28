@@ -215,37 +215,38 @@
 <SubTabs tabs={chordTabs} active="Tune" />
 
 <div class="tune-layout">
-  <!-- Input section -->
-  <div class="tune-input">
-    <div class="input-row row-inline">
-      <label class="input-label" for="tune-title">Title</label>
-      <input id="tune-title" bind:value={titleInput} placeholder="Tune name" />
-      {#if presets.length > 0}
-        <select class="preset-select" onchange={(e) => { selectPreset(parseInt((e.target as HTMLSelectElement).value)); (e.target as HTMLSelectElement).value = '-1'; }}>
-          <option value="-1">Presets...</option>
-          {#each presets as preset, i}
-            <option value={i}>{preset.title}</option>
-          {/each}
-        </select>
-      {/if}
+  <div class="tune-left">
+    <!-- Input section -->
+    <div class="tune-input">
+      <div class="input-row row-inline">
+        <label class="input-label" for="tune-title">Title</label>
+        <input id="tune-title" bind:value={titleInput} placeholder="Tune name" />
+        {#if presets.length > 0}
+          <select class="preset-select" onchange={(e) => { selectPreset(parseInt((e.target as HTMLSelectElement).value)); (e.target as HTMLSelectElement).value = '-1'; }}>
+            <option value="-1">Presets...</option>
+            {#each presets as preset, i}
+              <option value={i}>{preset.title}</option>
+            {/each}
+          </select>
+        {/if}
+      </div>
+      <div class="input-row">
+        <label class="input-label" for="tune-chart">Chart</label>
+        <textarea id="tune-chart" bind:value={chartInput} rows="2" placeholder="Dm7 | G7 | Cmaj7 | Cmaj7"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="solve-btn" onclick={solve}>Solve (Enter)</button>
+        <button class="toggle-btn" onclick={() => constraintsOpen = !constraintsOpen}>
+          {constraintsOpen ? '▾' : '▸'} Constraints
+        </button>
+        {#if error}
+          <span class="error">{error}</span>
+        {/if}
+      </div>
     </div>
-    <div class="input-row">
-      <label class="input-label" for="tune-chart">Chart</label>
-      <textarea id="tune-chart" bind:value={chartInput} rows="3" placeholder="Dm7 | G7 | Cmaj7 | Cmaj7"></textarea>
-    </div>
-    <div class="btn-row">
-      <button class="solve-btn" onclick={solve}>Solve (Enter)</button>
-      <button class="toggle-btn" onclick={() => constraintsOpen = !constraintsOpen}>
-        {constraintsOpen ? 'Hide' : 'Show'} constraints
-      </button>
-    </div>
-    {#if error}
-      <p class="error">{error}</p>
-    {/if}
-  </div>
 
-  <!-- Constraints panel -->
-  {#if constraintsOpen}
+    <!-- Constraints panel -->
+    {#if constraintsOpen}
     <div class="constraints-panel">
       <div class="constraint-row">
         <label>Tension <span class="val">{tension.toFixed(2)}</span></label>
@@ -306,9 +307,8 @@
     </div>
   {/if}
 
-  <!-- Results -->
-  {#if solved}
-    <div class="tune-result">
+    <!-- Results: chart grid -->
+    {#if solved}
       <div class="result-actions">
         <div class="bpm-control">
           <label class="bpm-label" for="bpm-input">BPM</label>
@@ -324,75 +324,89 @@
         {/if}
         {#if lockedCount > 0}
           <span class="lock-count">{lockedCount} locked</span>
-          <button class="action-btn" onclick={clearLocks}>Clear locks</button>
+          <button class="action-btn" onclick={clearLocks}>Clear</button>
         {/if}
-        <span class="hint">←→ navigate · h/l swap · Space strum</span>
       </div>
 
-      <div class="chart-and-detail">
-        <!-- Chart grid (left) -->
-        <div class="chart-side">
-          <ChartGrid
-            changes={solved}
-            selectedIndex={selectedChord}
-            {locked}
-            onselect={(i) => selectedChord = i}
-          />
-        </div>
+      <ChartGrid
+        changes={solved}
+        selectedIndex={selectedChord}
+        {locked}
+        onselect={(i) => selectedChord = i}
+      />
+    {/if}
+  </div>
 
-        <!-- Voicing detail (right) -->
-        <div class="detail-side">
-          {#if selected}
-            <div class="detail-header">
-              <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
-              {#if selected.relaxation !== 'exact'}
-                <span class="relaxation-tag">{selected.relaxation}</span>
-              {/if}
-            </div>
-            <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
-
-            <div class="detail-controls">
-              <button class="play-btn" onclick={() => playStrum(selected!.positions)}>Strum</button>
-
-              <div class="swap-controls">
-                <button class="swap-btn" disabled={selectedAltCount <= 1} onclick={() => swapAlt(-1)}>◀</button>
-                <span class="alt-counter">{selectedAltIdx + 1}/{selectedAltCount}</span>
-                <button class="swap-btn" disabled={selectedAltCount <= 1} onclick={() => swapAlt(1)}>▶</button>
-              </div>
-
-              <label class="lock-toggle">
-                <input type="checkbox" checked={locked[selectedChord] ?? false} onchange={() => toggleLock(selectedChord)} />
-                Lock
-              </label>
-            </div>
-
-            <VoicingFretboard
-              positions={selected.positions}
-              notes={selected.notes}
-              intervals={selected.intervals ?? []}
-            />
-          {/if}
-        </div>
+  <!-- Right: fretboard + detail -->
+  <div class="tune-right">
+    {#if selected}
+      <div class="detail-header">
+        <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
+        {#if selected.relaxation !== 'exact'}
+          <span class="relaxation-tag">{selected.relaxation}</span>
+        {/if}
       </div>
-    </div>
-  {/if}
+
+      <div class="detail-controls">
+        <button class="play-btn" onclick={() => playStrum(selected!.positions)}>Strum</button>
+        <div class="swap-controls">
+          <button class="swap-btn" disabled={selectedAltCount <= 1} onclick={() => swapAlt(-1)}>◀</button>
+          <span class="alt-counter">{selectedAltIdx + 1}/{selectedAltCount}</span>
+          <button class="swap-btn" disabled={selectedAltCount <= 1} onclick={() => swapAlt(1)}>▶</button>
+        </div>
+        <label class="lock-toggle">
+          <input type="checkbox" checked={locked[selectedChord] ?? false} onchange={() => toggleLock(selectedChord)} />
+          Lock
+        </label>
+      </div>
+
+      <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
+
+      <VoicingFretboard
+        positions={selected.positions}
+        notes={selected.notes}
+        intervals={selected.intervals ?? []}
+      />
+
+      <p class="keyboard-hint">←→ navigate · h/l swap · Space strum</p>
+    {:else if !solved}
+      <p class="empty-hint">Enter a chart and press Solve</p>
+    {/if}
+  </div>
 </div>
 
 <style>
   .tune-layout {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    padding: 16px;
     gap: 16px;
+    padding: 12px;
+    overflow: hidden;
+  }
+
+  .tune-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     overflow-y: auto;
+    min-width: 0;
+  }
+
+  .tune-right {
+    width: 260px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    padding-top: 2px;
   }
 
   .tune-input {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-width: 700px;
+    gap: 6px;
   }
 
   .input-row {
@@ -483,12 +497,12 @@
   .constraints-panel {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    max-width: 700px;
-    padding: 12px;
+    gap: 6px;
+    padding: 8px 10px;
     background: var(--bg-raised);
     border: 1px solid var(--border);
     border-radius: 6px;
+    font-size: var(--font-label);
   }
 
   .constraint-row {
@@ -571,33 +585,16 @@
     gap: 4px;
   }
 
-  /* Results */
-  .tune-result {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-height: 0;
+  .empty-hint {
+    color: var(--text-disabled);
+    font-size: var(--font-label);
+    padding-top: 24px;
   }
 
-  .chart-and-detail {
-    flex: 1;
-    display: flex;
-    gap: 16px;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .chart-side {
-    flex: 1;
-    overflow-y: auto;
-    min-width: 300px;
-  }
-
-  .detail-side {
-    width: 280px;
-    flex-shrink: 0;
-    overflow-y: auto;
+  .keyboard-hint {
+    font-size: 10px;
+    color: var(--text-disabled);
+    margin-top: 8px;
   }
 
   .result-actions {
