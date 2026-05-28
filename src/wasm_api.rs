@@ -353,9 +353,16 @@ fn serialize_solved(solved: &SolvedChart, fb: &Fretboard) -> JsValue {
 
         let chord_label = chords::chord_name(&c.root, c.quality);
         let root_pc = chords::root_to_pc(&c.root).unwrap_or(0);
+        let bass_pc = c.bass_pc.unwrap_or(root_pc);
+        let chord_display = if c.bass_pc.is_some() {
+            format!("{}/{}", chord_label, PC_NAMES[bass_pc as usize])
+        } else {
+            chord_label.clone()
+        };
         serde_json::json!({
-            "chord": chord_label,
+            "chord": chord_display,
             "rootPc": root_pc,
+            "bassPc": bass_pc,
             "recipe": c.recipe.short_label(),
             "positions": c.fingering.positions.to_vec() as Vec<Option<u8>>,
             "notes": c.fingering.notes(fb).into_iter().map(|n| {

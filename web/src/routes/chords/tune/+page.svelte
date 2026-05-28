@@ -232,7 +232,7 @@
     for (let i = 0; i < solved.length; i++) {
       if (!playingAll) break;
       selectedChord = i;
-      if (bassEnabled) playBass(solved[i].rootPc);
+      if (bassEnabled) playBass(solved[i].bassPc ?? solved[i].rootPc);
       playStrum(solved[i].positions);
       const beats = solved[i].beats;
       for (let b = 0; b < beats; b++) {

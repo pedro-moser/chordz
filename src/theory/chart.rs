@@ -25,8 +25,8 @@ pub const PRESETS: &[(&str, &str)] = &[
          Em7 A7 | Fm7 Bb7 | Ebmaj7 | Abm7 Db7 | \
          Dm7 G7 | Ebm7 Ab7 | Dbmaj7 | Dm7 G7 | \
          Cm7 B7 | Bbm7 Eb7 | Abmaj7 | Abm7 Db7 | \
-         Gm7 C7 | Fm7 Bb7 | Ebmaj7 | Fm7 | \
-         Gm7 | Fm7 | Ebmaj7 Fm7 | Gm7 Fm7 | \
+         Gm7 C7 | Fm7 Bb7 | Ebmaj7 | Fm7/Bb | \
+         Gm7/Bb | Fm7/Bb | Ebmaj7 Fm7/Bb | Gm7/Bb Fm7/Bb | \
          Ebmaj7 | %",
     ),
     (
@@ -49,6 +49,8 @@ pub struct ChordChange {
     pub quality: &'static ChordQuality,
     /// Duration in beats.
     pub beats: f32,
+    /// Bass note pitch class, if different from root (slash chord: Fm7/Bb → bass_pc = Some(10)).
+    pub bass_pc: Option<u8>,
 }
 
 /// A parsed chord chart (sequence of changes).
@@ -110,14 +112,27 @@ impl Chart {
             let mut bar = Vec::new();
 
             for token in tokens {
-                let (root, quality) = parse_chord_symbol(token)?;
+                let (chord_part, bass_note) = if let Some(idx) = token.rfind('/') {
+                    (&token[..idx], Some(&token[idx + 1..]))
+                } else {
+                    (token, None)
+                };
+                let (root, quality) = parse_chord_symbol(chord_part)?;
                 let root_pc = chords::root_to_pc(&root)
                     .ok_or_else(|| ParseError::UnknownRoot(root.clone()))?;
+                let bass_pc = match bass_note {
+                    Some(b) => Some(
+                        chords::root_to_pc(b)
+                            .ok_or_else(|| ParseError::UnknownRoot(b.to_string()))?,
+                    ),
+                    None => None,
+                };
                 bar.push(ChordChange {
                     root,
                     root_pc,
                     quality,
                     beats: beats_per_chord,
+                    bass_pc,
                 });
             }
 
