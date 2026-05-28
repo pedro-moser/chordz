@@ -43,7 +43,7 @@ impl ChordzApp {
             require_root: false,
         };
         let root_pc = chords::root_to_pc(self.root()).unwrap();
-        let min_stability = 10u8;
+        let min_stability = 100u8;
 
         struct FlatEntry {
             quality: &'static chords::ChordQuality,

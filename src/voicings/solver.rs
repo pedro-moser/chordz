@@ -403,13 +403,13 @@ fn generate_candidates_with_relaxation(
 
     // Map tension_target to min_total_stability.
     let min_stability: u8 = if config.tension_target < 0.15 {
-        14
+        140
     } else if config.tension_target < 0.45 {
-        12
+        120
     } else if config.tension_target < 0.75 {
-        10
+        100
     } else {
-        8
+        80
     };
 
     // Generate voice sets for each valid note count.
@@ -452,7 +452,7 @@ fn generate_candidates_with_relaxation(
 
         rank_fingerings_with_options(&mut fingerings, voice_set, fretboard, false, config.abstraction);
         // Use stability as tension: higher stability = lower tension.
-        let max_possible = rules.max_strings as f32 * 4.0;
+        let max_possible = rules.max_strings as f32 * 40.0;
         let tension = 1.0 - (*stability as f32 / max_possible).min(1.0);
         all.extend(fingerings.into_iter().take(3).map(|fingering| {
             let rank_score = fingering_score(&fingering, voice_set, fretboard);

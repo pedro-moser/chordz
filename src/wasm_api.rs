@@ -157,7 +157,7 @@ pub fn generate_voicings(
         return to_js(&serde_json::json!({"error": "invalid family_index"}));
     };
     let mut groups: Vec<serde_json::Value> = Vec::new();
-    let min_stability = 10u8;
+    let min_stability = 100u8;
 
     for quality_name in family.quality_names() {
         let Some(quality) = ChordQuality::ALL.iter().find(|q| q.name == *quality_name) else {

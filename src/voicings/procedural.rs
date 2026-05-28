@@ -300,22 +300,22 @@ mod tests {
     #[test]
     fn generates_voice_sets_for_maj7() {
         let quality = find_quality("maj7");
-        let sets = generate_all_voice_sets(0, quality, 4, None, 8);
+        let sets = generate_all_voice_sets(0, quality, 4, None, 80);
         assert!(!sets.is_empty());
     }
 
     #[test]
     fn core_tones_have_highest_stability() {
         let quality = find_quality("maj7");
-        let sets = generate_all_voice_sets(0, quality, 4, None, 8);
+        let sets = generate_all_voice_sets(0, quality, 4, None, 80);
         let top = &sets[0];
-        assert_eq!(top.1, 16, "R+3+5+7 = 4+4+4+4 = 16");
+        assert_eq!(top.1, 160, "R+3+5+7 = 40+40+40+40 = 160");
     }
 
     #[test]
     fn four_close_inversions_for_max_stability() {
         let quality = find_quality("maj7");
-        let sets = generate_all_voice_sets(0, quality, 4, None, 16);
+        let sets = generate_all_voice_sets(0, quality, 4, None, 160);
         let close_count = sets.iter().filter(|s| s.2 == "closed").count();
         assert_eq!(close_count, 4);
     }
@@ -323,43 +323,43 @@ mod tests {
     #[test]
     fn drop2_generated() {
         let quality = find_quality("maj7");
-        let sets = generate_all_voice_sets(0, quality, 4, None, 8);
+        let sets = generate_all_voice_sets(0, quality, 4, None, 80);
         assert!(sets.iter().any(|s| s.2 == "drop2"));
     }
 
     #[test]
     fn drop3_generated() {
         let quality = find_quality("maj7");
-        let sets = generate_all_voice_sets(0, quality, 4, None, 8);
+        let sets = generate_all_voice_sets(0, quality, 4, None, 80);
         assert!(sets.iter().any(|s| s.2 == "drop3"));
     }
 
     #[test]
     fn drop2and3_generated() {
         let quality = find_quality("maj7");
-        let sets = generate_all_voice_sets(0, quality, 4, None, 8);
+        let sets = generate_all_voice_sets(0, quality, 4, None, 80);
         assert!(sets.iter().any(|s| s.2 == "drop2&3"));
     }
 
     #[test]
     fn three_note_only_close() {
         let quality = find_quality("maj7");
-        let sets = generate_all_voice_sets(0, quality, 3, None, 8);
+        let sets = generate_all_voice_sets(0, quality, 3, None, 80);
         assert!(sets.iter().all(|s| s.2 == "closed"));
     }
 
     #[test]
     fn stability_filter_works() {
         let quality = find_quality("maj7");
-        let permissive = generate_all_voice_sets(0, quality, 4, None, 8);
-        let strict = generate_all_voice_sets(0, quality, 4, None, 14);
+        let permissive = generate_all_voice_sets(0, quality, 4, None, 80);
+        let strict = generate_all_voice_sets(0, quality, 4, None, 140);
         assert!(strict.len() < permissive.len());
     }
 
     #[test]
     fn em7b5_core_subset_present() {
         let quality = find_quality("m7b5");
-        let sets = generate_all_voice_sets(4, quality, 4, None, 8);
+        let sets = generate_all_voice_sets(4, quality, 4, None, 80);
         // Core Em7b5 = semitones [0,3,6,10] → PCs [4,7,10,2]
         let has_core = sets.iter().any(|s| {
             let mut pcs: Vec<u8> = s
@@ -378,7 +378,7 @@ mod tests {
     fn dominant_altered_has_b9() {
         let dom = find_quality("dom7");
         let minor = find_quality("m7");
-        let sets = generate_all_voice_sets(0, dom, 4, Some(minor), 8);
+        let sets = generate_all_voice_sets(0, dom, 4, Some(minor), 80);
         let has_b9 = sets
             .iter()
             .any(|s| s.0.intervals.iter().any(|iv| iv.semitones == 1));

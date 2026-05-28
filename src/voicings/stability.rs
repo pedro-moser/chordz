@@ -2,23 +2,23 @@ use crate::theory::chords::ChordQuality;
 
 pub type StabilityTable = [u8; 12];
 
-// Major (maj7): R=4 b9=0 9=3 b3=1 3=4 11=0 #11=2 5=4 b13=1 13=3 b7=0 7=4
-const MAJOR: StabilityTable = [4, 0, 3, 1, 4, 0, 2, 4, 1, 3, 0, 4];
+// Major (maj7): R=40 b9=0 9=30 b3=10 3=40 11=0 #11=20 5=40 b13=10 13=30 b7=0 7=40
+const MAJOR: StabilityTable = [40, 0, 30, 10, 40, 0, 20, 40, 10, 30, 0, 40];
 
-// Minor (m7): R=4 b9=1 9=3 b3=4 3=0 11=4 #11=2 5=4 b13=2 13=2 b7=4 maj7=2
-const MINOR: StabilityTable = [4, 1, 3, 4, 0, 4, 2, 4, 2, 2, 4, 2];
+// Minor (m7): R=40 b9=10 9=30 b3=40 3=0 11=40 #11=20 5=40 b13=20 13=20 b7=40 maj7=20
+const MINOR: StabilityTable = [40, 10, 30, 40, 0, 40, 20, 40, 20, 20, 40, 20];
 
-// Dominant natural (→major): R=4 b9=2 9=3 #9=2 3=4 4/sus=2 #11=2 5=4 b13=2 13=3 b7=4 7=0
-const DOM_NATURAL: StabilityTable = [4, 2, 3, 2, 4, 2, 2, 4, 2, 3, 4, 0];
+// Dominant natural (→major): R=40 b9=20 9=30 #9=20 3=40 4/sus=20 #11=20 5=40 b13=20 13=30 b7=40 7=0
+const DOM_NATURAL: StabilityTable = [40, 20, 30, 20, 40, 20, 20, 40, 20, 30, 40, 0];
 
-// Dominant altered (→minor/tritone sub): R=4 b9=3 9=2 #9=3 3=4 4/sus=1 #11=3 5=4 b13=2 13=1 b7=4 7=0
-const DOM_ALTERED: StabilityTable = [4, 3, 2, 3, 4, 1, 3, 4, 2, 1, 4, 0];
+// Dominant altered (→minor/tritone sub): R=40 b9=30 9=20 #9=30 3=40 4/sus=10 #11=30 5=40 b13=20 13=10 b7=40 7=0
+const DOM_ALTERED: StabilityTable = [40, 30, 20, 30, 40, 10, 30, 40, 20, 10, 40, 0];
 
-// Half-diminished (m7b5): R=4 b9=1 9=2 b3=4 3=0 11=3 b5=4 5=0 b13=2 13=1 b7=4 7=1
-const HALF_DIM: StabilityTable = [4, 1, 2, 4, 0, 3, 4, 0, 2, 1, 4, 1];
+// Half-diminished (m7b5): R=40 b9=10 9=20 b3=40 3=0 11=30 b5=40 5=0 b13=20 13=10 b7=40 7=2
+const HALF_DIM: StabilityTable = [40, 10, 20, 40, 0, 30, 40, 0, 20, 10, 40, 2];
 
-// Diminished (dim7): R=4 b9=2 9=2 b3=4 3=1 11=2 b5=4 5=1 b13=2 dim7=4 13=2 b7=1
-const DIM: StabilityTable = [4, 2, 2, 4, 1, 2, 4, 1, 2, 4, 2, 1];
+// Diminished (dim7): R=40 b9=20 9=20 b3=40 3=10 11=20 b5=40 5=10 b13=20 dim7=40 13=20 b7=10
+const DIM: StabilityTable = [40, 20, 20, 40, 10, 20, 40, 10, 20, 40, 20, 10];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HarmonicFamily {
@@ -73,7 +73,7 @@ pub fn get_stability_table(
     };
 
     for iv in quality.intervals {
-        table[iv.semitones as usize % 12] = 4;
+        table[iv.semitones as usize % 12] = 40;
     }
 
     table
@@ -112,26 +112,23 @@ pub fn apply_abstraction(table: &mut StabilityTable, quality: &ChordQuality, abs
         let sem = i as u8;
         let is_core = explicit.contains(&sem);
         if !is_core {
-            if s >= 2 {
-                let boost = (abstraction * 2.0).round() as u8;
-                *entry = (s + boost).min(4);
+            if s >= 20 {
+                let boost = (abstraction * 20.0).round() as u8;
+                *entry = (s + boost).min(40);
             }
             continue;
         }
         let is_root = sem == 0;
         let is_third = third_semitones.contains(&sem);
         if is_root {
-            // Root: excluded at Abstract, rare at Open
             let new_val = s as f32 * (1.0 - abstraction);
             *entry = new_val.round() as u8;
         } else if is_third {
-            // 3rd: excluded at Abstract, rare at Open, reduced at Balanced
             let new_val = s as f32 * (1.0 - abstraction);
             *entry = new_val.round() as u8;
         } else {
-            // 5th, 7th: drop less — still useful for structure
             let new_val = s as f32 * (1.0 - abstraction * 0.5);
-            *entry = (new_val.round() as u8).max(2);
+            *entry = (new_val.round() as u8).max(20);
         }
     }
 }
@@ -218,12 +215,12 @@ mod tests {
 
     #[test]
     fn major_core_tones_max_stability() {
-        assert_eq!(subset_stability(&MAJOR, &[0, 4, 7, 11]), 16);
+        assert_eq!(subset_stability(&MAJOR, &[0, 4, 7, 11]), 160);
     }
 
     #[test]
     fn major_with_9_lower() {
-        assert_eq!(subset_stability(&MAJOR, &[0, 2, 4, 11]), 15);
+        assert_eq!(subset_stability(&MAJOR, &[0, 2, 4, 11]), 150);
     }
 
     #[test]
@@ -238,13 +235,13 @@ mod tests {
 
     #[test]
     fn minor_11_very_stable() {
-        assert_eq!(MINOR[5], 4);
+        assert_eq!(MINOR[5], 40);
     }
 
     #[test]
     fn dom_natural_vs_altered() {
-        assert_eq!(DOM_NATURAL[1], 2);
-        assert_eq!(DOM_ALTERED[1], 3);
+        assert_eq!(DOM_NATURAL[1], 20);
+        assert_eq!(DOM_ALTERED[1], 30);
     }
 
     #[test]
@@ -256,7 +253,7 @@ mod tests {
 
     #[test]
     fn half_dim_b5_stable() {
-        assert_eq!(HALF_DIM[6], 4);
+        assert_eq!(HALF_DIM[6], 40);
     }
 
     #[test]
@@ -269,7 +266,7 @@ mod tests {
         let dom = ChordQuality::ALL.iter().find(|q| q.name == "dom7").unwrap();
         let minor = ChordQuality::ALL.iter().find(|q| q.name == "m7").unwrap();
         let table = get_stability_table(dom, Some(minor));
-        assert_eq!(table[1], 3);
+        assert_eq!(table[1], 30);
     }
 
     #[test]
@@ -277,6 +274,6 @@ mod tests {
         let dom = ChordQuality::ALL.iter().find(|q| q.name == "dom7").unwrap();
         let maj = ChordQuality::ALL.iter().find(|q| q.name == "maj7").unwrap();
         let table = get_stability_table(dom, Some(maj));
-        assert_eq!(table[1], 2);
+        assert_eq!(table[1], 20);
     }
 }
