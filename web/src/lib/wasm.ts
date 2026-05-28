@@ -67,3 +67,42 @@ export function getFretboardNotes(): FretNote[][] {
 export function getIntervalName(semitone: number): string {
   return getWasm().get_interval_name(semitone);
 }
+
+export interface VoicingInfo {
+  chord: string;
+  recipe: string;
+  positions: (number | null)[];
+  notes: ({ pc: number; name: string } | null)[];
+  intervals: string[];
+}
+
+export interface SolvedChange {
+  chord: string;
+  recipe: string;
+  positions: (number | null)[];
+  notes: ({ pc: number; name: string } | null)[];
+  intervals: string[];
+  beats: number;
+}
+
+export interface SolveResult {
+  changes?: SolvedChange[];
+  error?: string;
+}
+
+export interface FamilyInfo {
+  index: number;
+  name: string;
+}
+
+export function getFamilies(): FamilyInfo[] {
+  return getWasm().get_families();
+}
+
+export function generateVoicings(rootIndex: number, familyIndex: number, noteCount: number): VoicingInfo[] {
+  return getWasm().generate_voicings(rootIndex, familyIndex, noteCount);
+}
+
+export function solveChart(chartText: string, title: string): SolveResult {
+  return getWasm().solve_chart(chartText, title);
+}
