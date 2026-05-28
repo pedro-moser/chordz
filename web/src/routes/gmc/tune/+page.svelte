@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import { generateGmcLine, getPresets, getPairs, getAllScales } from '$lib/wasm';
-  import { scheduleNotes, scheduleBass, stopScheduled, getAudioTime, initGuitarAudio, setAmbience } from '$lib/audio';
+  import { scheduleNotes, scheduleBass, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
 
   const gmcTabs = [
@@ -86,7 +86,6 @@
   })());
 
   onMount(() => {
-    initGuitarAudio();
     presets = getPresets();
     pairs = getPairs();
     scales = getAllScales();

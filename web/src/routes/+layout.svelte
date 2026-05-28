@@ -4,12 +4,14 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { initWasm } from '$lib/wasm';
+  import { initGuitarAudio } from '$lib/audio';
 
   let { children } = $props();
   let ready = $state(false);
 
   onMount(async () => {
     await initWasm();
+    initGuitarAudio(); // preload guitar samples + effects app-wide (all routes)
     ready = true;
   });
 
