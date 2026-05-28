@@ -90,6 +90,7 @@ export interface SolvedAlternative {
 
 export interface SolvedChange {
   chord: string;
+  rootPc: number;
   recipe: string;
   positions: (number | null)[];
   notes: ({ pc: number; name: string } | null)[];

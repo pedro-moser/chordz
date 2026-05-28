@@ -4,7 +4,7 @@
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import ChartGrid from '$lib/components/ChartGrid.svelte';
   import { solveChart, solveChartWithLocks, getPresets } from '$lib/wasm';
-  import { playStrum, playClick, stopAll } from '$lib/audio';
+  import { playStrum, playClick, playBass, stopAll } from '$lib/audio';
   import type { SolvedChange, SolverConfig, Preset } from '$lib/wasm';
 
   const chordTabs = [
@@ -46,6 +46,7 @@
   let playingAll = $state(false);
   let bpm = $state(120);
   let clickEnabled = $state(true);
+  let bassEnabled = $state(false);
 
   // Solver constraints
   let tension = $state(0.3);
@@ -203,6 +204,7 @@
     for (let i = 0; i < solved.length; i++) {
       if (!playingAll) break;
       selectedChord = i;
+      if (bassEnabled) playBass(solved[i].rootPc);
       playStrum(solved[i].positions);
       const beats = solved[i].beats;
       for (let b = 0; b < beats; b++) {
@@ -335,6 +337,9 @@
           <input id="bpm-input" type="number" min="40" max="300" bind:value={bpm} class="bpm-input" />
           <label class="click-label">
             <input type="checkbox" bind:checked={clickEnabled} /> Click
+          </label>
+          <label class="click-label">
+            <input type="checkbox" bind:checked={bassEnabled} /> Bass
           </label>
         </div>
         {#if playingAll}

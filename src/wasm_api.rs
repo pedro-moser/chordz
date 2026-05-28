@@ -356,8 +356,10 @@ fn serialize_solved(solved: &SolvedChart, fb: &Fretboard) -> JsValue {
         }).unwrap_or_default();
 
         let chord_label = chords::chord_name(&c.root, c.quality);
+        let root_pc = chords::root_to_pc(&c.root).unwrap_or(0);
         serde_json::json!({
             "chord": chord_label,
+            "rootPc": root_pc,
             "recipe": c.recipe.short_label(),
             "positions": c.fingering.positions.to_vec() as Vec<Option<u8>>,
             "notes": c.fingering.notes(fb).into_iter().map(|n| {
@@ -466,6 +468,18 @@ pub fn solve_chart_with_locks(
 // ---------------------------------------------------------------------------
 // Audio
 // ---------------------------------------------------------------------------
+
+#[wasm_bindgen]
+pub fn synth_bass_note(root_pc: u8, duration: f32) -> Vec<f32> {
+    let note = Note::new(root_pc as i32, 2); // octave 2 = bass register
+    let pluck = synth::generate_pluck(note, duration);
+    let mut interleaved = Vec::with_capacity(pluck.len() * 2);
+    for s in &pluck {
+        interleaved.push(*s);
+        interleaved.push(*s);
+    }
+    interleaved
+}
 
 #[wasm_bindgen]
 pub fn synth_chord(positions_js: JsValue, duration: f32) -> Vec<f32> {

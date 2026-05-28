@@ -60,6 +60,29 @@ function playInterleaved(samples: Float32Array, sampleRate = 44100) {
   };
 }
 
+function playBuffer(samples: Float32Array, sampleRate = 44100) {
+  const audioCtx = getContext();
+  const numFrames = samples.length / 2;
+  const buffer = audioCtx.createBuffer(2, numFrames, sampleRate);
+  const left = buffer.getChannelData(0);
+  const right = buffer.getChannelData(1);
+  for (let i = 0; i < numFrames; i++) {
+    left[i] = samples[i * 2];
+    right[i] = samples[i * 2 + 1];
+  }
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioCtx.destination);
+  source.start();
+  return source;
+}
+
+export function playBass(rootPc: number, duration = 2.0) {
+  const { synth_bass_note } = getWasmSync();
+  const samples = synth_bass_note(rootPc, duration);
+  if (samples.length > 0) playBuffer(new Float32Array(samples));
+}
+
 export function playStrum(positions: (number | null)[]) {
   const { synth_chord } = getWasmSync();
   const samples = synth_chord(positions, 2.0);
