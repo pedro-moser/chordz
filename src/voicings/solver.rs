@@ -308,10 +308,68 @@ pub fn solve_with_locks(
 
     let alternatives = all_candidates;
 
+    let fingerings = diversify_repeated_chords(fingerings, &alternatives, fretboard);
+
     Some(SolvedChart {
         fingerings,
         alternatives,
     })
+}
+
+fn diversify_repeated_chords(
+    mut fingerings: Vec<SolvedChange>,
+    alternatives: &[Vec<SolvedAlternative>],
+    fretboard: &Fretboard,
+) -> Vec<SolvedChange> {
+    let n = fingerings.len();
+    let mut used_positions: std::collections::HashMap<String, Vec<[Option<u8>; 6]>> =
+        std::collections::HashMap::new();
+
+    for i in 0..n {
+        let key = format!("{}_{}", fingerings[i].root, fingerings[i].quality.name);
+        let positions = fingerings[i].fingering.positions;
+
+        if let Some(prev) = used_positions.get(&key) {
+            if prev.contains(&positions) {
+                if let Some(alts) = alternatives.get(i) {
+                    let prev_pos = if i > 0 {
+                        Some(&fingerings[i - 1].fingering)
+                    } else {
+                        None
+                    };
+                    let mut best: Option<&SolvedAlternative> = None;
+                    let mut best_dist = u32::MAX;
+                    for alt in alts {
+                        if prev.contains(&alt.fingering.positions) {
+                            continue;
+                        }
+                        let d = prev_pos
+                            .map(|p| distance(p, &alt.fingering, fretboard))
+                            .unwrap_or(0);
+                        if d < best_dist {
+                            best_dist = d;
+                            best = Some(alt);
+                        }
+                    }
+                    if let Some(alt) = best {
+                        fingerings[i].fingering = alt.fingering.clone();
+                        fingerings[i].recipe = alt.recipe;
+                        fingerings[i].tension = alt.tension;
+                        fingerings[i].normalized_tension = alt.normalized_tension;
+                        fingerings[i].rank_score = alt.rank_score;
+                        fingerings[i].relaxation = alt.relaxation;
+                    }
+                }
+            }
+        }
+
+        used_positions
+            .entry(key)
+            .or_default()
+            .push(fingerings[i].fingering.positions);
+    }
+
+    fingerings
 }
 
 fn generate_candidates(
