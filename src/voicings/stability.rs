@@ -163,7 +163,12 @@ pub fn degree_class(semitone: u8, quality: &ChordQuality) -> u8 {
     match s {
         0 => 1,
         1 | 2 => 2,
-        3 | 4 => 3,
+        3 => {
+            // #9 (2nd class) if the chord has M3; b3 (3rd class) otherwise
+            let has_major_third = quality.intervals.iter().any(|iv| iv.semitones % 12 == 4);
+            if has_major_third { 2 } else { 3 }
+        }
+        4 => 3,
         5 => 4,
         6 => {
             // b5 (5th class) if quality uses it as a 5th; #4 (4th class) otherwise

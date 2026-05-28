@@ -22,7 +22,10 @@ fn semitone_to_interval(semitone: u8, quality: &ChordQuality) -> Interval {
         0 => Interval::UNISON,
         1 => Interval::m2,
         2 => Interval::M2,
-        3 => Interval::m3,
+        3 => {
+            let class = stability::degree_class(s, quality);
+            if class == 2 { Interval::SHARP9 } else { Interval::m3 }
+        }
         4 => Interval::M3,
         5 => Interval::P4,
         6 => {
