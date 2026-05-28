@@ -208,10 +208,13 @@ const TUNE_PRESETS: &[(&str, &str)] = &[
     ),
     (
         "Moment's Notice",
-        "Em7 | A7 | Fm7 | Bb7 | Ebmaj7 | Abm7 Db7 | Dm7 | G7 | \
-         Ebm7 | Ab7 | Dm7 | G7 | Cmaj7 | % | Abm7 | Db7 | \
-         Dm7 | G7 | Ebm7 | Ab7 | Cmaj7 | Dbm7 Gb7 | Dm7 | Ebm7 Ab7 | \
-         Dm7 | G7 | Ebm7 | Ab7 | Cmaj7 | % | Dm7 G7 | Cmaj7",
+        "Em7 A7 | Fm7 Bb7 | Ebmaj7 | Abm7 Db7 | \
+         Dm7 G7 | Ebm7 Ab7 | Dbmaj7 | Dm7 G7 | \
+         Cm7 B7 | Bbm7 Eb7 | Abmaj7 | Abm7 Db7 | \
+         Gm7 C7 | Abm7 Db7 | Gbmaj7 | Fm7 Bb7 | \
+         Gm7 C7 | Fm7 Bb7 | Ebmaj7 | Fm7 | \
+         Gm7 | Fm7 | Ebmaj7 Fm7 | Gm7 Fm7 | \
+         Ebmaj7 | %",
     ),
     (
         "Giant Steps",
