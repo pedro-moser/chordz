@@ -133,11 +133,14 @@ pub fn apply_abstraction(table: &mut StabilityTable, quality: &ChordQuality, abs
         }
         let is_root = sem == 0;
         let is_third = third_semitones.contains(&sem);
-        if is_root || is_third {
-            // R and 3rd are the most "obvious" — drop aggressively
-            // Abstract(1.0): 4→1, Open(0.6): 4→1, Balanced(0.3): 4→2
+        if is_root {
+            // Root: excluded at Abstract, rare at Open
             let new_val = s as f32 * (1.0 - abstraction);
-            *entry = (new_val.round() as u8).max(1);
+            *entry = new_val.round() as u8;
+        } else if is_third {
+            // 3rd: excluded at Abstract, rare at Open, reduced at Balanced
+            let new_val = s as f32 * (1.0 - abstraction);
+            *entry = new_val.round() as u8;
         } else {
             // 5th, 7th: drop less — still useful for structure
             let new_val = s as f32 * (1.0 - abstraction * 0.5);

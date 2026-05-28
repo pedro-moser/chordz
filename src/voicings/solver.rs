@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use super::fretboard::Fretboard;
 use super::generate::{map_voice_set, Fingering};
 use super::procedural::generate_all_voice_sets_with_abstraction;
-use super::ranking::{rank_fingerings, score as fingering_score};
+use super::ranking::{rank_fingerings_with_options, score as fingering_score};
 use super::recipe::VoicingRecipe;
 use super::rules::VoicingRules;
 use super::voice_leading::distance;
@@ -450,7 +450,7 @@ fn generate_candidates_with_relaxation(
             });
         }
 
-        rank_fingerings(&mut fingerings, voice_set, fretboard);
+        rank_fingerings_with_options(&mut fingerings, voice_set, fretboard, false, config.abstraction);
         // Use stability as tension: higher stability = lower tension.
         let max_possible = rules.max_strings as f32 * 4.0;
         let tension = 1.0 - (*stability as f32 / max_possible).min(1.0);

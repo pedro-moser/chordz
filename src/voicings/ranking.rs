@@ -18,26 +18,29 @@ use super::voice_set::VoiceSet;
 ///   strings (E, A, D) that are within a minor third (≤ 3 semitones) of
 ///   each other, including unisons and octaves.
 pub fn score(fingering: &Fingering, voice_set: &VoiceSet, fretboard: &Fretboard) -> i32 {
-    score_with_crunch(fingering, voice_set, fretboard, false)
+    score_with_options(fingering, voice_set, fretboard, false, 0.0)
 }
 
-pub fn score_with_crunch(
+pub fn score_with_options(
     fingering: &Fingering,
     voice_set: &VoiceSet,
     fretboard: &Fretboard,
     prefer_crunch: bool,
+    abstraction: f32,
 ) -> i32 {
     let span_score = -(fingering.fret_span() as i32);
-    let guide_tone_score = guide_tone_score(fingering, voice_set);
+    let guide_scale = (1.0 - abstraction).max(0.0);
+    let guide = (guide_tone_score(fingering, voice_set) as f32 * guide_scale) as i32;
     let muddy_score = muddy_cluster_penalty(fingering, fretboard);
-    let bass_quality = bass_note_quality(fingering, fretboard);
+    let bass_scale = (1.0 - abstraction * 0.8).max(0.0);
+    let bass = (bass_note_quality(fingering, fretboard) as f32 * bass_scale) as i32;
     let crunch = if prefer_crunch {
         crunch_bonus(fingering, fretboard)
     } else {
         0
     };
 
-    span_score + guide_tone_score + muddy_score + bass_quality + crunch
+    span_score + guide + muddy_score + bass + crunch
 }
 
 /// Sort `fingerings` in place by descending score (best first).
@@ -49,13 +52,22 @@ pub fn rank_fingerings(fingerings: &mut [Fingering], voice_set: &VoiceSet, fretb
     fingerings.sort_by_key(|fingering| Reverse(score(fingering, voice_set, fretboard)));
 }
 
-pub fn rank_fingerings_with_crunch(
+pub fn rank_fingerings_with_options(
     fingerings: &mut [Fingering],
     voice_set: &VoiceSet,
     fretboard: &Fretboard,
+    prefer_crunch: bool,
+    abstraction: f32,
 ) {
-    fingerings
-        .sort_by_key(|fingering| Reverse(score_with_crunch(fingering, voice_set, fretboard, true)));
+    fingerings.sort_by_key(|fingering| {
+        Reverse(score_with_options(
+            fingering,
+            voice_set,
+            fretboard,
+            prefer_crunch,
+            abstraction,
+        ))
+    });
 }
 
 fn guide_tone_score(fingering: &Fingering, voice_set: &VoiceSet) -> i32 {
@@ -63,7 +75,7 @@ fn guide_tone_score(fingering: &Fingering, voice_set: &VoiceSet) -> i32 {
         return 0;
     };
     if fingering.has_interval(gt1) && fingering.has_interval(gt2) {
-        20
+        5
     } else {
         0
     }
@@ -114,7 +126,7 @@ fn bass_note_quality(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
         || interval == Interval::M3
         || interval == Interval::m3;
     if is_stable {
-        return 8;
+        return 3;
     }
     let is_seventh = interval == Interval::m7 || interval == Interval::M7;
     if is_seventh {

@@ -12,7 +12,7 @@ use crate::theory::chords;
 use crate::theory::chords::ChordFamily;
 use crate::voicings::generate::{map_voice_set, Fingering};
 use crate::voicings::procedural::generate_all_voice_sets;
-use crate::voicings::ranking::rank_fingerings;
+use crate::voicings::ranking::rank_fingerings_with_options;
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
 
@@ -62,7 +62,7 @@ impl ChordzApp {
             for (voice_set, _stability, _label) in &voice_sets {
                 let mut fingerings = map_voice_set(voice_set, &self.fretboard, &rules);
                 fingerings.retain(|f| has_unique_pitch_classes(f, &self.fretboard));
-                rank_fingerings(&mut fingerings, voice_set, &self.fretboard);
+                rank_fingerings_with_options(&mut fingerings, voice_set, &self.fretboard, false, 0.0);
                 flat.extend(fingerings.into_iter().take(VOICINGS_PER_VOICE_SET).map(
                     |fingering| FlatEntry {
                         quality,

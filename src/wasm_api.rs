@@ -10,7 +10,7 @@ use crate::theory::scales::Scale;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::{map_voice_set, Fingering};
 use crate::voicings::procedural::generate_all_voice_sets;
-use crate::voicings::ranking::{rank_fingerings, rank_fingerings_with_crunch};
+use crate::voicings::ranking::rank_fingerings_with_options;
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
 use crate::voicings::solver::{
@@ -180,11 +180,7 @@ pub fn generate_voicings(
                 pcs.dedup();
                 pcs.len() == f.played_count()
             });
-            if prefer_crunch {
-                rank_fingerings_with_crunch(&mut fingerings, voice_set, &fb);
-            } else {
-                rank_fingerings(&mut fingerings, voice_set, &fb);
-            }
+            rank_fingerings_with_options(&mut fingerings, voice_set, &fb, prefer_crunch, 0.0);
 
             for fingering in fingerings.iter().take(6) {
                 let positions: Vec<Option<u8>> = fingering.positions.to_vec();
