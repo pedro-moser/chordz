@@ -73,7 +73,10 @@ pub fn get_stability_table(
     };
 
     for iv in quality.intervals {
-        table[iv.semitones as usize % 12] = 40;
+        let idx = iv.semitones as usize % 12;
+        if table[idx] < 40 {
+            table[idx] = 40;
+        }
     }
 
     table
