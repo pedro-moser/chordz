@@ -4,6 +4,7 @@
   import Select from '$lib/components/Select.svelte';
   import { getRoots, getFamilies, generateVoicings } from '$lib/wasm';
   import type { VoicingInfo } from '$lib/wasm';
+  import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
 
   const chordTabs = [
     { label: 'Browse', href: '/chords/browse' },
@@ -70,17 +71,11 @@
       {#if selected}
         <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
         <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
-        <div class="fret-diagram">
-          {#each selected.positions as pos, s}
-            <div class="string-row">
-              <span class="string-label">{['E','A','D','G','B','e'][s]}</span>
-              <span class="fret-value">{pos !== null ? pos : '×'}</span>
-              {#if pos !== null && selected.notes[s]}
-                <span class="note-name">{selected.notes[s]?.name}</span>
-              {/if}
-            </div>
-          {/each}
-        </div>
+        <VoicingFretboard
+          positions={selected.positions}
+          notes={selected.notes}
+          intervals={selected.intervals ?? []}
+        />
       {:else}
         <p class="empty">No voicings for this combination</p>
       {/if}

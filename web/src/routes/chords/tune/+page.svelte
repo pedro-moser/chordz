@@ -1,5 +1,6 @@
 <script lang="ts">
   import SubTabs from '$lib/components/SubTabs.svelte';
+  import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import { solveChart } from '$lib/wasm';
   import type { SolvedChange } from '$lib/wasm';
 
@@ -64,18 +65,12 @@
       {#if selected}
         <div class="chord-detail">
           <h2>{selected.chord} <span class="recipe-tag">{selected.recipe}</span></h2>
-          <p class="intervals-display">{selected.intervals.join('  ')}</p>
-          <div class="fret-diagram">
-            {#each selected.positions as pos, s}
-              <div class="string-row">
-                <span class="string-label">{['E','A','D','G','B','e'][s]}</span>
-                <span class="fret-value">{pos !== null ? pos : '×'}</span>
-                {#if pos !== null && selected.notes[s]}
-                  <span class="note-name">{selected.notes[s]?.name}</span>
-                {/if}
-              </div>
-            {/each}
-          </div>
+          <p class="intervals-display">{selected.intervals?.join('  ') ?? ''}</p>
+          <VoicingFretboard
+            positions={selected.positions}
+            notes={selected.notes}
+            intervals={selected.intervals ?? []}
+          />
         </div>
       {/if}
     </div>
