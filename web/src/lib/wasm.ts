@@ -1,8 +1,8 @@
-let wasmModule: typeof import('../../pkg/chordz.js') | null = null;
+let wasmModule: typeof import('$wasm/chordz.js') | null = null;
 
 export async function initWasm() {
   if (!wasmModule) {
-    const mod = await import('../../pkg/chordz.js');
+    const mod = await import('$wasm/chordz.js');
     await mod.default();
     wasmModule = mod;
   }
