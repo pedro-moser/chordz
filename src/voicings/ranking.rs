@@ -30,16 +30,14 @@ pub fn score_with_crunch(
     let span_score = -(fingering.fret_span() as i32);
     let guide_tone_score = guide_tone_score(fingering, voice_set);
     let muddy_score = muddy_cluster_penalty(fingering, fretboard);
-    let consecutive = consecutive_strings_bonus(fingering);
-    let root_bass = root_in_bass_bonus(fingering, fretboard);
-    let spacing = register_spacing_bonus(fingering, fretboard);
+    let bass_quality = bass_note_quality(fingering, fretboard);
     let crunch = if prefer_crunch {
         crunch_bonus(fingering, fretboard)
     } else {
         0
     };
 
-    span_score + guide_tone_score + muddy_score + consecutive + root_bass + spacing + crunch
+    span_score + guide_tone_score + muddy_score + bass_quality + crunch
 }
 
 /// Sort `fingerings` in place by descending score (best first).
@@ -99,68 +97,37 @@ fn muddy_cluster_penalty(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
     penalty
 }
 
-fn consecutive_strings_bonus(fingering: &Fingering) -> i32 {
-    let played: Vec<usize> = fingering
+fn bass_note_quality(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
+    let bass = fingering
         .positions
         .iter()
+        .zip(fingering.intervals.iter())
         .enumerate()
-        .filter_map(|(s, p)| p.map(|_| s))
-        .collect();
-    if played.len() < 2 {
+        .find_map(|(s, (pos, iv))| {
+            pos.and_then(|f| iv.map(|i| (s, f, i)))
+        });
+    let Some((s, fret, interval)) = bass else {
         return 0;
+    };
+    let is_stable = interval == Interval::UNISON
+        || interval == Interval::P5
+        || interval == Interval::M3
+        || interval == Interval::m3;
+    if is_stable {
+        return 8;
     }
-    let mut gaps = 0;
-    for i in 1..played.len() {
-        if played[i] - played[i - 1] > 1 {
-            gaps += 1;
-        }
-    }
-    match gaps {
-        0 => 10,
-        1 => 3,
-        _ => -5,
-    }
-}
-
-fn root_in_bass_bonus(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
-    let notes = fingering.notes(fretboard);
-    let lowest = notes.iter().flatten().min();
-    let root_iv = fingering
-        .intervals
-        .iter()
-        .enumerate()
-        .find(|(_, iv)| iv.is_some_and(|i| i == Interval::UNISON));
-
-    if let (Some(lowest_note), Some((root_s, _))) = (lowest, root_iv) {
-        if let Some(root_note) = &notes[root_s] {
-            if root_note == lowest_note {
-                return 8;
-            }
+    let is_seventh = interval == Interval::m7 || interval == Interval::M7;
+    if is_seventh {
+        let midi = fretboard
+            .get_note(s, fret as usize)
+            .map(|n| n.midi())
+            .unwrap_or(60);
+        // D3 = MIDI 50. Below that, 7th in bass sounds muddy.
+        if midi < 50 {
+            return -5;
         }
     }
     0
-}
-
-fn register_spacing_bonus(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
-    let mut midis: Vec<i32> = fingering
-        .notes(fretboard)
-        .into_iter()
-        .flatten()
-        .map(|n| n.midi())
-        .collect();
-    midis.sort();
-    if midis.len() < 3 {
-        return 0;
-    }
-    let bottom_gap = midis[1] - midis[0];
-    let top_gap = midis[midis.len() - 1] - midis[midis.len() - 2];
-    if bottom_gap >= top_gap {
-        5
-    } else if bottom_gap < top_gap.saturating_sub(5) {
-        -3
-    } else {
-        0
-    }
 }
 
 fn crunch_bonus(fingering: &Fingering, fretboard: &Fretboard) -> i32 {
