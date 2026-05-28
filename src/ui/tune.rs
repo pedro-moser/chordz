@@ -391,7 +391,6 @@ impl ChordzApp {
                     }
                 });
             ui.checkbox(&mut c.allow_open_strings, "Open");
-            ui.checkbox(&mut c.expand_basic_chords, "Extensions");
         });
 
         ui.label("Fret range");

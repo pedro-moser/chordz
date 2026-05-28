@@ -16,7 +16,7 @@ use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::Fingering;
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
-use crate::voicings::solver::{self, SolvedChart, SolverConfig};
+use crate::voicings::solver::{SolvedChart, SolverConfig};
 
 pub(crate) const NOTE_COUNTS: [usize; 5] = [2, 3, 4, 5, 6];
 pub(crate) const VOICINGS_PER_VOICE_SET: usize = 4;
@@ -126,7 +126,6 @@ pub(crate) struct TuneConstraints {
     pub(crate) fret_max: u8,
     pub(crate) max_span: u8,
     pub(crate) allow_open_strings: bool,
-    pub(crate) expand_basic_chords: bool,
     pub(crate) string_filter_on: bool,
     pub(crate) strings: [bool; 6],
     pub(crate) recipe_filter_on: bool,
@@ -144,7 +143,6 @@ impl Default for TuneConstraints {
             fret_max: 15,
             max_span: 5,
             allow_open_strings: true,
-            expand_basic_chords: true,
             string_filter_on: false,
             strings: [true; 6],
             recipe_filter_on: false,
@@ -193,7 +191,6 @@ impl TuneConstraints {
             min_fret,
             allowed_strings,
             allow_open_strings: self.allow_open_strings,
-            expand_basic_chords: self.expand_basic_chords,
             tension_target: self.tension,
             tension_weight: 6.0,
             rank_weight: 1,
@@ -376,8 +373,14 @@ pub(crate) fn quality_order(family: ChordFamily, quality: &ChordQuality) -> usiz
         .unwrap_or(usize::MAX)
 }
 
-pub(crate) fn tension_score(quality: &ChordQuality, recipe: VoicingRecipe) -> u32 {
-    solver::quality_tension(quality.name) + solver::recipe_tension(recipe)
+pub(crate) fn tension_score(_quality: &ChordQuality, recipe: VoicingRecipe) -> u32 {
+    match recipe {
+        VoicingRecipe::Shell => 0,
+        VoicingRecipe::Closed | VoicingRecipe::Drop2 | VoicingRecipe::Drop3 => 1,
+        VoicingRecipe::RootlessA | VoicingRecipe::RootlessB => 2,
+        VoicingRecipe::Quartal => 3,
+        VoicingRecipe::UpperStructureTriad | VoicingRecipe::TriadPair => 4,
+    }
 }
 
 pub(crate) fn tension_label(quality: &ChordQuality, recipe: VoicingRecipe) -> &'static str {
