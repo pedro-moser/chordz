@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use super::app::ChordzApp;
+use super::app::{ChordzApp, GmcSubMode};
 use super::fretboard::paint_panoramic_fretboard;
 use crate::theory::chords;
 use crate::theory::gmc::{self, PAIRS};
@@ -8,6 +8,16 @@ use crate::theory::scales::Scale;
 
 impl ChordzApp {
     pub(crate) fn show_gmc_controls(&mut self, ui: &mut egui::Ui) {
+        ui.selectable_value(&mut self.gmc.sub_mode, GmcSubMode::Explorer, "Explorer");
+        ui.selectable_value(&mut self.gmc.sub_mode, GmcSubMode::Tune, "Tune");
+        ui.separator();
+        match self.gmc.sub_mode {
+            GmcSubMode::Explorer => self.show_gmc_explorer_controls(ui),
+            GmcSubMode::Tune => self.show_gmc_tune_controls(ui),
+        }
+    }
+
+    fn show_gmc_explorer_controls(&mut self, ui: &mut egui::Ui) {
         ui.label("Root:");
         egui::ComboBox::from_id_salt("gmc_root")
             .selected_text(chords::ROOTS[self.gmc.root_index])
@@ -41,6 +51,13 @@ impl ChordzApp {
     }
 
     pub(crate) fn update_gmc(&mut self, ctx: &egui::Context) {
+        match self.gmc.sub_mode {
+            GmcSubMode::Explorer => self.update_gmc_explorer(ctx),
+            GmcSubMode::Tune => self.update_gmc_tune(ctx),
+        }
+    }
+
+    fn update_gmc_explorer(&mut self, ctx: &egui::Context) {
         let scale = &Scale::ALL[self.gmc.scale_index];
         let root_pc = self.gmc.root_index as u8;
         let pair = &PAIRS[self.gmc.pair_index];

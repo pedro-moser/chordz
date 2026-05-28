@@ -11,6 +11,8 @@ type Audio = AudioEngine;
 type Audio = ();
 use crate::theory::chart::PRESETS as TUNE_PRESETS;
 use crate::theory::chords::{self, ChordFamily, ChordQuality};
+use crate::theory::line_pattern::{Pattern, RhythmicFigure};
+use crate::theory::position::NeckPosition;
 use crate::theory::intervals::Interval;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::Fingering;
@@ -44,11 +46,55 @@ pub enum AppMode {
     Gmc,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GmcSubMode {
+    Explorer,
+    Tune,
+}
+
+pub(crate) struct GmcTuneState {
+    pub(crate) chart_input: String,
+    pub(crate) title_input: String,
+    pub(crate) scale_overrides: Vec<Option<usize>>,
+    pub(crate) pair_index: usize,
+    pub(crate) figure: RhythmicFigure,
+    pub(crate) position: NeckPosition,
+    pub(crate) pattern: Pattern,
+    // line_engine::NoteEvent not yet available; placeholder until that module lands
+    pub(crate) generated: Option<Vec<()>>,
+    pub(crate) selected_measure: usize,
+    pub(crate) playback_start: Option<Instant>,
+    pub(crate) last_clicked_measure: Option<usize>,
+    pub(crate) error: Option<String>,
+}
+
+impl Default for GmcTuneState {
+    fn default() -> Self {
+        use crate::theory::chart::PRESETS as TUNE_PRESETS;
+        let (title, changes) = TUNE_PRESETS[0];
+        Self {
+            chart_input: changes.to_string(),
+            title_input: title.to_string(),
+            scale_overrides: Vec::new(),
+            pair_index: 0,
+            figure: RhythmicFigure::Eighth,
+            position: NeckPosition::new(5),
+            pattern: Pattern::preset_alternating(),
+            generated: None,
+            selected_measure: 0,
+            playback_start: None,
+            last_clicked_measure: None,
+            error: None,
+        }
+    }
+}
+
 pub(crate) struct GmcState {
     pub(crate) root_index: usize,
     pub(crate) scale_index: usize,
     pub(crate) pair_index: usize,
     pub(crate) show_intervals: bool,
+    pub(crate) sub_mode: GmcSubMode,
 }
 
 impl Default for GmcState {
@@ -58,6 +104,7 @@ impl Default for GmcState {
             scale_index: 1, // Dorian
             pair_index: 0,
             show_intervals: false,
+            sub_mode: GmcSubMode::Explorer,
         }
     }
 }
@@ -229,6 +276,7 @@ pub struct ChordzApp {
     pub(crate) audio: Option<Audio>,
     pub(crate) tune: TuneState,
     pub(crate) gmc: GmcState,
+    pub(crate) gmc_tune: GmcTuneState,
 }
 
 impl ChordzApp {
@@ -249,6 +297,7 @@ impl ChordzApp {
             audio,
             tune: TuneState::default(),
             gmc: GmcState::default(),
+            gmc_tune: GmcTuneState::default(),
         };
         app.refresh_voicings();
         app
