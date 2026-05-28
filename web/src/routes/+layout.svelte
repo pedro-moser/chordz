@@ -26,10 +26,10 @@
     {:else}
       <div class="loading">Loading...</div>
     {/if}
+    <footer class="attribution">
+      <small>Guitar samples: tonejs-instruments (CC-BY 3.0).</small>
+    </footer>
   </main>
-  <footer class="attribution">
-    <small>Guitar samples: tonejs-instruments (CC-BY 3.0).</small>
-  </footer>
 </div>
 
 <style>
@@ -55,6 +55,7 @@
   }
 
   .attribution {
+    flex-shrink: 0;
     padding: 2px 8px;
     text-align: right;
     color: var(--text-muted, #888);
