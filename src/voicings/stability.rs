@@ -58,7 +58,7 @@ pub fn get_stability_table(
     quality: &ChordQuality,
     next_quality: Option<&ChordQuality>,
 ) -> StabilityTable {
-    match detect_family(quality) {
+    let mut table = match detect_family(quality) {
         HarmonicFamily::Major => MAJOR,
         HarmonicFamily::Minor => MINOR,
         HarmonicFamily::Dominant => {
@@ -70,7 +70,26 @@ pub fn get_stability_table(
         }
         HarmonicFamily::HalfDiminished => HALF_DIM,
         HarmonicFamily::Diminished => DIM,
+    };
+
+    let explicit: Vec<u8> = quality
+        .intervals
+        .iter()
+        .map(|iv| iv.semitones % 12)
+        .collect();
+
+    for &s in &explicit {
+        table[s as usize] = 4;
     }
+
+    for &s in &explicit {
+        let below = if s == 0 { 11 } else { s - 1 };
+        if !explicit.contains(&below) && table[below as usize] > 1 {
+            table[below as usize] = 1;
+        }
+    }
+
+    table
 }
 
 pub fn subset_stability(table: &StabilityTable, semitones: &[u8]) -> u16 {
