@@ -2,6 +2,7 @@ pub mod chart;
 pub mod chords;
 pub mod gmc;
 pub mod intervals;
+pub mod line_engine;
 pub mod line_pattern;
 pub mod notes;
 pub mod position;
