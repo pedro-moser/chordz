@@ -1,6 +1,8 @@
 use eframe::egui;
 
 use crate::theory::intervals::Interval;
+use crate::theory::notes::PC_NAMES;
+use crate::theory::scales::Scale;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::Fingering;
 
@@ -148,5 +150,109 @@ pub(crate) fn compact_interval_name(interval: Interval) -> &'static str {
         "d7"
     } else {
         interval.name
+    }
+}
+
+pub(crate) fn paint_panoramic_fretboard(
+    ui: &mut egui::Ui,
+    fretboard: &Fretboard,
+    root_pc: u8,
+    triad_a: &[u8; 3],
+    triad_b: &[u8; 3],
+    scale: &Scale,
+    show_intervals: bool,
+) {
+    let num_frets: usize = 15;
+    let num_strings: usize = 6;
+
+    let string_spacing = 22.0_f32;
+    let fret_spacing = 50.0_f32;
+    let left_margin = 30.0_f32;
+    let top_margin = 24.0_f32;
+    let dot_radius = 8.0_f32;
+
+    let total_width = left_margin + fret_spacing * num_frets as f32 + 20.0;
+    let total_height = top_margin + string_spacing * (num_strings - 1) as f32 + 30.0;
+
+    let (response, painter) =
+        ui.allocate_painter(egui::vec2(total_width, total_height), egui::Sense::hover());
+    let origin = response.rect.left_top();
+
+    let color_a = egui::Color32::from_rgb(100, 160, 255);
+    let color_b = egui::Color32::from_rgb(255, 140, 50);
+    let stroke_thin = egui::Stroke::new(1.0, egui::Color32::GRAY);
+    let stroke_nut = egui::Stroke::new(2.5, egui::Color32::WHITE);
+
+    // Draw fret lines (vertical)
+    for f in 0..=num_frets {
+        let x = origin.x + left_margin + f as f32 * fret_spacing;
+        let y_top = origin.y + top_margin;
+        let y_bot = origin.y + top_margin + (num_strings - 1) as f32 * string_spacing;
+        let stroke = if f == 0 { stroke_nut } else { stroke_thin };
+        painter.line_segment([egui::pos2(x, y_top), egui::pos2(x, y_bot)], stroke);
+    }
+
+    // Draw strings (horizontal)
+    for s in 0..num_strings {
+        let y = origin.y + top_margin + s as f32 * string_spacing;
+        let x_start = origin.x + left_margin;
+        let x_end = origin.x + left_margin + num_frets as f32 * fret_spacing;
+        painter.line_segment([egui::pos2(x_start, y), egui::pos2(x_end, y)], stroke_thin);
+    }
+
+    // Draw fret numbers
+    for f in 0..num_frets {
+        let x = origin.x + left_margin + f as f32 * fret_spacing + fret_spacing * 0.5;
+        painter.text(
+            egui::pos2(x, origin.y + 8.0),
+            egui::Align2::CENTER_CENTER,
+            f.to_string(),
+            egui::FontId::monospace(10.0),
+            egui::Color32::DARK_GRAY,
+        );
+    }
+
+    // Draw dots
+    for s in 0..num_strings {
+        let y = origin.y + top_margin + s as f32 * string_spacing;
+        for f in 0..=num_frets {
+            let Some(note) = fretboard.get_note(s, f) else {
+                continue;
+            };
+            let pc = note.pitch_class;
+            let (color, in_pair) = if triad_a.contains(&pc) {
+                (color_a, true)
+            } else if triad_b.contains(&pc) {
+                (color_b, true)
+            } else {
+                (egui::Color32::TRANSPARENT, false)
+            };
+
+            if !in_pair {
+                continue;
+            }
+
+            let x = if f == 0 {
+                origin.x + left_margin
+            } else {
+                origin.x + left_margin + (f - 1) as f32 * fret_spacing + fret_spacing * 0.5
+            };
+
+            painter.circle_filled(egui::pos2(x, y), dot_radius, color);
+
+            let label = if show_intervals {
+                let semitone = (pc + 12 - root_pc) % 12;
+                scale.interval_name(semitone)
+            } else {
+                PC_NAMES[pc as usize]
+            };
+            painter.text(
+                egui::pos2(x, y),
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::monospace(8.0),
+                egui::Color32::BLACK,
+            );
+        }
     }
 }
