@@ -428,8 +428,16 @@ fn generate_candidates_with_relaxation(
         quality
     };
 
+    let mut qualities_to_try = vec![voicing_quality];
+    if voicing_quality != quality && !qualities_to_try.contains(&quality) {
+        qualities_to_try.push(quality);
+    }
+
     for &recipe in &config.recipes {
-        let voice_sets = recipe.generate_voice_sets(root_pc, voicing_quality);
+        let voice_sets: Vec<_> = qualities_to_try
+            .iter()
+            .flat_map(|q| recipe.generate_voice_sets(root_pc, q))
+            .collect();
         for voice_set in &voice_sets {
             if voice_set.len() < rules.min_strings as usize
                 || voice_set.len() > rules.max_strings as usize
