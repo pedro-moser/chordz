@@ -558,6 +558,88 @@ pub fn synth_arpeggio(positions_js: JsValue, note_duration: f32) -> Vec<f32> {
 }
 
 // ---------------------------------------------------------------------------
+// GMC Tune mode: shared helpers
+// ---------------------------------------------------------------------------
+
+fn parse_pattern_blocks(pattern_js: JsValue) -> Vec<crate::theory::line_pattern::PatternBlock> {
+    use crate::theory::line_pattern::{Anchor, Direction, PatternBlock, Shape, TriadId};
+
+    let blocks_raw: Vec<serde_json::Value> =
+        serde_wasm_bindgen::from_value(pattern_js).unwrap_or_default();
+    blocks_raw
+        .iter()
+        .map(|b| {
+            // Clamp before the u8 cast: the JS UI bounds count to 1..6, but the core is the
+            // trust boundary — an unclamped u64 would wrap on cast (260 -> 4) and count=0
+            // yields a degenerate zero-length block.
+            let count = b["count"].as_u64().unwrap_or(3).clamp(1, 6) as u8;
+            let direction = if b["direction"].as_str() == Some("desc") {
+                Direction::Descending
+            } else {
+                Direction::Ascending
+            };
+            let triad = if b["triad"].as_str() == Some("T2") {
+                TriadId::T2
+            } else {
+                TriadId::T1
+            };
+            // Optional shape/anchor (absent in legacy payloads -> the original walk). `shape`
+            // is an array of voice roles [0,2,1] = 1-5-3; `anchor` is "root"|"third"|"fifth".
+            let shape = match b["shape"].as_array() {
+                Some(arr) if !arr.is_empty() => {
+                    let order: Vec<u8> = arr
+                        .iter()
+                        .filter_map(|v| v.as_u64())
+                        .map(|r| (r % 3) as u8)
+                        .collect();
+                    if order.is_empty() {
+                        Shape::Monotonic
+                    } else {
+                        Shape::Order(order)
+                    }
+                }
+                _ => Shape::Monotonic,
+            };
+            let anchor = match b["anchor"].as_str() {
+                Some("root") => Anchor::Root,
+                Some("third") => Anchor::Third,
+                Some("fifth") => Anchor::Fifth,
+                _ => Anchor::Nearest,
+            };
+            PatternBlock { count, direction, triad, shape, anchor }
+        })
+        .collect()
+}
+
+fn rhythmic_figure(figure_index: usize) -> crate::theory::line_pattern::RhythmicFigure {
+    use crate::theory::line_pattern::RhythmicFigure;
+    match figure_index {
+        1 => RhythmicFigure::Sixteenth,
+        2 => RhythmicFigure::Triplet,
+        _ => RhythmicFigure::Eighth,
+    }
+}
+
+fn line_events_json(
+    events: &[crate::theory::line_engine::NoteEvent],
+) -> Vec<serde_json::Value> {
+    use crate::theory::line_pattern::TriadId;
+    events
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "beat": e.beat,
+                "string": e.string,
+                "fret": e.fret,
+                "triad": if e.triad == TriadId::T1 { "T1" } else { "T2" },
+                "pitchClass": e.pitch_class,
+                "midi": e.midi,
+            })
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // GMC Tune mode: line generation
 // ---------------------------------------------------------------------------
 
@@ -572,7 +654,7 @@ pub fn generate_gmc_line(
     pattern_js: JsValue,     // array of {count, direction, triad}
 ) -> JsValue {
     use crate::theory::line_engine::{self, LineConfig};
-    use crate::theory::line_pattern::{Anchor, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId};
+    use crate::theory::line_pattern::Pattern;
     use crate::theory::position::NeckPosition;
     use crate::theory::scale_defaults;
 
@@ -587,43 +669,14 @@ pub fn generate_gmc_line(
         .unwrap_or_default();
 
     // Parse pattern blocks
-    let blocks_raw: Vec<serde_json::Value> = serde_wasm_bindgen::from_value(pattern_js)
-        .unwrap_or_default();
-    let blocks: Vec<PatternBlock> = blocks_raw.iter().map(|b| {
-        // Clamp before the u8 cast: the JS UI bounds count to 1..6, but the core is the
-        // trust boundary — an unclamped u64 would wrap on cast (260 -> 4) and count=0
-        // yields a degenerate zero-length block.
-        let count = b["count"].as_u64().unwrap_or(3).clamp(1, 6) as u8;
-        let direction = if b["direction"].as_str() == Some("desc") { Direction::Descending } else { Direction::Ascending };
-        let triad = if b["triad"].as_str() == Some("T2") { TriadId::T2 } else { TriadId::T1 };
-        // Optional shape/anchor (absent in legacy payloads -> the original walk). `shape`
-        // is an array of voice roles [0,2,1] = 1-5-3; `anchor` is "root"|"third"|"fifth".
-        let shape = match b["shape"].as_array() {
-            Some(arr) if !arr.is_empty() => {
-                let order: Vec<u8> = arr.iter().filter_map(|v| v.as_u64()).map(|r| (r % 3) as u8).collect();
-                if order.is_empty() { Shape::Monotonic } else { Shape::Order(order) }
-            }
-            _ => Shape::Monotonic,
-        };
-        let anchor = match b["anchor"].as_str() {
-            Some("root") => Anchor::Root,
-            Some("third") => Anchor::Third,
-            Some("fifth") => Anchor::Fifth,
-            _ => Anchor::Nearest,
-        };
-        PatternBlock { count, direction, triad, shape, anchor }
-    }).collect();
+    let blocks = parse_pattern_blocks(pattern_js);
 
     if blocks.is_empty() {
         return to_js(&serde_json::json!({"error": "empty pattern"}));
     }
 
     let pattern = Pattern { name: "custom", blocks };
-    let figure = match figure_index {
-        1 => RhythmicFigure::Sixteenth,
-        2 => RhythmicFigure::Triplet,
-        _ => RhythmicFigure::Eighth,
-    };
+    let figure = rhythmic_figure(figure_index);
 
     let pair = match PAIRS.get(pair_index) {
         Some(p) => p,
@@ -663,16 +716,7 @@ pub fn generate_gmc_line(
         })
     }).collect();
 
-    let events_json: Vec<_> = events.iter().map(|e| {
-        serde_json::json!({
-            "beat": e.beat,
-            "string": e.string,
-            "fret": e.fret,
-            "triad": if e.triad == TriadId::T1 { "T1" } else { "T2" },
-            "pitchClass": e.pitch_class,
-            "midi": e.midi,
-        })
-    }).collect();
+    let events_json = line_events_json(&events);
 
     to_js(&serde_json::json!({
         "events": events_json,
@@ -694,7 +738,7 @@ pub fn generate_shell_etude(
     pattern_js: JsValue, // array of {count, direction, triad, shape?, anchor?}
 ) -> JsValue {
     use crate::theory::line_engine::{self, LineConfig};
-    use crate::theory::line_pattern::{Anchor, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId};
+    use crate::theory::line_pattern::Pattern;
     use crate::theory::position::NeckPosition;
     use crate::theory::scale_defaults;
 
@@ -703,50 +747,14 @@ pub fn generate_shell_etude(
         Err(e) => return to_js(&serde_json::json!({"error": format!("{}", e)})),
     };
 
-    let blocks_raw: Vec<serde_json::Value> =
-        serde_wasm_bindgen::from_value(pattern_js).unwrap_or_default();
-    let blocks: Vec<PatternBlock> = blocks_raw
-        .iter()
-        .map(|b| {
-            let count = b["count"].as_u64().unwrap_or(3).clamp(1, 6) as u8;
-            let direction = if b["direction"].as_str() == Some("desc") {
-                Direction::Descending
-            } else {
-                Direction::Ascending
-            };
-            let triad = if b["triad"].as_str() == Some("T2") {
-                TriadId::T2
-            } else {
-                TriadId::T1
-            };
-            let shape = match b["shape"].as_array() {
-                Some(arr) if !arr.is_empty() => {
-                    let order: Vec<u8> =
-                        arr.iter().filter_map(|v| v.as_u64()).map(|r| (r % 3) as u8).collect();
-                    if order.is_empty() { Shape::Monotonic } else { Shape::Order(order) }
-                }
-                _ => Shape::Monotonic,
-            };
-            let anchor = match b["anchor"].as_str() {
-                Some("root") => Anchor::Root,
-                Some("third") => Anchor::Third,
-                Some("fifth") => Anchor::Fifth,
-                _ => Anchor::Nearest,
-            };
-            PatternBlock { count, direction, triad, shape, anchor }
-        })
-        .collect();
+    let blocks = parse_pattern_blocks(pattern_js);
 
     if blocks.is_empty() {
         return to_js(&serde_json::json!({"error": "empty pattern"}));
     }
 
     let pattern = Pattern { name: "shell", blocks };
-    let figure = match figure_index {
-        1 => RhythmicFigure::Sixteenth,
-        2 => RhythmicFigure::Triplet,
-        _ => RhythmicFigure::Eighth,
-    };
+    let figure = rhythmic_figure(figure_index);
 
     let config = LineConfig { pattern, figure, position: NeckPosition::new(position_fret) };
     let fretboard = Fretboard::standard_tuning();
@@ -770,19 +778,7 @@ pub fn generate_shell_etude(
         })
         .collect();
 
-    let events_json: Vec<_> = events
-        .iter()
-        .map(|e| {
-            serde_json::json!({
-                "beat": e.beat,
-                "string": e.string,
-                "fret": e.fret,
-                "triad": if e.triad == TriadId::T1 { "T1" } else { "T2" },
-                "pitchClass": e.pitch_class,
-                "midi": e.midi,
-            })
-        })
-        .collect();
+    let events_json = line_events_json(&events);
 
     to_js(&serde_json::json!({
         "events": events_json,
