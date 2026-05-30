@@ -23,6 +23,25 @@ pub fn default_scale(quality: &ChordQuality) -> &'static Scale {
     }
 }
 
+/// The characteristic guide-tone "shell" scale per quality: the scale that, split by the
+/// `7no5/7no3` triad pair (`gmc::PAIRS`), spells the chord's two upper-structure shells.
+/// Differs from `default_scale` for maj7 (Lydian), dominants (Altered), and m7b5 (Aeolian
+/// ♭5) — that override is why a shell line sounds hipper than a default GMC line. Used by the
+/// "Shell Étude" preset. Even the lydian-dominant `dom7#11` is intentionally folded into the
+/// Altered shells (not Lydian Dominant). Unmapped qualities (e.g. dim7) fall back to
+/// `default_scale`.
+pub fn etude_scale(quality: &ChordQuality) -> &'static Scale {
+    match quality.name {
+        "maj7" | "maj9" | "maj13" | "maj7#11" => find_scale("Lydian"),
+        "m7" | "m9" | "m11" | "m13" => find_scale("Dorian"),
+        "m7b5" | "m9b11" => find_scale("Aeolian \u{266D}5"),
+        "dom7" | "dom9" | "dom13" | "dom7#5" | "dom7b9" | "dom7#9" | "dom7#11" | "dom7b13" => {
+            find_scale("Altered")
+        }
+        _ => default_scale(quality),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,5 +116,44 @@ mod tests {
             let scale = default_scale(q);
             assert!(!scale.name.is_empty(), "no default for {}", q.name);
         }
+    }
+
+    #[test]
+    fn etude_scales_per_quality() {
+        assert_eq!(etude_scale(quality("maj7")).name, "Lydian");
+        assert_eq!(etude_scale(quality("maj9")).name, "Lydian");
+        assert_eq!(etude_scale(quality("maj7#11")).name, "Lydian");
+        assert_eq!(etude_scale(quality("m7")).name, "Dorian");
+        assert_eq!(etude_scale(quality("m11")).name, "Dorian");
+        assert_eq!(etude_scale(quality("m7b5")).name, "Aeolian \u{266D}5");
+        assert_eq!(etude_scale(quality("dom7")).name, "Altered");
+        assert_eq!(etude_scale(quality("dom9")).name, "Altered");
+        assert_eq!(etude_scale(quality("dom7b9")).name, "Altered");
+        // The surprising arms: these differ from default_scale (Lydian Dominant / Mixolydian
+        // ♭6), so pin them so a regression can't silently route them back.
+        assert_eq!(etude_scale(quality("dom7#11")).name, "Altered");
+        assert_eq!(etude_scale(quality("dom7b13")).name, "Altered");
+        // Unmapped qualities fall back to the plain default scale.
+        assert_eq!(
+            etude_scale(quality("dim7")).name,
+            default_scale(quality("dim7")).name
+        );
+    }
+
+    #[test]
+    fn etude_scale_with_7no5_7no3_pair_spells_the_shells() {
+        use crate::theory::gmc::{self, PAIRS};
+        use std::collections::HashSet;
+        let pair = PAIRS.iter().find(|p| p.label == "7no5/7no3").unwrap();
+
+        // Fm7 (root F=5): shells {Eb,Bb,D}={3,10,2} + {Ab,C,G}={8,0,7}.
+        let (a, b) = gmc::resolve_pair(5, etude_scale(quality("m7")), pair);
+        assert_eq!(a.iter().copied().collect::<HashSet<u8>>(), HashSet::from([3, 10, 2]));
+        assert_eq!(b.iter().copied().collect::<HashSet<u8>>(), HashSet::from([8, 0, 7]));
+
+        // Cmaj7 (root C=0): shells {B,F#,A}={11,6,9} + {E,G,D}={4,7,2}.
+        let (a, b) = gmc::resolve_pair(0, etude_scale(quality("maj7")), pair);
+        assert_eq!(a.iter().copied().collect::<HashSet<u8>>(), HashSet::from([11, 6, 9]));
+        assert_eq!(b.iter().copied().collect::<HashSet<u8>>(), HashSet::from([4, 7, 2]));
     }
 }
