@@ -1,7 +1,8 @@
 # Shell Étude Generator (Motor E) — Design
 
 **Date:** 2026-05-30
-**Status:** Approved (design), pending implementation plan
+**Status:** Superseded by `2026-05-30-shell-etude-preset-design.md` (the separate engine was
+replaced by a transparent preset over the existing GMC controls). Shipped then retired.
 **Author:** Pedro + Claude
 
 ## Summary
