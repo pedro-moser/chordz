@@ -787,6 +787,46 @@ pub fn generate_shell_etude(
     }))
 }
 
+/// Describe the "Shell Étude" preset for a chart: the GMC controls that reproduce a
+/// guide-tone (7no5/7no3) line. Returns `{ pairIndex, scaleOverrides, pattern }` so the web
+/// UI can set its visible controls and generate through the normal `generate_gmc_line` path —
+/// the preset is a transparent shortcut, not a separate engine.
+#[wasm_bindgen]
+pub fn shell_etude_preset(chart_text: &str, title: &str) -> JsValue {
+    use crate::theory::scale_defaults;
+
+    let chart = match Chart::parse(title, chart_text) {
+        Ok(c) => c,
+        Err(e) => return to_js(&serde_json::json!({"error": format!("{}", e)})),
+    };
+
+    let pair_index = PAIRS.iter().position(|p| p.label == "7no5/7no3");
+
+    let scale_overrides: Vec<Option<usize>> = chart
+        .changes
+        .iter()
+        .map(|c| {
+            let s = scale_defaults::etude_scale(c.quality);
+            Scale::ALL.iter().position(|x| x.name == s.name)
+        })
+        .collect();
+
+    // Airegin-distilled contour: a 6-up / 6-down arc through both shells (vs. the locked
+    // 3-up/3-down). Same block shape the pattern editor consumes.
+    let pattern = serde_json::json!([
+        { "count": 3, "direction": "asc", "triad": "T1" },
+        { "count": 3, "direction": "asc", "triad": "T2" },
+        { "count": 3, "direction": "desc", "triad": "T1" },
+        { "count": 3, "direction": "desc", "triad": "T2" },
+    ]);
+
+    to_js(&serde_json::json!({
+        "pairIndex": pair_index,
+        "scaleOverrides": scale_overrides,
+        "pattern": pattern,
+    }))
+}
+
 /// Generate a quarter-note walking bass line for a chord sequence. Each input segment is
 /// `{ rootPc, bassPc (nullable), symbol, beats }`; the symbol is parsed only for its
 /// authoritative quality intervals (3rd/5th/7th), while rootPc/bassPc come from the caller.
