@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
-  import { generateGmcLine, generateShellEtude, getPresets, getPairs, getAllScales } from '$lib/wasm';
+  import { generateGmcLine, shellEtudePreset, getPresets, getPairs, getAllScales } from '$lib/wasm';
   import { scheduleNotes, scheduleBassLine, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
   import { generateWalkingBass } from '$lib/wasm';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
@@ -45,7 +45,6 @@
   let titleInput = $state('Stella by Starlight');
   let chartInput = $state('Em7b5 | A7b9 | Cm7 | F7 | Fm7 | Bb7 | Ebmaj7 | Ab7#11 | Bbmaj7 | Em7b5 A7b9 | Dm7 | Bbm7 Eb7 | Fmaj7 | Em7b5 | Ebmaj7 | D7b9 | G7b13 | % | Cm7 | % | Ab7#11 | % | Bbmaj7 | % | Em7b5 | A7b9 | Dm7b5 | G7b9 | Cm7b5 | F7b9 | Bbmaj7 | %');
   let pairIndex = $state(0);
-  let etudeMode = $state(false);
   let figureIndex = $state(0);
   let positionFret = $state(5);
   let pattern = $state<GmcPatternBlock[]>([
@@ -149,9 +148,7 @@
   }
 
   function generate() {
-    const res = etudeMode
-      ? generateShellEtude(chartInput, titleInput, figureIndex, positionFret, pattern)
-      : generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
+    const res = generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
     if (res.error) {
       error = res.error;
       result = null;
@@ -171,12 +168,27 @@
 
   function regenerate() {
     // Regenerate with current scale overrides
-    const res = etudeMode
-      ? generateShellEtude(chartInput, titleInput, figureIndex, positionFret, pattern)
-      : generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
+    const res = generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
     if (!res.error) {
       result = res;
     }
+  }
+
+  function applyShellEtudePreset() {
+    const p = shellEtudePreset(chartInput, titleInput);
+    if (p.error) {
+      error = p.error;
+      return;
+    }
+    if (p.pairIndex != null) pairIndex = p.pairIndex;
+    if (p.pattern) pattern = p.pattern;
+    if (p.scaleOverrides) {
+      scaleOverrides = p.scaleOverrides;
+      // Mark these overrides as belonging to the current chart so generate()'s positional
+      // reset guard doesn't immediately wipe them.
+      overridesFor = chartInput;
+    }
+    generate();
   }
 
   function selectPreset(idx: number) {
@@ -421,17 +433,14 @@
         <span class="control-label">Pair</span>
         <button
           class="filter-btn"
-          class:active={etudeMode}
-          onclick={() => { etudeMode = !etudeMode; generate(); }}
-          title="Guide-tone 7no5/7no3 shells per chord (Motor E)"
+          onclick={applyShellEtudePreset}
+          title="Set pair 7no5/7no3 + characteristic scales + arc pattern (editable)"
         >Shell Étude</button>
-        {#if !etudeMode}
-          <select class="control-select" bind:value={pairIndex}>
-            {#each pairs as p, i}
-              <option value={i}>{p.label}</option>
-            {/each}
-          </select>
-        {/if}
+        <select class="control-select" bind:value={pairIndex}>
+          {#each pairs as p, i}
+            <option value={i}>{p.label}</option>
+          {/each}
+        </select>
       </div>
 
       <!-- Figure selector -->
@@ -501,7 +510,7 @@
       {/if}
     </div>
 
-    {#if result?.changes && !etudeMode}
+    {#if result?.changes}
       <button class="scales-btn" onclick={() => scaleModalOpen = true}>
         Scales {scaleOverrides.some(o => o !== null) ? '(edited)' : ''}
       </button>
@@ -611,7 +620,6 @@
             >{measure.chord.chord}</text>
 
             <!-- Scale name below strings -->
-            {#if !etudeMode}
             <text
               x={mx + TAB_MEASURE_WIDTH / 2}
               y={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET}
@@ -620,7 +628,6 @@
               font-size="9"
               font-family="var(--font)"
             >{measure.chord.activeScale}</text>
-            {/if}
 
             <!-- Notes -->
             {#each measure.events as event}
@@ -668,7 +675,7 @@
         <div class="fretboard-section">
           <div class="fb-header">
             <span class="fb-chord">{selectedMeasureData.chord.chord}</span>
-            {#if !etudeMode}<span class="fb-scale" class:override={selectedMeasureData.chord.isOverride}>{selectedMeasureData.chord.activeScale}</span>{/if}
+            <span class="fb-scale" class:override={selectedMeasureData.chord.isOverride}>{selectedMeasureData.chord.activeScale}</span>
             <span class="fb-position">Position {POSITION_LABELS[positionFret - 1]}</span>
             <div class="fb-label-toggle">
               <button class="fb-toggle-btn" class:active={fbLabelMode === 'order'} onclick={() => fbLabelMode = 'order'}>#</button>
