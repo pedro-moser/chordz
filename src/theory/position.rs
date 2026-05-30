@@ -29,11 +29,11 @@ impl NeckPosition {
     }
 
     pub fn core_range(&self) -> (u8, u8) {
-        (self.base_fret, self.base_fret + 3)
+        (self.base_fret, self.base_fret.saturating_add(3))
     }
 
     pub fn stretch_range(&self) -> (u8, u8) {
-        (self.base_fret.saturating_sub(1), self.base_fret + 4)
+        (self.base_fret.saturating_sub(1), self.base_fret.saturating_add(4))
     }
 
     pub fn is_stretch(&self, fret: u8) -> bool {
@@ -127,6 +127,17 @@ mod tests {
                 notes[i - 1].midi,
             );
         }
+    }
+
+    #[test]
+    fn high_base_fret_does_not_overflow() {
+        // base_fret arrives from the JS boundary as an unvalidated u8; the +3/+4
+        // offsets must saturate rather than overflow (panic in debug, wrap in release).
+        let pos = NeckPosition::new(254);
+        let (c_lo, c_hi) = pos.core_range();
+        let (s_lo, s_hi) = pos.stretch_range();
+        assert!(c_hi >= c_lo, "core range inverted: {}..{}", c_lo, c_hi);
+        assert!(s_hi >= s_lo, "stretch range inverted: {}..{}", s_lo, s_hi);
     }
 
     #[test]

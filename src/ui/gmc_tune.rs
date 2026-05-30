@@ -356,20 +356,20 @@ impl ChordzApp {
         }
         if add_block {
             let last = self.gmc_tune.pattern.blocks.last().cloned();
-            let new_block = PatternBlock {
-                count: 3,
-                direction: last
+            let new_block = PatternBlock::legacy(
+                3,
+                last
                     .as_ref()
                     .map(|b| b.direction.invert())
                     .unwrap_or(Direction::Ascending),
-                triad: last
+                last
                     .as_ref()
                     .map(|b| match b.triad {
                         TriadId::T1 => TriadId::T2,
                         TriadId::T2 => TriadId::T1,
                     })
                     .unwrap_or(TriadId::T1),
-            };
+            );
             self.gmc_tune.pattern.blocks.push(new_block);
             self.gmc_tune.pattern.name = "Custom";
             changed = true;

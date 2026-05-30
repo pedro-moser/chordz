@@ -1,6 +1,6 @@
 use crate::theory::chart::Chart;
 use crate::theory::gmc::{self, TriadPairSet};
-use crate::theory::line_pattern::{Direction, Pattern, RhythmicFigure, TriadId};
+use crate::theory::line_pattern::{Anchor, Direction, Pattern, RhythmicFigure, Shape, TriadId};
 use crate::theory::position::{FretNote, NeckPosition};
 use crate::theory::scale_defaults;
 use crate::theory::scales::Scale;
@@ -25,6 +25,10 @@ pub struct LineConfig {
 struct TriadNotes {
     t1: Vec<FretNote>,
     t2: Vec<FretNote>,
+    /// The triad pitch classes in role order (0,1,2 = scale-index order), so a `Shape::Order`
+    /// or an `Anchor` can target a specific voice (root/3rd/5th of a stacked-thirds pair).
+    t1_pcs: [u8; 3],
+    t2_pcs: [u8; 3],
 }
 
 impl TriadNotes {
@@ -32,6 +36,13 @@ impl TriadNotes {
         match triad {
             TriadId::T1 => &self.t1,
             TriadId::T2 => &self.t2,
+        }
+    }
+
+    fn pcs_for(&self, triad: TriadId) -> [u8; 3] {
+        match triad {
+            TriadId::T1 => self.t1_pcs,
+            TriadId::T2 => self.t2_pcs,
         }
     }
 }
@@ -47,6 +58,8 @@ fn resolve_triad_notes(
     TriadNotes {
         t1: position.find_notes(fretboard, &pcs_a),
         t2: position.find_notes(fretboard, &pcs_b),
+        t1_pcs: pcs_a,
+        t2_pcs: pcs_b,
     }
 }
 
@@ -63,6 +76,16 @@ fn find_closest(notes: &[FretNote], current_midi: i32) -> Option<&FretNote> {
         .filter(|n| n.midi != current_midi)
         .min_by_key(|n| (n.midi - current_midi).abs())
         .or_else(|| notes.first())
+}
+
+/// Nearest fretboard note of a specific pitch class to `reference` — voice-leads a chosen
+/// triad voice (a `Shape::Order` role or an `Anchor`) to the previous note. A low reference
+/// picks the lowest such note in the position (used to start a line).
+fn nearest_of_pc(notes: &[FretNote], pc: u8, reference: i32) -> Option<&FretNote> {
+    notes
+        .iter()
+        .filter(|n| n.pitch_class == pc)
+        .min_by_key(|n| (n.midi - reference).abs())
 }
 
 pub fn generate_line(
@@ -98,7 +121,7 @@ pub fn generate_line(
         .map(|(i, change)| {
             let scale = scale_overrides
                 .get(i)
-                .and_then(|opt| opt.map(|idx| &Scale::ALL[idx]))
+                .and_then(|opt| opt.and_then(|idx| Scale::ALL.get(idx)))
                 .unwrap_or_else(|| scale_defaults::default_scale(change.quality));
             resolve_triad_notes(change.root_pc, scale, pair, &config.position, fretboard)
         })
@@ -107,6 +130,9 @@ pub fn generate_line(
     let mut block_remaining = 0u8;
     let mut block_triad = TriadId::T1;
     let mut block_first = false;
+    let mut block_shape = Shape::Monotonic;
+    let mut block_anchor = Anchor::Nearest;
+    let mut block_step = 0usize; // index of the note within the current block (for Shape::Order)
 
     for event_idx in 0..total_events {
         let beat = event_idx as f32 * beat_dur;
@@ -125,7 +151,10 @@ pub fn generate_line(
                 block_remaining = block.count;
                 block_triad = block.triad;
                 current_direction = block.direction;
+                block_shape = block.shape.clone();
+                block_anchor = block.anchor;
                 block_first = true;
+                block_step = 0;
             }
         }
 
@@ -133,25 +162,48 @@ pub fn generate_line(
 
         if pool.is_empty() {
             block_remaining = block_remaining.saturating_sub(1);
+            block_step += 1;
             continue;
         }
+        let pcs = triad_notes.pcs_for(block_triad);
+        // No previous pitch on the very first note: anchor low so the line starts at the
+        // bottom of the position (matches the legacy `pool.first()`).
+        let reference = if first_note { -1000 } else { current_midi };
 
-        let chosen = if first_note {
-            pool.first()
-        } else if block_first {
-            // Connect to the nearest note in the new triad, then continue in direction
-            find_closest(pool, current_midi)
-        } else {
-            let candidate = find_nearest(pool, current_midi, current_direction);
-            if candidate.is_some() {
-                candidate
-            } else {
-                current_direction = current_direction.invert();
-                let inverted = find_nearest(pool, current_midi, current_direction);
-                if inverted.is_some() {
-                    inverted
+        let chosen = match &block_shape {
+            Shape::Order(order) => {
+                // Play the triad voices in the explicit cyclic role order, each voice-led
+                // to the previous note.
+                let role = (order[block_step % order.len()] % 3) as usize;
+                nearest_of_pc(pool, pcs[role], reference).or_else(|| pool.first())
+            }
+            Shape::Monotonic => {
+                if first_note {
+                    match block_anchor.role() {
+                        Some(r) => nearest_of_pc(pool, pcs[r], reference).or_else(|| pool.first()),
+                        None => pool.first(),
+                    }
+                } else if block_first {
+                    // Connect to the new triad: the anchored voice if requested, else the
+                    // nearest distinct note (legacy), then continue in direction.
+                    match block_anchor.role() {
+                        Some(r) => nearest_of_pc(pool, pcs[r], current_midi)
+                            .or_else(|| find_closest(pool, current_midi)),
+                        None => find_closest(pool, current_midi),
+                    }
                 } else {
-                    find_closest(pool, current_midi)
+                    let candidate = find_nearest(pool, current_midi, current_direction);
+                    if candidate.is_some() {
+                        candidate
+                    } else {
+                        current_direction = current_direction.invert();
+                        let inverted = find_nearest(pool, current_midi, current_direction);
+                        if inverted.is_some() {
+                            inverted
+                        } else {
+                            find_closest(pool, current_midi)
+                        }
+                    }
                 }
             }
         };
@@ -171,6 +223,7 @@ pub fn generate_line(
         }
 
         block_remaining = block_remaining.saturating_sub(1);
+        block_step += 1;
     }
 
     events
@@ -181,9 +234,54 @@ mod tests {
     use super::*;
     use crate::theory::chart::Chart;
     use crate::theory::gmc::PAIRS;
-    use crate::theory::line_pattern::{Pattern, RhythmicFigure, TriadId};
+    use crate::theory::line_pattern::{Anchor, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId};
     use crate::theory::position::NeckPosition;
     use crate::voicings::fretboard::Fretboard;
+
+    /// A one-block pattern with an explicit shape + anchor, for the Fase-1 tests.
+    fn shaped_config(count: u8, triad: TriadId, shape: Shape, anchor: Anchor) -> LineConfig {
+        LineConfig {
+            pattern: Pattern {
+                name: "test",
+                blocks: vec![PatternBlock { count, direction: Direction::Ascending, triad, shape, anchor }],
+            },
+            figure: RhythmicFigure::Eighth,
+            position: NeckPosition::new(5),
+        }
+    }
+
+    // T1 of Dm7 with the default Dorian scale and the T/T pair (PAIRS[0]) resolves to the
+    // role-ordered pitch classes [E=4, G=7, B=11] (role 0, 1, 2).
+    #[test]
+    fn order_shape_plays_voices_in_the_given_role_sequence() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = shaped_config(6, TriadId::T1, Shape::Order(vec![0, 1, 2]), Anchor::Nearest);
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        let pcs: Vec<u8> = events.iter().take(6).map(|e| e.pitch_class).collect();
+        assert_eq!(pcs, vec![4, 7, 11, 4, 7, 11]);
+    }
+
+    #[test]
+    fn order_shape_respects_a_rotated_one_five_three_sequence() {
+        // 1-5-3 = roles [0, 2, 1] -> E, B, G.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = shaped_config(3, TriadId::T1, Shape::Order(vec![0, 2, 1]), Anchor::Nearest);
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        let pcs: Vec<u8> = events.iter().take(3).map(|e| e.pitch_class).collect();
+        assert_eq!(pcs, vec![4, 11, 7]);
+    }
+
+    #[test]
+    fn anchor_third_starts_a_monotonic_block_on_the_triad_third() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = shaped_config(3, TriadId::T1, Shape::Monotonic, Anchor::Third);
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        // role 1 of T1 = G (7).
+        assert_eq!(events[0].pitch_class, 7);
+    }
 
     fn simple_config() -> LineConfig {
         LineConfig {
@@ -263,6 +361,21 @@ mod tests {
         let pcs_default: Vec<u8> = events_default.iter().map(|e| e.pitch_class).collect();
         let pcs_override: Vec<u8> = events_override.iter().map(|e| e.pitch_class).collect();
         assert_ne!(pcs_default, pcs_override);
+    }
+
+    #[test]
+    fn out_of_range_scale_override_falls_back_to_default_without_panicking() {
+        // The override index originates from JS and is not bounds-checked there.
+        // An index past Scale::ALL must degrade to the chord's default scale
+        // instead of panicking (slice index would trap the wasm call).
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = simple_config();
+        let events_oob = generate_line(&chart, &[Some(9999)], &fb, &PAIRS[0], &config);
+        let events_default = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        let pcs_oob: Vec<u8> = events_oob.iter().map(|e| e.pitch_class).collect();
+        let pcs_default: Vec<u8> = events_default.iter().map(|e| e.pitch_class).collect();
+        assert_eq!(pcs_oob, pcs_default);
     }
 
     #[test]

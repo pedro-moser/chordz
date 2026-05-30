@@ -572,7 +572,7 @@ pub fn generate_gmc_line(
     pattern_js: JsValue,     // array of {count, direction, triad}
 ) -> JsValue {
     use crate::theory::line_engine::{self, LineConfig};
-    use crate::theory::line_pattern::{Direction, Pattern, PatternBlock, RhythmicFigure, TriadId};
+    use crate::theory::line_pattern::{Anchor, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId};
     use crate::theory::position::NeckPosition;
     use crate::theory::scale_defaults;
 
@@ -590,11 +590,28 @@ pub fn generate_gmc_line(
     let blocks_raw: Vec<serde_json::Value> = serde_wasm_bindgen::from_value(pattern_js)
         .unwrap_or_default();
     let blocks: Vec<PatternBlock> = blocks_raw.iter().map(|b| {
-        PatternBlock {
-            count: b["count"].as_u64().unwrap_or(3) as u8,
-            direction: if b["direction"].as_str() == Some("desc") { Direction::Descending } else { Direction::Ascending },
-            triad: if b["triad"].as_str() == Some("T2") { TriadId::T2 } else { TriadId::T1 },
-        }
+        // Clamp before the u8 cast: the JS UI bounds count to 1..6, but the core is the
+        // trust boundary — an unclamped u64 would wrap on cast (260 -> 4) and count=0
+        // yields a degenerate zero-length block.
+        let count = b["count"].as_u64().unwrap_or(3).clamp(1, 6) as u8;
+        let direction = if b["direction"].as_str() == Some("desc") { Direction::Descending } else { Direction::Ascending };
+        let triad = if b["triad"].as_str() == Some("T2") { TriadId::T2 } else { TriadId::T1 };
+        // Optional shape/anchor (absent in legacy payloads -> the original walk). `shape`
+        // is an array of voice roles [0,2,1] = 1-5-3; `anchor` is "root"|"third"|"fifth".
+        let shape = match b["shape"].as_array() {
+            Some(arr) if !arr.is_empty() => {
+                let order: Vec<u8> = arr.iter().filter_map(|v| v.as_u64()).map(|r| (r % 3) as u8).collect();
+                if order.is_empty() { Shape::Monotonic } else { Shape::Order(order) }
+            }
+            _ => Shape::Monotonic,
+        };
+        let anchor = match b["anchor"].as_str() {
+            Some("root") => Anchor::Root,
+            Some("third") => Anchor::Third,
+            Some("fifth") => Anchor::Fifth,
+            _ => Anchor::Nearest,
+        };
+        PatternBlock { count, direction, triad, shape, anchor }
     }).collect();
 
     if blocks.is_empty() {
@@ -625,14 +642,19 @@ pub fn generate_gmc_line(
     // Build response with events and chord info
     let changes_info: Vec<_> = chart.changes.iter().enumerate().map(|(i, c)| {
         let default_scale = scale_defaults::default_scale(c.quality);
-        let actual_scale = overrides_raw
+        // Use checked indexing: the override index comes from JS unvalidated, so an
+        // out-of-range value must degrade to the default scale rather than trap wasm.
+        // is_override reflects whether the override actually resolved (matches the line
+        // engine's own fallback), so a bad index doesn't falsely flag the chord as edited.
+        let override_scale = overrides_raw
             .get(i)
-            .and_then(|o| o.map(|idx| &Scale::ALL[idx]))
-            .unwrap_or(default_scale);
-        let is_override = overrides_raw.get(i).map(|o| o.is_some()).unwrap_or(false);
+            .and_then(|o| o.and_then(|idx| Scale::ALL.get(idx)));
+        let actual_scale = override_scale.unwrap_or(default_scale);
+        let is_override = override_scale.is_some();
         serde_json::json!({
             "chord": chords::chord_name(&c.root, c.quality),
             "rootPc": c.root_pc,
+            "bassPc": c.bass_pc,
             "beats": c.beats,
             "defaultScale": default_scale.name,
             "defaultScaleIndex": Scale::ALL.iter().position(|s| s.name == default_scale.name),
@@ -657,6 +679,57 @@ pub fn generate_gmc_line(
         "changes": changes_info,
         "totalBeats": chart.total_beats(),
     }))
+}
+
+/// Generate a quarter-note walking bass line for a chord sequence. Each input segment is
+/// `{ rootPc, bassPc (nullable), symbol, beats }`; the symbol is parsed only for its
+/// authoritative quality intervals (3rd/5th/7th), while rootPc/bassPc come from the caller.
+#[wasm_bindgen]
+pub fn generate_walking_bass(segments_js: JsValue) -> JsValue {
+    use crate::theory::chart::quality_from_symbol;
+    use crate::theory::walking_bass::{self, BassSegment};
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SegIn {
+        root_pc: u8,
+        #[serde(default)]
+        bass_pc: Option<u8>,
+        symbol: String,
+        beats: f32,
+    }
+
+    let raw: Vec<SegIn> = serde_wasm_bindgen::from_value(segments_js).unwrap_or_default();
+    // Fall back to a plain dominant 7 if a symbol fails to parse, so a stray chord never
+    // drops the whole line.
+    let default_quality = ChordQuality::ALL
+        .iter()
+        .find(|q| q.name == "dom7")
+        .expect("dom7 quality exists");
+
+    let segments: Vec<BassSegment> = raw
+        .iter()
+        .map(|s| BassSegment {
+            root_pc: s.root_pc,
+            bass_pc: s.bass_pc,
+            quality: quality_from_symbol(&s.symbol).unwrap_or(default_quality),
+            beats: s.beats,
+        })
+        .collect();
+
+    let line = walking_bass::walking_bass_line(&segments);
+    let notes_json: Vec<_> = line
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "midi": n.midi,
+                "beat": n.beat,
+                "beats": n.beats,
+                "chord": n.chord,
+            })
+        })
+        .collect();
+    to_js(&notes_json)
 }
 
 #[wasm_bindgen]

@@ -297,6 +297,18 @@ fn parse_chord_symbol(symbol: &str) -> Result<(String, &'static ChordQuality), P
     Err(ParseError::UnknownQuality(quality_str.to_string()))
 }
 
+/// Parse just the chord quality from a full chord symbol, ignoring any slash bass,
+/// e.g. "Fm7/Bb" -> m7, "G7#5" -> dom7#5. Used by the walking-bass WASM binding, which
+/// already carries the root and bass pitch classes and only needs the authoritative
+/// quality intervals (no lossy regex).
+pub fn quality_from_symbol(symbol: &str) -> Option<&'static ChordQuality> {
+    let chord_part = match symbol.rfind('/') {
+        Some(idx) => &symbol[..idx],
+        None => symbol,
+    };
+    parse_chord_symbol(chord_part).ok().map(|(_, q)| q)
+}
+
 fn find_root_end(symbol: &str) -> usize {
     let bytes = symbol.as_bytes();
     if bytes.is_empty() || !bytes[0].is_ascii_uppercase() {
@@ -477,5 +489,15 @@ mod tests {
     fn total_beats() {
         let chart = Chart::parse("Test", "| Cmaj7 | Dm7 G7 | Cmaj7 |").unwrap();
         assert_eq!(chart.total_beats(), 12.0);
+    }
+
+    #[test]
+    fn quality_from_symbol_strips_slash_and_reads_real_quality() {
+        assert_eq!(quality_from_symbol("Cmaj7").unwrap().name, "maj7");
+        assert_eq!(quality_from_symbol("G7#5").unwrap().name, "dom7#5");
+        assert_eq!(quality_from_symbol("Em7b5").unwrap().name, "m7b5");
+        // Slash chord: the quality is the chord part, the /Bb bass is ignored here.
+        assert_eq!(quality_from_symbol("Fm7/Bb").unwrap().name, "m7");
+        assert!(quality_from_symbol("Hxyz").is_none());
     }
 }

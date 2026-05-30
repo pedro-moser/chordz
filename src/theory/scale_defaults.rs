@@ -15,7 +15,10 @@ pub fn default_scale(quality: &ChordQuality) -> &'static Scale {
         "dom7#11" => find_scale("Lydian Dominant"),
         "dom7b9" | "dom7#9" | "dom7#5" => find_scale("Altered"),
         "dom7b13" => find_scale("Mixolydian \u{266D}6"),
-        "dim7" => find_scale("Locrian"),
+        // Harmonic-major mode 7: the 7-note scale that spells all four dim7 chord
+        // tones including the bb7 (pc 9). Plain Locrian has b7 instead, which would
+        // make generated lines sound half-diminished over a dim7 chord.
+        "dim7" => find_scale("Locrian \u{266D}\u{266D}7"),
         _ => find_scale("Ionian"),
     }
 }
@@ -68,7 +71,24 @@ mod tests {
     #[test]
     fn dim_defaults() {
         let scale = default_scale(quality("dim7"));
-        assert_eq!(scale.name, "Locrian");
+        assert_eq!(scale.name, "Locrian \u{266D}\u{266D}7");
+    }
+
+    #[test]
+    fn dim7_default_scale_contains_the_diminished_seventh() {
+        // dim7 chord tones from the root: 0 (root), 3 (b3), 6 (b5), 9 (bb7).
+        // The default scale must spell all four so generated triad-pair lines can
+        // reach the bb7. Plain Locrian (b7 = pc 10, no pc 9) cannot.
+        let scale = default_scale(quality("dim7"));
+        let pcs: std::collections::HashSet<u8> = scale.semitones.iter().copied().collect();
+        for tone in [0u8, 3, 6, 9] {
+            assert!(
+                pcs.contains(&tone),
+                "dim7 default scale {} is missing chord tone {}",
+                scale.name,
+                tone
+            );
+        }
     }
 
     #[test]

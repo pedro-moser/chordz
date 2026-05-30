@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import { generateGmcLine, getPresets, getPairs, getAllScales } from '$lib/wasm';
-  import { scheduleNotes, scheduleBass, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
+  import { scheduleNotes, scheduleBassLine, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
+  import { generateWalkingBass } from '$lib/wasm';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
 
   const gmcTabs = [
@@ -21,6 +22,20 @@
   const T1_COLOR = '#64a0ff';
   const T2_COLOR = '#ff8c32';
 
+  // Per-block "voicing": how the three triad voices (role 0,1,2 = 1/3/5 of a stacked-thirds
+  // pair) are ordered. A monotonic Run uses the anchor to pick its landing note; the numbered
+  // options play an explicit role order (1·5·3 etc. — the way triad-pair études rotate a shape).
+  const VOICINGS: { label: string; title: string; shape?: number[]; anchor?: 'root' | 'third' | 'fifth' }[] = [
+    { label: 'Run', title: 'Monotonic run (nearest connect)' },
+    { label: 'Run→1', title: 'Run, land on the root', anchor: 'root' },
+    { label: 'Run→3', title: 'Run, land on the 3rd', anchor: 'third' },
+    { label: 'Run→5', title: 'Run, land on the 5th', anchor: 'fifth' },
+    { label: '1·3·5', title: 'Ascending arpeggio (root–3rd–5th)', shape: [0, 1, 2] },
+    { label: '1·5·3', title: 'Root–5th–3rd', shape: [0, 2, 1] },
+    { label: '3·1·5', title: '3rd–root–5th', shape: [1, 0, 2] },
+    { label: '5·3·1', title: 'Descending arpeggio (5th–3rd–root)', shape: [2, 1, 0] },
+  ];
+
   // Data loaded once
   let presets = $state<Preset[]>([]);
   let pairs = $state<PairInfo[]>([]);
@@ -37,6 +52,10 @@
     { count: 3, direction: 'desc', triad: 'T2' },
   ]);
   let scaleOverrides = $state<(number | null)[]>([]);
+  // The chart text the current overrides were keyed to. Overrides are positional, so
+  // they must be cleared when the chart changes — even to a different progression with the
+  // same number of changes (otherwise stale scales reapply to the wrong chords).
+  let overridesFor = $state('');
 
   // Result state
   let result = $state<GmcLineResult | null>(null);
@@ -144,9 +163,12 @@
     } else {
       error = null;
       result = res;
-      // Initialize scale overrides array (all null = use defaults)
-      if (scaleOverrides.length !== (res.changes?.length ?? 0)) {
+      // (Re)initialize scale overrides (all null = use defaults) whenever the chart text
+      // changed or the change count differs — keeps positional overrides from leaking
+      // across edits to a same-length but different progression.
+      if (chartInput !== overridesFor || scaleOverrides.length !== (res.changes?.length ?? 0)) {
         scaleOverrides = (res.changes ?? []).map(() => null);
+        overridesFor = chartInput;
       }
       selectedMeasure = 0;
     }
@@ -207,6 +229,20 @@
     pattern = [...pattern];
   }
 
+  function voicingIndexOf(block: GmcPatternBlock): number {
+    const sameArr = (a?: number[], b?: number[]) => (a ?? []).join(',') === (b ?? []).join(',');
+    const idx = VOICINGS.findIndex(
+      v => sameArr(v.shape, block.shape) && (v.anchor ?? undefined) === (block.anchor ?? undefined),
+    );
+    return idx >= 0 ? idx : 0;
+  }
+
+  function setBlockVoicing(idx: number, vIdx: number) {
+    const v = VOICINGS[vIdx];
+    pattern[idx] = { ...pattern[idx], shape: v.shape, anchor: v.anchor };
+    pattern = [...pattern];
+  }
+
   function selectPatternPreset(idx: number) {
     if (idx >= 0 && idx < PATTERN_PRESETS.length) {
       pattern = [...PATTERN_PRESETS[idx].blocks];
@@ -234,12 +270,16 @@
     // beats), so it stays correct even if figureIndex changed without regenerating.
     const evs = result.events.filter(e => e.beat >= startBeat - 0.001);
     const audioNotes = evs.map((e, i) => {
-      const nextBeat = i + 1 < evs.length ? evs[i + 1].beat : e.beat + 0.5;
-      const span = Math.max(0.05, nextBeat - e.beat);
+      // Note length = gap to the next event. For the final note there is no next event,
+      // so reuse the previous gap (the grid is uniform) instead of a hardcoded eighth —
+      // otherwise Sixteenth/Triplet figures over-sustain the last note.
+      const span = i + 1 < evs.length
+        ? evs[i + 1].beat - e.beat
+        : (evs.length > 1 ? e.beat - evs[i - 1].beat : 0.5);
       return {
         midi: e.midi,
         time: (e.beat - startBeat) * beatSecs,
-        duration: span * beatSecs * 0.9,
+        duration: Math.max(0.05, span) * beatSecs,
       };
     });
 
@@ -248,19 +288,19 @@
     scheduleNotes(audioNotes, startTime);
 
     if (bassEnabled) {
-      let cumBeat = 0;
-      const bassNotes: { rootPc: number; time: number; duration: number }[] = [];
-      for (const m of measures) {
-        if (cumBeat >= startBeat - 0.001) {
-          bassNotes.push({
-            rootPc: m.chord.rootPc,
-            time: (cumBeat - startBeat) * beatSecs,
-            duration: m.chord.beats * beatSecs,
-          });
-        }
-        cumBeat += m.chord.beats;
-      }
-      scheduleBass(bassNotes, startTime);
+      // Walking bass over every chord from the playback start to the end of the chart.
+      // generateWalkingBass (Rust core) needs each chord's symbol (for the quality's
+      // 3rd/5th/7th), its rootPc/bassPc, and the *next* chord's bass (for the chromatic
+      // approach), so feed it the contiguous segment list.
+      const segments = measures
+        .filter(m => m.startBeat >= startBeat - 0.001)
+        .map(m => ({ rootPc: m.chord.rootPc, bassPc: m.chord.bassPc, symbol: m.chord.chord, beats: m.chord.beats }));
+      const bassNotes = generateWalkingBass(segments).map(n => ({
+        midi: n.midi,
+        time: n.beat * beatSecs,
+        duration: n.beats * beatSecs,
+      }));
+      scheduleBassLine(bassNotes, startTime);
     }
 
     // Drive the measure highlight off the audio clock (no wall-clock drift, no dangling
@@ -437,6 +477,16 @@
             <button class="triad-btn" class:t1={block.triad === 'T1'} class:t2={block.triad === 'T2'} onclick={() => toggleBlockTriad(i)}>
               {block.triad}
             </button>
+            <select
+              class="voicing-select"
+              title="Voice order"
+              value={voicingIndexOf(block)}
+              onchange={(e) => setBlockVoicing(i, parseInt((e.target as HTMLSelectElement).value))}
+            >
+              {#each VOICINGS as v, vi}
+                <option value={vi} title={v.title}>{v.label}</option>
+              {/each}
+            </select>
             {#if pattern.length > 1}
               <button class="remove-btn" onclick={() => removeBlock(i)} title="Remove block">&times;</button>
             {/if}
@@ -948,6 +998,16 @@
     padding: 2px 8px;
     font-size: var(--font-label);
     font-weight: 700;
+  }
+
+  .voicing-select {
+    font-size: 10px;
+    padding: 2px 2px;
+    max-width: 62px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 4px;
   }
 
   .triad-btn.t1 {

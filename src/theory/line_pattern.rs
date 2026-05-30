@@ -62,14 +62,70 @@ impl RhythmicFigure {
     }
 }
 
+/// How a block orders the three voices of its triad.
+///
+/// A triad pair splits the 6 non-root scale tones into two 3-note groups; within a group
+/// the voices have roles 0, 1, 2 in scale-index order (for a stacked-thirds pair that's
+/// root, 3rd, 5th). `Order` lets a block play those roles in an explicit cyclic sequence
+/// (e.g. `[0, 2, 1]` = 1-5-3), the way triad-pair études actually rotate a shape.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum Shape {
+    /// Walk the position by step in `direction` — the original behaviour.
+    #[default]
+    Monotonic,
+    /// Play the triad voices in this cyclic role order, each voice-led to the previous note.
+    Order(Vec<u8>),
+}
+
+/// Which triad voice a block lands on for its first (connecting) note.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Anchor {
+    /// Nearest distinct note of the new triad — the original block-boundary behaviour.
+    #[default]
+    Nearest,
+    /// Triad voice role 0 (the root, for a stacked-thirds pair).
+    Root,
+    /// Triad voice role 1 (the 3rd).
+    Third,
+    /// Triad voice role 2 (the 5th).
+    Fifth,
+}
+
+impl Anchor {
+    /// The triad voice role this anchor targets, or `None` for `Nearest`.
+    pub fn role(self) -> Option<usize> {
+        match self {
+            Self::Nearest => None,
+            Self::Root => Some(0),
+            Self::Third => Some(1),
+            Self::Fifth => Some(2),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PatternBlock {
     pub count: u8,
     pub direction: Direction,
     pub triad: TriadId,
+    /// Voice ordering within the block. Defaults to `Monotonic` (legacy walk).
+    pub shape: Shape,
+    /// The block's landing/first note. Defaults to `Nearest` (legacy connect).
+    pub anchor: Anchor,
 }
 
 impl PatternBlock {
+    /// A legacy block (monotonic walk, nearest-note connect) — the pre-shape behaviour.
+    pub fn legacy(count: u8, direction: Direction, triad: TriadId) -> Self {
+        Self {
+            count,
+            direction,
+            triad,
+            shape: Shape::Monotonic,
+            anchor: Anchor::Nearest,
+        }
+    }
+
     pub fn label(&self) -> String {
         format!("{}{} {}", self.count, self.direction.label(), self.triad.label())
     }
@@ -97,8 +153,8 @@ impl Pattern {
         Self {
             name: "Alternating 3+3",
             blocks: vec![
-                PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T1 },
-                PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T2 },
+                PatternBlock::legacy(3, Direction::Ascending, TriadId::T1),
+                PatternBlock::legacy(3, Direction::Descending, TriadId::T2),
             ],
         }
     }
@@ -107,8 +163,8 @@ impl Pattern {
         Self {
             name: "Continuous up",
             blocks: vec![
-                PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T1 },
-                PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T2 },
+                PatternBlock::legacy(3, Direction::Ascending, TriadId::T1),
+                PatternBlock::legacy(3, Direction::Ascending, TriadId::T2),
             ],
         }
     }
@@ -117,8 +173,8 @@ impl Pattern {
         Self {
             name: "Short-long",
             blocks: vec![
-                PatternBlock { count: 2, direction: Direction::Ascending, triad: TriadId::T1 },
-                PatternBlock { count: 4, direction: Direction::Descending, triad: TriadId::T2 },
+                PatternBlock::legacy(2, Direction::Ascending, TriadId::T1),
+                PatternBlock::legacy(4, Direction::Descending, TriadId::T2),
             ],
         }
     }

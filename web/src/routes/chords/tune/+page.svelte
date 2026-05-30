@@ -3,8 +3,8 @@
   import SubTabs from '$lib/components/SubTabs.svelte';
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import ChartGrid from '$lib/components/ChartGrid.svelte';
-  import { solveChart, solveChartWithLocks, getPresets } from '$lib/wasm';
-  import { playStrum, playClick, playBass, stopAll, stopScheduled, getBassVolume, setBassVolume } from '$lib/audio';
+  import { solveChart, solveChartWithLocks, getPresets, generateWalkingBass } from '$lib/wasm';
+  import { playStrum, playClick, scheduleBassLine, getAudioTime, stopAll, stopScheduled, getBassVolume, setBassVolume } from '$lib/audio';
   import type { SolvedChange, SolverConfig, Preset } from '$lib/wasm';
 
   const chordTabs = [
@@ -230,19 +230,44 @@
   async function playAll() {
     if (!solved || playingAll) return;
     playingAll = true;
-    const beatMs = 60000 / bpm;
+    // Clamp BPM: the <input> min/max are HTML hints only, so a typed 0 / cleared field
+    // would otherwise yield Infinity timings (mirrors the gmc/tune guard).
+    const safeBpm = Number.isFinite(bpm) && bpm > 0 ? Math.min(300, Math.max(40, bpm)) : 120;
+    const beatMs = 60000 / safeBpm;
+    const beatSecs = 60 / safeBpm;
+    // Build the whole walking line up front so the chromatic approaches and voice-leading
+    // see the full progression, then bucket each note under its chord with a time offset
+    // local to that chord's first beat. The stepper schedules one bucket per chord.
+    const walkByChord: { midi: number; time: number; duration: number }[][] = solved.map(() => []);
+    if (bassEnabled) {
+      const line = generateWalkingBass(solved.map(s => ({ rootPc: s.rootPc, bassPc: s.bassPc, symbol: s.chord, beats: s.beats })));
+      const firstBeat: number[] = [];
+      for (const n of line) {
+        if (firstBeat[n.chord] === undefined) firstBeat[n.chord] = n.beat;
+        walkByChord[n.chord].push({
+          midi: n.midi,
+          time: (n.beat - firstBeat[n.chord]) * beatSecs,
+          duration: n.beats * beatSecs,
+        });
+      }
+    }
     for (let i = 0; i < solved.length; i++) {
       if (!playingAll) break;
       selectedChord = i;
       stopScheduled(); // cut the previous chord + bass so they don't ring into this one
       stopAll();
-      if (bassEnabled) playBass(solved[i].bassPc ?? solved[i].rootPc, solved[i].beats * 60 / bpm);
+      if (bassEnabled) scheduleBassLine(walkByChord[i], getAudioTime());
       playStrum(solved[i].positions);
+      // Hold the chord for its TRUE (possibly fractional) duration: a 3-chords-per-bar
+      // chord is 4/3 beats, not 2. Spread that duration over whole-beat click steps so
+      // fractional bars don't get stretched to an integer beat count.
       const beats = solved[i].beats;
-      for (let b = 0; b < beats; b++) {
+      const steps = Math.max(1, Math.round(beats));
+      const stepMs = (beats * beatMs) / steps;
+      for (let b = 0; b < steps; b++) {
         if (!playingAll) break;
         if (clickEnabled && b > 0) playClick();
-        await new Promise(r => setTimeout(r, beatMs));
+        await new Promise(r => setTimeout(r, stepMs));
       }
     }
     playingAll = false;

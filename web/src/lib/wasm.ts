@@ -171,6 +171,7 @@ export interface GmcLineEvent {
 export interface GmcChordInfo {
   chord: string;
   rootPc: number;
+  bassPc: number | null;
   beats: number;
   defaultScale: string;
   defaultScaleIndex: number;
@@ -189,6 +190,10 @@ export interface GmcPatternBlock {
   count: number;
   direction: 'asc' | 'desc';
   triad: 'T1' | 'T2';
+  /** Voice order by triad role (0,1,2 = scale-index order). Absent/empty = monotonic walk. */
+  shape?: number[];
+  /** Landing note for the block's first note. Absent = nearest (legacy connect). */
+  anchor?: 'root' | 'third' | 'fifth';
 }
 
 export function generateGmcLine(
@@ -201,6 +206,29 @@ export function generateGmcLine(
   pattern: GmcPatternBlock[],
 ): GmcLineResult {
   return getWasm().generate_gmc_line(chartText, title, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
+}
+
+// --- Walking bass (pure core, ported from the old TS generator) ---
+
+export interface WalkingBassSegment {
+  rootPc: number;
+  /** Slash-chord bass pitch class; null/undefined walks off the root. */
+  bassPc?: number | null;
+  /** Chord symbol, e.g. "Dm7", "G7", "Fm7/Bb" — parsed for its quality. */
+  symbol: string;
+  beats: number;
+}
+
+export interface WalkingBassNote {
+  midi: number;
+  beat: number;
+  beats: number;
+  /** Index of the segment (chord) this note belongs to. */
+  chord: number;
+}
+
+export function generateWalkingBass(segments: WalkingBassSegment[]): WalkingBassNote[] {
+  return getWasm().generate_walking_bass(segments);
 }
 
 export function synthSingleNote(midi: number, duration: number): Float32Array {
