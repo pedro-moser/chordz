@@ -95,6 +95,30 @@ pub fn generate_line(
     pair: &TriadPairSet,
     config: &LineConfig,
 ) -> Vec<NoteEvent> {
+    // Pre-resolve GMC triad-pair notes per chord, then walk the pattern.
+    let triad_notes_per_chord: Vec<TriadNotes> = chart
+        .changes
+        .iter()
+        .enumerate()
+        .map(|(i, change)| {
+            let scale = scale_overrides
+                .get(i)
+                .and_then(|opt| opt.and_then(|idx| Scale::ALL.get(idx)))
+                .unwrap_or_else(|| scale_defaults::default_scale(change.quality));
+            resolve_triad_notes(change.root_pc, scale, pair, &config.position, fretboard)
+        })
+        .collect();
+    run_pattern(chart, config, &triad_notes_per_chord)
+}
+
+/// Walk the configured pattern over already-resolved per-chord note pools, voice-leading
+/// each event to the previous. Shared by the GMC triad-pair line and the shell étude — the
+/// ONLY thing that differs between them is how `triad_notes_per_chord` was resolved.
+fn run_pattern(
+    chart: &Chart,
+    config: &LineConfig,
+    triad_notes_per_chord: &[TriadNotes],
+) -> Vec<NoteEvent> {
     let beat_dur = config.figure.beat_duration();
     let total_beats = chart.total_beats();
     let total_events = (total_beats / beat_dur).round() as usize;
@@ -112,20 +136,6 @@ pub fn generate_line(
         chord_boundaries.push((cumulative, cumulative + change.beats, i));
         cumulative += change.beats;
     }
-
-    // Pre-resolve triad notes per chord
-    let triad_notes_per_chord: Vec<TriadNotes> = chart
-        .changes
-        .iter()
-        .enumerate()
-        .map(|(i, change)| {
-            let scale = scale_overrides
-                .get(i)
-                .and_then(|opt| opt.and_then(|idx| Scale::ALL.get(idx)))
-                .unwrap_or_else(|| scale_defaults::default_scale(change.quality));
-            resolve_triad_notes(change.root_pc, scale, pair, &config.position, fretboard)
-        })
-        .collect();
 
     let mut block_remaining = 0u8;
     let mut block_triad = TriadId::T1;
