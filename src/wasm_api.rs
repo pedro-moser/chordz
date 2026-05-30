@@ -807,7 +807,15 @@ pub fn shell_etude_preset(chart_text: &str, title: &str) -> JsValue {
         .iter()
         .map(|c| {
             let s = scale_defaults::etude_scale(c.quality);
-            Scale::ALL.iter().position(|x| x.name == s.name)
+            // Only emit an override where the etude scale deviates from the chord's default
+            // (maj7→Lydian, dominants→Altered, m7b5→Aeolian ♭5). Where they already match
+            // (m7→Dorian, the dim7 fallback), leave it null so the engine uses the default
+            // and the UI doesn't falsely flag that chord as "edited".
+            if s.name == scale_defaults::default_scale(c.quality).name {
+                None
+            } else {
+                Scale::ALL.iter().position(|x| x.name == s.name)
+            }
         })
         .collect();
 
