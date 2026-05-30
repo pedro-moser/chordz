@@ -208,6 +208,21 @@ export function generateGmcLine(
   return getWasm().generate_gmc_line(chartText, title, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
 }
 
+/**
+ * Shell-étude (Motor E) line over a chart. Same result shape as generateGmcLine, so the
+ * GMC-tune renderer is reused. No pair/scale-override — the two shells per chord come from
+ * the chord quality (see Rust `theory::shells`).
+ */
+export function generateShellEtude(
+  chartText: string,
+  title: string,
+  figureIndex: number,
+  positionFret: number,
+  pattern: GmcPatternBlock[],
+): GmcLineResult {
+  return getWasm().generate_shell_etude(chartText, title, figureIndex, positionFret, pattern);
+}
+
 // --- Walking bass (pure core, ported from the old TS generator) ---
 
 export interface WalkingBassSegment {
