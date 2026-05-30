@@ -4,3 +4,8 @@ web/node_modules/
 web/pkg/
 web/build/
 web/.svelte-kit/
+
+# Local agent state, tooling, and reference material — not part of the codebase
+/.claude/
+/.superpowers/
+/materiais/

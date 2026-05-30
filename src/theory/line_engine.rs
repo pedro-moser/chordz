@@ -1,6 +1,5 @@
-use crate::theory::chart::{Chart, ChordChange};
+use crate::theory::chart::Chart;
 use crate::theory::gmc::{self, TriadPairSet};
-use crate::theory::shells;
 use crate::theory::line_pattern::{Anchor, Direction, Pattern, RhythmicFigure, Shape, TriadId};
 use crate::theory::position::{FretNote, NeckPosition};
 use crate::theory::scale_defaults;
@@ -23,8 +22,8 @@ pub struct LineConfig {
     pub position: NeckPosition,
 }
 
-/// Two 3-note pools plus their pitch classes in role order. Holds a GMC triad pair
-/// (`resolve_triad_notes`) or, reused as-is, a guide-tone shell pair (`resolve_shell_notes`).
+/// Two 3-note pools plus their pitch classes in role order (a GMC triad pair from
+/// `resolve_triad_notes`).
 struct TriadNotes {
     t1: Vec<FretNote>,
     t2: Vec<FretNote>,
@@ -64,39 +63,6 @@ fn resolve_triad_notes(
         t1_pcs: pcs_a,
         t2_pcs: pcs_b,
     }
-}
-
-/// Resolve a chord's two guide-tone shells into fretboard note pools, mirroring
-/// `resolve_triad_notes` but sourcing pitch classes from `shells` (chord-quality driven)
-/// instead of a scale partition. The scale is irrelevant here, so none is passed.
-fn resolve_shell_notes(
-    change: &ChordChange,
-    position: &NeckPosition,
-    fretboard: &Fretboard,
-) -> TriadNotes {
-    let (pcs_a, pcs_b) = shells::resolve_shell_pair(change.root_pc, change.quality);
-    TriadNotes {
-        t1: position.find_notes(fretboard, &pcs_a),
-        t2: position.find_notes(fretboard, &pcs_b),
-        t1_pcs: pcs_a,
-        t2_pcs: pcs_b,
-    }
-}
-
-/// Generate a guide-tone "shell étude" line (Motor E) over a chart. Same pattern walker as
-/// `generate_line`; the only difference is the per-chord note source — two chord-quality
-/// shells instead of a GMC triad pair. No `scale_overrides`/`pair` apply.
-pub fn generate_shell_line(
-    chart: &Chart,
-    fretboard: &Fretboard,
-    config: &LineConfig,
-) -> Vec<NoteEvent> {
-    let triad_notes_per_chord: Vec<TriadNotes> = chart
-        .changes
-        .iter()
-        .map(|change| resolve_shell_notes(change, &config.position, fretboard))
-        .collect();
-    run_pattern(chart, config, &triad_notes_per_chord)
 }
 
 fn find_nearest(notes: &[FretNote], current_midi: i32, direction: Direction) -> Option<&FretNote> {
@@ -148,8 +114,7 @@ pub fn generate_line(
 }
 
 /// Walk the configured pattern over already-resolved per-chord note pools, voice-leading
-/// each event to the previous. Shared by the GMC triad-pair line and the shell étude — the
-/// ONLY thing that differs between them is how `triad_notes_per_chord` was resolved.
+/// each event to the previous.
 fn run_pattern(
     chart: &Chart,
     config: &LineConfig,
@@ -499,53 +464,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn shell_line_outlines_each_chord_with_its_shells() {
-        // Every generated event's pitch class must belong to one of the chord's two
-        // shells — the étude never plays a note outside the distilled material.
-        let fb = Fretboard::standard_tuning();
-        let chart = Chart::parse("MN", "| Em7 A7 | Fm7 Bb7 | Ebmaj7 |").unwrap();
-        let config = simple_config();
-        let events = generate_shell_line(&chart, &fb, &config);
-        assert!(!events.is_empty());
-
-        // Rebuild the allowed pc set per chord and assert membership.
-        let mut cumulative = 0.0_f32;
-        let bounds: Vec<(f32, f32, usize)> = chart
-            .changes
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                let s = cumulative;
-                cumulative += c.beats;
-                (s, cumulative, i)
-            })
-            .collect();
-        for e in &events {
-            let idx = bounds
-                .iter()
-                .rposition(|&(s, _, _)| e.beat >= s)
-                .unwrap_or(0);
-            let change = &chart.changes[idx];
-            let (a, b) = shells::resolve_shell_pair(change.root_pc, change.quality);
-            let allowed: Vec<u8> = a.iter().chain(b.iter()).copied().collect();
-            assert!(
-                allowed.contains(&e.pitch_class),
-                "pc {} at beat {} not in shells of chord {}",
-                e.pitch_class,
-                e.beat,
-                idx
-            );
-        }
-    }
-
-    #[test]
-    fn shell_line_event_count_matches_grid() {
-        let fb = Fretboard::standard_tuning();
-        let chart = Chart::parse("MN", "| Em7 A7 | Fm7 Bb7 |").unwrap();
-        let config = simple_config(); // Eighth figure → 8 events per 4/4 bar
-        let events = generate_shell_line(&chart, &fb, &config);
-        assert_eq!(events.len(), 16); // 2 bars × 8 eighth-notes
-
-    }
 }

@@ -725,68 +725,6 @@ pub fn generate_gmc_line(
     }))
 }
 
-/// Generate a guide-tone "shell étude" line (Motor E) over a chart. Same controls as the
-/// GMC line minus the triad pair and scale overrides — the two 3-note shells per chord are
-/// derived from the chord quality (see `theory::shells`). Response shape matches
-/// `generate_gmc_line` so the web renderer is shared.
-#[wasm_bindgen]
-pub fn generate_shell_etude(
-    chart_text: &str,
-    title: &str,
-    figure_index: usize, // 0=Eighth, 1=Sixteenth, 2=Triplet
-    position_fret: u8,   // base fret 1-12
-    pattern_js: JsValue, // array of {count, direction, triad, shape?, anchor?}
-) -> JsValue {
-    use crate::theory::line_engine::{self, LineConfig};
-    use crate::theory::line_pattern::Pattern;
-    use crate::theory::position::NeckPosition;
-    use crate::theory::scale_defaults;
-
-    let chart = match Chart::parse(title, chart_text) {
-        Ok(c) => c,
-        Err(e) => return to_js(&serde_json::json!({"error": format!("{}", e)})),
-    };
-
-    let blocks = parse_pattern_blocks(pattern_js);
-
-    if blocks.is_empty() {
-        return to_js(&serde_json::json!({"error": "empty pattern"}));
-    }
-
-    let pattern = Pattern { name: "shell", blocks };
-    let figure = rhythmic_figure(figure_index);
-
-    let config = LineConfig { pattern, figure, position: NeckPosition::new(position_fret) };
-    let fretboard = Fretboard::standard_tuning();
-    let events = line_engine::generate_shell_line(&chart, &fretboard, &config);
-
-    let changes_info: Vec<_> = chart
-        .changes
-        .iter()
-        .map(|c| {
-            let default_scale = scale_defaults::default_scale(c.quality);
-            serde_json::json!({
-                "chord": chords::chord_name(&c.root, c.quality),
-                "rootPc": c.root_pc,
-                "bassPc": c.bass_pc,
-                "beats": c.beats,
-                "defaultScale": default_scale.name,
-                "defaultScaleIndex": Scale::ALL.iter().position(|s| s.name == default_scale.name),
-                "activeScale": default_scale.name,
-                "isOverride": false,
-            })
-        })
-        .collect();
-
-    let events_json = line_events_json(&events);
-
-    to_js(&serde_json::json!({
-        "events": events_json,
-        "changes": changes_info,
-        "totalBeats": chart.total_beats(),
-    }))
-}
-
 /// Describe the "Shell Étude" preset for a chart: the GMC controls that reproduce a
 /// guide-tone (7no5/7no3) line. Returns `{ pairIndex, scaleOverrides, pattern }` so the web
 /// UI can set its visible controls and generate through the normal `generate_gmc_line` path —

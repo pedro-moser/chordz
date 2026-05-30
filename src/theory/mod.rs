@@ -8,5 +8,4 @@ pub mod notes;
 pub mod position;
 pub mod scale_defaults;
 pub mod scales;
-pub mod shells;
 pub mod walking_bass;
