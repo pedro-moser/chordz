@@ -235,7 +235,7 @@ export function playNote(midi: number, duration = 0.3) {
 /**
  * Schedule melody notes on the AudioContext clock. `startTime` is the clock origin
  * (defaults to "now"); each note starts at `startTime + n.time`. Pass an explicit
- * origin shared with scheduleBass so melody and bass stay phase-locked.
+ * origin shared with scheduleBassLine so melody and bass stay phase-locked.
  */
 export function scheduleNotes(
   notes: { midi: number; time: number; duration: number }[],
@@ -264,16 +264,18 @@ export function scheduleNotes(
 }
 
 /**
- * Schedule sine bass notes on the same AudioContext clock as scheduleNotes, registered
- * so stopScheduled() silences them. Call AFTER scheduleNotes, which clears the registry.
+ * Schedule a bass line of explicit MIDI notes (e.g. a walking line) on the same
+ * AudioContext clock as scheduleNotes, registered so stopScheduled() silences them.
+ * The caller picks the exact pitch per note. Call AFTER scheduleNotes, which clears
+ * the registry.
  */
-export function scheduleBass(
-  notes: { rootPc: number; time: number; duration: number }[],
+export function scheduleBassLine(
+  notes: { midi: number; time: number; duration: number }[],
   startTime = getAudioTime(),
 ) {
   for (const n of notes) {
     if (!Number.isFinite(n.time) || !Number.isFinite(n.duration) || n.duration <= 0) continue;
-    registerScheduled(playSine(bassMidi(n.rootPc), startTime + n.time, n.duration, bassVolume));
+    registerScheduled(playSine(n.midi, startTime + n.time, n.duration, bassVolume));
   }
 }
 

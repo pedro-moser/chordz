@@ -60,17 +60,21 @@ export function playSample(
   src.detune.value = (midi - sampledMidi) * 100;
 
   const env = ctx.createGain();
-  const attack = 0.15; // slow swell onset (POG2/Rosenwinkel-ish) — flute-like, masks the pluck transient
-  const release = 0.12;
-  const hold = when + Math.max(duration, attack + 0.02);
+  const release = 0.18;
+  // Slow swell onset (POG2/Rosenwinkel-ish, flute-like), but never more than half the
+  // note so fast lines stay articulate. The release ramp finishes at `end` (= when +
+  // duration), so back-to-back notes connect legato without bleeding past the next onset.
+  const attack = Math.min(0.09, duration * 0.4);
+  const end = when + Math.max(duration, attack + 0.02);
+  const releaseStart = Math.max(when + attack, end - release);
   env.gain.setValueAtTime(0, when);
   env.gain.linearRampToValueAtTime(gain, when + attack);
-  env.gain.setValueAtTime(gain, hold);
-  env.gain.linearRampToValueAtTime(0, hold + release);
+  env.gain.setValueAtTime(gain, releaseStart);
+  env.gain.linearRampToValueAtTime(0, end);
 
   src.connect(env);
   env.connect(destination);
   src.start(when);
-  src.stop(hold + release + 0.02);
+  src.stop(end + 0.02);
   return src;
 }
