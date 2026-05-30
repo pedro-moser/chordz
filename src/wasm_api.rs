@@ -681,6 +681,116 @@ pub fn generate_gmc_line(
     }))
 }
 
+/// Generate a guide-tone "shell étude" line (Motor E) over a chart. Same controls as the
+/// GMC line minus the triad pair and scale overrides — the two 3-note shells per chord are
+/// derived from the chord quality (see `theory::shells`). Response shape matches
+/// `generate_gmc_line` so the web renderer is shared.
+#[wasm_bindgen]
+pub fn generate_shell_etude(
+    chart_text: &str,
+    title: &str,
+    figure_index: usize, // 0=Eighth, 1=Sixteenth, 2=Triplet
+    position_fret: u8,   // base fret 1-12
+    pattern_js: JsValue, // array of {count, direction, triad, shape?, anchor?}
+) -> JsValue {
+    use crate::theory::line_engine::{self, LineConfig};
+    use crate::theory::line_pattern::{Anchor, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId};
+    use crate::theory::position::NeckPosition;
+    use crate::theory::scale_defaults;
+
+    let chart = match Chart::parse(title, chart_text) {
+        Ok(c) => c,
+        Err(e) => return to_js(&serde_json::json!({"error": format!("{}", e)})),
+    };
+
+    let blocks_raw: Vec<serde_json::Value> =
+        serde_wasm_bindgen::from_value(pattern_js).unwrap_or_default();
+    let blocks: Vec<PatternBlock> = blocks_raw
+        .iter()
+        .map(|b| {
+            let count = b["count"].as_u64().unwrap_or(3).clamp(1, 6) as u8;
+            let direction = if b["direction"].as_str() == Some("desc") {
+                Direction::Descending
+            } else {
+                Direction::Ascending
+            };
+            let triad = if b["triad"].as_str() == Some("T2") {
+                TriadId::T2
+            } else {
+                TriadId::T1
+            };
+            let shape = match b["shape"].as_array() {
+                Some(arr) if !arr.is_empty() => {
+                    let order: Vec<u8> =
+                        arr.iter().filter_map(|v| v.as_u64()).map(|r| (r % 3) as u8).collect();
+                    if order.is_empty() { Shape::Monotonic } else { Shape::Order(order) }
+                }
+                _ => Shape::Monotonic,
+            };
+            let anchor = match b["anchor"].as_str() {
+                Some("root") => Anchor::Root,
+                Some("third") => Anchor::Third,
+                Some("fifth") => Anchor::Fifth,
+                _ => Anchor::Nearest,
+            };
+            PatternBlock { count, direction, triad, shape, anchor }
+        })
+        .collect();
+
+    if blocks.is_empty() {
+        return to_js(&serde_json::json!({"error": "empty pattern"}));
+    }
+
+    let pattern = Pattern { name: "shell", blocks };
+    let figure = match figure_index {
+        1 => RhythmicFigure::Sixteenth,
+        2 => RhythmicFigure::Triplet,
+        _ => RhythmicFigure::Eighth,
+    };
+
+    let config = LineConfig { pattern, figure, position: NeckPosition::new(position_fret) };
+    let fretboard = Fretboard::standard_tuning();
+    let events = line_engine::generate_shell_line(&chart, &fretboard, &config);
+
+    let changes_info: Vec<_> = chart
+        .changes
+        .iter()
+        .map(|c| {
+            let default_scale = scale_defaults::default_scale(c.quality);
+            serde_json::json!({
+                "chord": chords::chord_name(&c.root, c.quality),
+                "rootPc": c.root_pc,
+                "bassPc": c.bass_pc,
+                "beats": c.beats,
+                "defaultScale": default_scale.name,
+                "defaultScaleIndex": Scale::ALL.iter().position(|s| s.name == default_scale.name),
+                "activeScale": default_scale.name,
+                "isOverride": false,
+            })
+        })
+        .collect();
+
+    let events_json: Vec<_> = events
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "beat": e.beat,
+                "string": e.string,
+                "fret": e.fret,
+                "triad": if e.triad == TriadId::T1 { "T1" } else { "T2" },
+                "pitchClass": e.pitch_class,
+                "midi": e.midi,
+            })
+        })
+        .collect();
+
+    to_js(&serde_json::json!({
+        "events": events_json,
+        "changes": changes_info,
+        "totalBeats": chart.total_beats(),
+    }))
+}
+
 /// Generate a quarter-note walking bass line for a chord sequence. Each input segment is
 /// `{ rootPc, bassPc (nullable), symbol, beats }`; the symbol is parsed only for its
 /// authoritative quality intervals (3rd/5th/7th), while rootPc/bassPc come from the caller.
