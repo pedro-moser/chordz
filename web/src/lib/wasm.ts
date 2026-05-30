@@ -223,6 +223,23 @@ export function generateShellEtude(
   return getWasm().generate_shell_etude(chartText, title, figureIndex, positionFret, pattern);
 }
 
+/** The controls the Shell Étude preset sets. `pattern` reuses the GMC pattern-block shape. */
+export interface ShellEtudePresetResult {
+  pairIndex?: number;
+  scaleOverrides?: (number | null)[];
+  pattern?: GmcPatternBlock[];
+  error?: string;
+}
+
+/**
+ * Describe the Shell Étude preset for a chart: the triad pair, per-chord scale overrides, and
+ * the arc pattern that reproduce a guide-tone (7no5/7no3) line through the normal GMC engine.
+ * The caller applies these to the visible controls — the preset is transparent and editable.
+ */
+export function shellEtudePreset(chartText: string, title: string): ShellEtudePresetResult {
+  return getWasm().shell_etude_preset(chartText, title);
+}
+
 // --- Walking bass (pure core, ported from the old TS generator) ---
 
 export interface WalkingBassSegment {
