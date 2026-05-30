@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
-  import { generateGmcLine, getPresets, getPairs, getAllScales } from '$lib/wasm';
+  import { generateGmcLine, generateShellEtude, getPresets, getPairs, getAllScales } from '$lib/wasm';
   import { scheduleNotes, scheduleBassLine, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
   import { generateWalkingBass } from '$lib/wasm';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
@@ -45,6 +45,7 @@
   let titleInput = $state('Stella by Starlight');
   let chartInput = $state('Em7b5 | A7b9 | Cm7 | F7 | Fm7 | Bb7 | Ebmaj7 | Ab7#11 | Bbmaj7 | Em7b5 A7b9 | Dm7 | Bbm7 Eb7 | Fmaj7 | Em7b5 | Ebmaj7 | D7b9 | G7b13 | % | Cm7 | % | Ab7#11 | % | Bbmaj7 | % | Em7b5 | A7b9 | Dm7b5 | G7b9 | Cm7b5 | F7b9 | Bbmaj7 | %');
   let pairIndex = $state(0);
+  let etudeMode = $state(false);
   let figureIndex = $state(0);
   let positionFret = $state(5);
   let pattern = $state<GmcPatternBlock[]>([
@@ -148,15 +149,9 @@
   }
 
   function generate() {
-    const res = generateGmcLine(
-      chartInput,
-      titleInput,
-      pairIndex,
-      scaleOverrides,
-      figureIndex,
-      positionFret,
-      pattern,
-    );
+    const res = etudeMode
+      ? generateShellEtude(chartInput, titleInput, figureIndex, positionFret, pattern)
+      : generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
     if (res.error) {
       error = res.error;
       result = null;
@@ -176,15 +171,9 @@
 
   function regenerate() {
     // Regenerate with current scale overrides
-    const res = generateGmcLine(
-      chartInput,
-      titleInput,
-      pairIndex,
-      scaleOverrides,
-      figureIndex,
-      positionFret,
-      pattern,
-    );
+    const res = etudeMode
+      ? generateShellEtude(chartInput, titleInput, figureIndex, positionFret, pattern)
+      : generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
     if (!res.error) {
       result = res;
     }
@@ -430,11 +419,19 @@
       <!-- Pair selector -->
       <div class="control-row">
         <span class="control-label">Pair</span>
-        <select class="control-select" bind:value={pairIndex}>
-          {#each pairs as p, i}
-            <option value={i}>{p.label}</option>
-          {/each}
-        </select>
+        <button
+          class="filter-btn"
+          class:active={etudeMode}
+          onclick={() => { etudeMode = !etudeMode; generate(); }}
+          title="Guide-tone 7no5/7no3 shells per chord (Motor E)"
+        >Shell Étude</button>
+        {#if !etudeMode}
+          <select class="control-select" bind:value={pairIndex}>
+            {#each pairs as p, i}
+              <option value={i}>{p.label}</option>
+            {/each}
+          </select>
+        {/if}
       </div>
 
       <!-- Figure selector -->
