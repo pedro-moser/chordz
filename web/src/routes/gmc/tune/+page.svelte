@@ -501,7 +501,7 @@
       {/if}
     </div>
 
-    {#if result?.changes}
+    {#if result?.changes && !etudeMode}
       <button class="scales-btn" onclick={() => scaleModalOpen = true}>
         Scales {scaleOverrides.some(o => o !== null) ? '(edited)' : ''}
       </button>
@@ -611,6 +611,7 @@
             >{measure.chord.chord}</text>
 
             <!-- Scale name below strings -->
+            {#if !etudeMode}
             <text
               x={mx + TAB_MEASURE_WIDTH / 2}
               y={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET}
@@ -619,6 +620,7 @@
               font-size="9"
               font-family="var(--font)"
             >{measure.chord.activeScale}</text>
+            {/if}
 
             <!-- Notes -->
             {#each measure.events as event}
@@ -666,7 +668,7 @@
         <div class="fretboard-section">
           <div class="fb-header">
             <span class="fb-chord">{selectedMeasureData.chord.chord}</span>
-            <span class="fb-scale" class:override={selectedMeasureData.chord.isOverride}>{selectedMeasureData.chord.activeScale}</span>
+            {#if !etudeMode}<span class="fb-scale" class:override={selectedMeasureData.chord.isOverride}>{selectedMeasureData.chord.activeScale}</span>{/if}
             <span class="fb-position">Position {POSITION_LABELS[positionFret - 1]}</span>
             <div class="fb-label-toggle">
               <button class="fb-toggle-btn" class:active={fbLabelMode === 'order'} onclick={() => fbLabelMode = 'order'}>#</button>
