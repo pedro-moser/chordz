@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import SubTabs from '$lib/components/SubTabs.svelte';
-  import { generateGmcLine, shellEtudePreset, getPresets, getPairs, getAllScales } from '$lib/wasm';
+  import { generateGmcLine, shellEtudePreset, validScalesForChart, getPresets, getPairs, getAllScales } from '$lib/wasm';
   import { scheduleNotes, scheduleBassLine, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
   import { generateWalkingBass } from '$lib/wasm';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
@@ -188,6 +188,21 @@
       // reset guard doesn't immediately wipe them.
       overridesFor = chartInput;
     }
+    generate();
+  }
+
+  function applyScaleShuffle() {
+    const r = validScalesForChart(chartInput, titleInput);
+    if (r.error || !r.validScales) {
+      if (r.error) error = r.error;
+      return;
+    }
+    // Pick one valid scale at random per chord (empty list → leave default).
+    scaleOverrides = r.validScales.map((list) =>
+      list.length ? list[Math.floor(Math.random() * list.length)] : null,
+    );
+    // Keep generate()'s positional reset guard from wiping the shuffled overrides.
+    overridesFor = chartInput;
     generate();
   }
 
@@ -514,6 +529,11 @@
       <button class="scales-btn" onclick={() => scaleModalOpen = true}>
         Scales {scaleOverrides.some(o => o !== null) ? '(edited)' : ''}
       </button>
+      <button
+        class="scales-btn"
+        onclick={applyScaleShuffle}
+        title="Sortear uma escala válida (3ª+7ª, 5ª se alterada) para cada acorde"
+      >🎲 Cores</button>
     {/if}
   </div>
 
