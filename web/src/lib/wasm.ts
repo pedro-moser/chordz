@@ -225,6 +225,20 @@ export function shellEtudePreset(chartText: string, title: string): ShellEtudePr
   return getWasm().shell_etude_preset(chartText, title);
 }
 
+/** Per-chord lists of valid scale indices for the 🎲 Cores shuffle. */
+export interface ValidScalesResult {
+  validScales?: number[][];
+  error?: string;
+}
+
+/**
+ * For each chord in the chart, the indices into the scale list that are valid for that chord's
+ * quality (guide-tone rule). The caller shuffles by picking one at random per chord.
+ */
+export function validScalesForChart(chartText: string, title: string): ValidScalesResult {
+  return getWasm().valid_scales_for_chart(chartText, title);
+}
+
 // --- Walking bass (pure core, ported from the old TS generator) ---
 
 export interface WalkingBassSegment {
