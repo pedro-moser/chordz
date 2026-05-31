@@ -112,6 +112,10 @@ pub struct PatternBlock {
     pub shape: Shape,
     /// The block's landing/first note. Defaults to `Nearest` (legacy connect).
     pub anchor: Anchor,
+    /// The block's LAST note sustains `1 + hold_last` grid steps (a held landing). 0 = off.
+    pub hold_last: u8,
+    /// `lead_rest` grid steps of silence before the block's first note (a pickup). 0 = off.
+    pub lead_rest: u8,
 }
 
 impl PatternBlock {
@@ -123,6 +127,8 @@ impl PatternBlock {
             triad,
             shape: Shape::Monotonic,
             anchor: Anchor::Nearest,
+            hold_last: 0,
+            lead_rest: 0,
         }
     }
 

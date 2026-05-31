@@ -606,7 +606,10 @@ fn parse_pattern_blocks(pattern_js: JsValue) -> Vec<crate::theory::line_pattern:
                 Some("fifth") => Anchor::Fifth,
                 _ => Anchor::Nearest,
             };
-            PatternBlock { count, direction, triad, shape, anchor }
+            // Pickup-rest and held-landing per block (Fase 2). Clamp at the trust boundary.
+            let hold_last = b["holdLast"].as_u64().unwrap_or(0).min(16) as u8;
+            let lead_rest = b["leadRest"].as_u64().unwrap_or(0).min(16) as u8;
+            PatternBlock { count, direction, triad, shape, anchor, hold_last, lead_rest }
         })
         .collect()
 }

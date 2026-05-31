@@ -254,7 +254,7 @@ mod tests {
         LineConfig {
             pattern: Pattern {
                 name: "test",
-                blocks: vec![PatternBlock { count, direction: Direction::Ascending, triad, shape, anchor }],
+                blocks: vec![PatternBlock { count, direction: Direction::Ascending, triad, shape, anchor, hold_last: 0, lead_rest: 0 }],
             },
             figure: RhythmicFigure::Eighth,
             position: NeckPosition::new(5),
