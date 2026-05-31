@@ -637,6 +637,7 @@ fn line_events_json(
                 "triad": if e.triad == TriadId::T1 { "T1" } else { "T2" },
                 "pitchClass": e.pitch_class,
                 "midi": e.midi,
+                "duration": e.duration,
             })
         })
         .collect()
