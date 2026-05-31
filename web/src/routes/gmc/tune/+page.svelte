@@ -255,6 +255,16 @@
     pattern = [...pattern];
   }
 
+  function setBlockHold(idx: number, val: number) {
+    pattern[idx] = { ...pattern[idx], holdLast: Math.max(0, Math.min(16, val || 0)) };
+    pattern = [...pattern];
+  }
+
+  function setBlockLeadRest(idx: number, val: number) {
+    pattern[idx] = { ...pattern[idx], leadRest: Math.max(0, Math.min(16, val || 0)) };
+    pattern = [...pattern];
+  }
+
   function selectPatternPreset(idx: number) {
     if (idx >= 0 && idx < PATTERN_PRESETS.length) {
       const p = PATTERN_PRESETS[idx];
@@ -497,6 +507,18 @@
                 <option value={vi} title={v.title}>{v.label}</option>
               {/each}
             </select>
+            <input
+              type="number" min="0" max="16" class="count-input"
+              title="Hold the last note (extra grid steps)"
+              value={block.holdLast ?? 0}
+              oninput={(e) => setBlockHold(i, parseInt((e.target as HTMLInputElement).value))}
+            />
+            <input
+              type="number" min="0" max="16" class="count-input"
+              title="Pickup rest before this block (grid steps)"
+              value={block.leadRest ?? 0}
+              oninput={(e) => setBlockLeadRest(i, parseInt((e.target as HTMLInputElement).value))}
+            />
             {#if pattern.length > 1}
               <button class="remove-btn" onclick={() => removeBlock(i)} title="Remove block">&times;</button>
             {/if}
