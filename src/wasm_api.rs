@@ -697,13 +697,15 @@ pub fn generate_gmc_line(
         let default_scale = scale_defaults::default_scale(c.quality);
         // Use checked indexing: the override index comes from JS unvalidated, so an
         // out-of-range value must degrade to the default scale rather than trap wasm.
-        // is_override reflects whether the override actually resolved (matches the line
-        // engine's own fallback), so a bad index doesn't falsely flag the chord as edited.
+        // is_override reflects whether the override actually resolved AND differs from the
+        // default (matches the line engine's own fallback), so neither a bad index nor an
+        // override that just happens to equal the default (e.g. the 🎲 Cores shuffle rolling
+        // the default scale) falsely flags the chord as edited.
         let override_scale = overrides_raw
             .get(i)
             .and_then(|o| o.and_then(|idx| Scale::ALL.get(idx)));
         let actual_scale = override_scale.unwrap_or(default_scale);
-        let is_override = override_scale.is_some();
+        let is_override = override_scale.is_some_and(|s| s.name != default_scale.name);
         serde_json::json!({
             "chord": chords::chord_name(&c.root, c.quality),
             "rootPc": c.root_pc,
