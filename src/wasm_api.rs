@@ -773,6 +773,27 @@ pub fn shell_etude_preset(chart_text: &str, title: &str) -> JsValue {
     }))
 }
 
+/// Per-chord lists of `Scale::ALL` indices valid for each chord's quality, for the "🎲 Cores"
+/// scale shuffle. The web front picks one random index per chord. Returns
+/// `{ validScales: number[][] }`, or `{ error }` on a parse failure.
+#[wasm_bindgen]
+pub fn valid_scales_for_chart(chart_text: &str, title: &str) -> JsValue {
+    use crate::theory::scale_defaults;
+
+    let chart = match Chart::parse(title, chart_text) {
+        Ok(c) => c,
+        Err(e) => return to_js(&serde_json::json!({"error": format!("{}", e)})),
+    };
+
+    let valid: Vec<Vec<usize>> = chart
+        .changes
+        .iter()
+        .map(|c| scale_defaults::valid_scales(c.quality))
+        .collect();
+
+    to_js(&serde_json::json!({ "validScales": valid }))
+}
+
 /// Generate a quarter-note walking bass line for a chord sequence. Each input segment is
 /// `{ rootPc, bassPc (nullable), symbol, beats }`; the symbol is parsed only for its
 /// authoritative quality intervals (3rd/5th/7th), while rootPc/bassPc come from the caller.
