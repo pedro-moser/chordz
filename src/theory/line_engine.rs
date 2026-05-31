@@ -14,6 +14,8 @@ pub struct NoteEvent {
     pub triad: TriadId,
     pub pitch_class: u8,
     pub midi: i32,
+    /// Sounding length in beats. Uniform (= the figure's grid) unless `hold_last` extends it.
+    pub duration: f32,
 }
 
 pub struct LineConfig {
@@ -144,9 +146,43 @@ fn run_pattern(
     let mut block_shape = Shape::Monotonic;
     let mut block_anchor = Anchor::Nearest;
     let mut block_step = 0usize; // index of the note within the current block (for Shape::Order)
+    let mut block_hold_last = 0u8;
 
-    for event_idx in 0..total_events {
-        let beat = event_idx as f32 * beat_dur;
+    // Integer grid-slot counter (NOT an accumulated float): onset time = slots * beat_dur, so the
+    // base grid is exact (no f32 drift — the 1/3 triplet accumulation would add/drop notes over a
+    // long chart) and the legacy event count stays `total_events` exactly. Holds/rests consume
+    // extra slots, shifting later notes.
+    let mut slots = 0usize;
+
+    while slots < total_events {
+        // Advance pattern if needed: load the next block and apply its pickup rest.
+        if block_remaining == 0 {
+            match pattern_iter.next() {
+                Some(block) => {
+                    block_remaining = block.count;
+                    block_triad = block.triad;
+                    current_direction = block.direction;
+                    block_shape = block.shape.clone();
+                    block_anchor = block.anchor;
+                    block_hold_last = block.hold_last;
+                    block_first = true;
+                    block_step = 0;
+                    slots += block.lead_rest as usize; // pickup rest (pure gap)
+                    if slots >= total_events {
+                        break;
+                    }
+                }
+                None => break, // empty pattern (guarded upstream); avoid a non-advancing loop
+            }
+        }
+
+        // The block's last note sustains when hold_last is set: it consumes 1 + hold_last grid
+        // slots, so later notes shift by the surplus (slots jumps in integer units, not floats).
+        let hold = if block_remaining == 1 { block_hold_last as usize } else { 0 };
+        let step_slots = 1 + hold;
+        let step_dur = step_slots as f32 * beat_dur;
+
+        let beat = slots as f32 * beat_dur;
 
         // Find which chord we're in
         let chord_idx = chord_boundaries
@@ -155,25 +191,12 @@ fn run_pattern(
             .unwrap_or(0);
 
         let triad_notes = &triad_notes_per_chord[chord_idx];
-
-        // Advance pattern if needed
-        if block_remaining == 0 {
-            if let Some(block) = pattern_iter.next() {
-                block_remaining = block.count;
-                block_triad = block.triad;
-                current_direction = block.direction;
-                block_shape = block.shape.clone();
-                block_anchor = block.anchor;
-                block_first = true;
-                block_step = 0;
-            }
-        }
-
         let pool = triad_notes.notes_for(block_triad);
 
         if pool.is_empty() {
             block_remaining = block_remaining.saturating_sub(1);
             block_step += 1;
+            slots += step_slots;
             continue;
         }
         let pcs = triad_notes.pcs_for(block_triad);
@@ -228,6 +251,7 @@ fn run_pattern(
                 triad: block_triad,
                 pitch_class: note.pitch_class,
                 midi: note.midi,
+                duration: step_dur,
             });
             current_midi = note.midi;
             first_note = false;
@@ -235,6 +259,7 @@ fn run_pattern(
 
         block_remaining = block_remaining.saturating_sub(1);
         block_step += 1;
+        slots += step_slots;
     }
 
     events
@@ -300,6 +325,69 @@ mod tests {
             figure: RhythmicFigure::Eighth,
             position: NeckPosition::new(5),
         }
+    }
+
+    fn one_block_config(block: PatternBlock, figure: RhythmicFigure) -> LineConfig {
+        LineConfig {
+            pattern: Pattern { name: "t", blocks: vec![block] },
+            figure,
+            position: NeckPosition::new(5),
+        }
+    }
+
+    #[test]
+    fn legacy_blocks_have_uniform_duration() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = simple_config();
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        assert_eq!(events.len(), 8);
+        for e in &events {
+            assert_eq!(e.duration, 0.5);
+        }
+    }
+
+    #[test]
+    fn hold_last_sustains_the_final_note_of_the_block() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let block = PatternBlock {
+            count: 2, direction: Direction::Ascending, triad: TriadId::T1,
+            shape: Shape::Monotonic, anchor: Anchor::Nearest, hold_last: 1, lead_rest: 0,
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &one_block_config(block, RhythmicFigure::Eighth));
+        assert_eq!(events[0].duration, 0.5);
+        assert_eq!(events[1].duration, 1.0);
+        assert_eq!(events[2].beat, 1.5);
+    }
+
+    #[test]
+    fn lead_rest_inserts_a_pickup_gap() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let block = PatternBlock {
+            count: 4, direction: Direction::Ascending, triad: TriadId::T1,
+            shape: Shape::Monotonic, anchor: Anchor::Nearest, hold_last: 0, lead_rest: 1,
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &one_block_config(block, RhythmicFigure::Eighth));
+        assert_eq!(events[0].beat, 0.5);
+    }
+
+    #[test]
+    fn triplet_count_is_exact_over_a_long_chart() {
+        // Regression guard: the integer slot counter must reproduce the legacy count exactly even
+        // where a float accumulation of the 1/3 triplet grid would drift past EPS and add a note.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse(
+            "Test",
+            "| Dm7 | G7 | Cmaj7 | Am7 | Dm7 | G7 | Cmaj7 | Am7 | Dm7 | G7 | Cmaj7 | Am7 |",
+        )
+        .unwrap();
+        let mut config = simple_config();
+        config.figure = RhythmicFigure::Triplet;
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        let expected = (chart.total_beats() / (1.0_f32 / 3.0)).round() as usize;
+        assert_eq!(events.len(), expected); // 12 bars × 4 beats × 3 = 144
     }
 
     #[test]
