@@ -42,6 +42,33 @@ pub fn etude_scale(quality: &ChordQuality) -> &'static Scale {
     }
 }
 
+/// Indices into `Scale::ALL` of every scale valid for `quality` under the guide-tone rule: the
+/// scale contains the chord's 3rd and 7th, plus the 5th **only when the 5th is altered** (not the
+/// perfect 5th — semitone 7). This keeps the full color palette for plain maj7/m7/dom7 while keeping
+/// the b5/°5/#5 family honest (e.g. no natural-5 Dorian over a m7b5). Always non-empty: the chord's
+/// own `default_scale` satisfies the rule. Used by the "🎲 Cores" scale shuffle.
+pub fn valid_scales(quality: &ChordQuality) -> Vec<usize> {
+    // intervals are [root, 3rd, 5th, 7th, ...extensions], so 1/2/3 are the guide tones.
+    let semitones = |i: usize| quality.intervals.get(i).map(|iv| iv.semitones);
+    let third = semitones(1);
+    let fifth = semitones(2);
+    let seventh = semitones(3);
+    Scale::ALL
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| {
+            let has = |st: Option<u8>| st.is_none_or(|v| s.semitones.contains(&v));
+            // Constrain the 5th only when it is altered (a perfect 5th is left free for color).
+            let fifth_ok = match fifth {
+                None | Some(7) => true,
+                Some(f) => s.semitones.contains(&f),
+            };
+            has(third) && has(seventh) && fifth_ok
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +165,39 @@ mod tests {
             etude_scale(quality("dim7")).name,
             default_scale(quality("dim7")).name
         );
+    }
+
+    #[test]
+    fn valid_scales_match_chord_quality() {
+        let names = |q: &str| -> Vec<&'static str> {
+            valid_scales(quality(q)).iter().map(|&i| Scale::ALL[i].name).collect()
+        };
+        // maj7: bright major modes, never a minor mode.
+        let maj7 = names("maj7");
+        assert!(maj7.contains(&"Lydian"));
+        assert!(maj7.contains(&"Ionian"));
+        assert!(!maj7.contains(&"Dorian"));
+        // m7: minor modes, never a major mode.
+        let m7 = names("m7");
+        assert!(m7.contains(&"Dorian"));
+        assert!(m7.contains(&"Aeolian"));
+        assert!(!m7.contains(&"Ionian"));
+        // dom7: the full dominant palette includes Altered (max color).
+        assert!(names("dom7").contains(&"Altered"));
+        // m7b5: half-diminished family. The conditional-5th refinement EXCLUDES natural-5 Dorian.
+        let m7b5 = names("m7b5");
+        assert!(m7b5.contains(&"Locrian"));
+        assert!(!m7b5.contains(&"Dorian"));
+    }
+
+    #[test]
+    fn valid_scales_always_contains_the_default_and_is_non_empty() {
+        for q in ChordQuality::ALL {
+            let v = valid_scales(q);
+            assert!(!v.is_empty(), "{} has no valid scales", q.name);
+            let def = Scale::ALL.iter().position(|s| s.name == default_scale(q).name).unwrap();
+            assert!(v.contains(&def), "{} valid set missing its default scale", q.name);
+        }
     }
 
     #[test]
