@@ -88,7 +88,10 @@ fn find_closest(notes: &[FretNote], current_midi: i32) -> Option<&FretNote> {
 fn nearest_of_pc(notes: &[FretNote], pc: u8, reference: i32) -> Option<&FretNote> {
     notes
         .iter()
-        .filter(|n| n.pitch_class == pc)
+        // Skip the reference pitch itself, like `find_closest` — otherwise a voice whose nearest
+        // note of the target pc IS the just-played note repeats it. (For the first-note sentinel
+        // reference = -1000, no real note matches, so nothing is excluded.)
+        .filter(|n| n.pitch_class == pc && n.midi != reference)
         .min_by_key(|n| (n.midi - reference).abs())
 }
 
@@ -307,6 +310,37 @@ mod tests {
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
         let pcs: Vec<u8> = events.iter().take(3).map(|e| e.pitch_class).collect();
         assert_eq!(pcs, vec![4, 11, 7]);
+    }
+
+    #[test]
+    fn order_blocks_never_repeat_a_pitch() {
+        // `nearest_of_pc` (used by Order shapes + anchors) must skip the current pitch, like
+        // `find_closest` does — otherwise a targeted voice whose nearest note IS the just-played
+        // note repeats it. Reproduces the "D3 D3" the arch preset produced over a held Cm7.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Cm7 | % |").unwrap();
+        let arch = vec![
+            PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T1, shape: Shape::Order(vec![0, 1, 2]), anchor: Anchor::Root, hold_last: 0, lead_rest: 0 },
+            PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T2, shape: Shape::Order(vec![0, 1, 2]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0 },
+            PatternBlock { count: 2, direction: Direction::Ascending, triad: TriadId::T1, shape: Shape::Order(vec![2, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0 },
+            PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T2, shape: Shape::Order(vec![2, 1, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0 },
+            PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T1, shape: Shape::Order(vec![2, 1, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0 },
+        ];
+        let config = LineConfig {
+            pattern: Pattern { name: "arch", blocks: arch },
+            figure: RhythmicFigure::Sixteenth,
+            position: NeckPosition::new(5),
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        for i in 1..events.len() {
+            assert_ne!(
+                events[i].midi,
+                events[i - 1].midi,
+                "repeated pitch {} at event {}",
+                events[i].midi,
+                i
+            );
+        }
     }
 
     #[test]
