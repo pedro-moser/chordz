@@ -166,6 +166,7 @@ export interface GmcLineEvent {
   triad: 'T1' | 'T2';
   pitchClass: number;
   midi: number;
+  duration: number;
 }
 
 export interface GmcChordInfo {
@@ -194,6 +195,10 @@ export interface GmcPatternBlock {
   shape?: number[];
   /** Landing note for the block's first note. Absent = nearest (legacy connect). */
   anchor?: 'root' | 'third' | 'fifth';
+  /** Held landing: the block's last note sustains 1+holdLast grid steps. Absent/0 = off. */
+  holdLast?: number;
+  /** Pickup rest: grid steps of silence before the block's first note. Absent/0 = off. */
+  leadRest?: number;
 }
 
 export function generateGmcLine(

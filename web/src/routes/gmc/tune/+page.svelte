@@ -280,22 +280,13 @@
     const beatSecs = 60 / safeBpm;
     const startBeat = measures[selectedMeasure]?.startBeat ?? 0;
 
-    // Melody: each note's length is the spacing to the next event (from the baked
-    // beats), so it stays correct even if figureIndex changed without regenerating.
+    // Melody: use the baked per-event duration so held notes (holdLast) actually sustain.
     const evs = result.events.filter(e => e.beat >= startBeat - 0.001);
-    const audioNotes = evs.map((e, i) => {
-      // Note length = gap to the next event. For the final note there is no next event,
-      // so reuse the previous gap (the grid is uniform) instead of a hardcoded eighth —
-      // otherwise Sixteenth/Triplet figures over-sustain the last note.
-      const span = i + 1 < evs.length
-        ? evs[i + 1].beat - e.beat
-        : (evs.length > 1 ? e.beat - evs[i - 1].beat : 0.5);
-      return {
-        midi: e.midi,
-        time: (e.beat - startBeat) * beatSecs,
-        duration: Math.max(0.05, span) * beatSecs,
-      };
-    });
+    const audioNotes = evs.map((e) => ({
+      midi: e.midi,
+      time: (e.beat - startBeat) * beatSecs,
+      duration: Math.max(0.05, e.duration) * beatSecs,
+    }));
 
     // Single audio-clock origin shared by melody + bass so they stay phase-locked.
     const startTime = getAudioTime();
