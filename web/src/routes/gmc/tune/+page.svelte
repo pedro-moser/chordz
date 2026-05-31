@@ -5,6 +5,7 @@
   import { scheduleNotes, scheduleBassLine, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
   import { generateWalkingBass } from '$lib/wasm';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
+  import { PATTERN_PRESETS } from '$lib/patternPresets';
 
   const gmcTabs = [
     { label: 'Browse', href: '/gmc/browse' },
@@ -13,11 +14,6 @@
 
   const FIGURE_LABELS = ['Eighth', 'Sixteenth', 'Triplet'];
   const POSITION_LABELS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
-  const PATTERN_PRESETS: { label: string; blocks: GmcPatternBlock[] }[] = [
-    { label: 'Alternating 3+3', blocks: [{ count: 3, direction: 'asc', triad: 'T1' }, { count: 3, direction: 'desc', triad: 'T2' }] },
-    { label: 'Continuous up', blocks: [{ count: 3, direction: 'asc', triad: 'T1' }, { count: 3, direction: 'asc', triad: 'T2' }] },
-    { label: 'Short-long', blocks: [{ count: 2, direction: 'asc', triad: 'T1' }, { count: 4, direction: 'desc', triad: 'T2' }] },
-  ];
 
   const T1_COLOR = '#64a0ff';
   const T2_COLOR = '#ff8c32';
@@ -261,7 +257,9 @@
 
   function selectPatternPreset(idx: number) {
     if (idx >= 0 && idx < PATTERN_PRESETS.length) {
-      pattern = [...PATTERN_PRESETS[idx].blocks];
+      const p = PATTERN_PRESETS[idx];
+      pattern = [...p.blocks];
+      if (p.figureIndex !== undefined) figureIndex = p.figureIndex;
     }
   }
 
