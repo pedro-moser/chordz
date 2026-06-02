@@ -35,7 +35,9 @@
   }
 
   function stringY(s: number): number {
-    return topMargin + s * stringSpacing;
+    // Data is ordered low→high (s=0 = low E). Flip so the low string sits at
+    // the bottom and the high string at the top, matching how the neck reads.
+    return topMargin + (numStrings - 1 - s) * stringSpacing;
   }
 </script>
 
