@@ -562,7 +562,7 @@ pub fn synth_arpeggio(positions_js: JsValue, note_duration: f32) -> Vec<f32> {
 // ---------------------------------------------------------------------------
 
 fn parse_pattern_blocks(pattern_js: JsValue) -> Vec<crate::theory::line_pattern::PatternBlock> {
-    use crate::theory::line_pattern::{Anchor, Direction, PatternBlock, Shape, TriadId};
+    use crate::theory::line_pattern::{Anchor, Connector, Direction, PatternBlock, Shape, TriadId};
 
     let blocks_raw: Vec<serde_json::Value> =
         serde_wasm_bindgen::from_value(pattern_js).unwrap_or_default();
@@ -609,7 +609,16 @@ fn parse_pattern_blocks(pattern_js: JsValue) -> Vec<crate::theory::line_pattern:
             // Pickup-rest and held-landing per block (Fase 2). Clamp at the trust boundary.
             let hold_last = b["holdLast"].as_u64().unwrap_or(0).min(16) as u8;
             let lead_rest = b["leadRest"].as_u64().unwrap_or(0).min(16) as u8;
-            PatternBlock { count, direction, triad, shape, anchor, hold_last, lead_rest }
+            // Connector: how this block's grip links to the next (absent -> voice-lead).
+            let connector = match b["connector"].as_str() {
+                Some("nearestUp") => Connector::NearestUp,
+                Some("nearestDown") => Connector::NearestDown,
+                Some("invertUp") => Connector::InvertUp,
+                Some("invertDown") => Connector::InvertDown,
+                Some("random") => Connector::Random,
+                _ => Connector::VoiceLead,
+            };
+            PatternBlock { count, direction, triad, shape, anchor, hold_last, lead_rest, connector }
         })
         .collect()
 }
@@ -654,12 +663,12 @@ pub fn generate_gmc_line(
     pair_index: usize,
     scale_overrides_js: JsValue,
     figure_index: usize,     // 0=Eighth, 1=Sixteenth, 2=Triplet
-    position_fret: u8,       // base fret 1-12
+    positions_js: JsValue,   // array of base frets 1-12; empty = no position restriction
     pattern_js: JsValue,     // array of {count, direction, triad}
 ) -> JsValue {
     use crate::theory::line_engine::{self, LineConfig};
     use crate::theory::line_pattern::Pattern;
-    use crate::theory::position::NeckPosition;
+    use crate::theory::position::PositionSet;
     use crate::theory::scale_defaults;
 
     // Parse chart
@@ -671,6 +680,10 @@ pub fn generate_gmc_line(
     // Parse scale overrides: array of (number | null)
     let overrides_raw: Vec<Option<usize>> = serde_wasm_bindgen::from_value(scale_overrides_js)
         .unwrap_or_default();
+
+    // Parse selected positions (base frets). An empty/invalid array means no restriction —
+    // the line may draw from the whole neck.
+    let base_frets: Vec<u8> = serde_wasm_bindgen::from_value(positions_js).unwrap_or_default();
 
     // Parse pattern blocks
     let blocks = parse_pattern_blocks(pattern_js);
@@ -690,7 +703,7 @@ pub fn generate_gmc_line(
     let config = LineConfig {
         pattern,
         figure,
-        position: NeckPosition::new(position_fret),
+        positions: PositionSet::from_base_frets(&base_frets),
     };
 
     let fretboard = Fretboard::standard_tuning();

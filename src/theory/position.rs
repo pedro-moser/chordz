@@ -71,6 +71,67 @@ impl NeckPosition {
     }
 }
 
+/// The neck region(s) a line may use. An **empty** set means *no restriction* — the line draws
+/// from the whole fretboard; otherwise the candidate pool is the union of the selected
+/// positions' stretch windows. This is a pure pool filter: the pattern walker is unchanged,
+/// it just sees more (or all) candidate notes.
+#[derive(Clone, Debug, Default)]
+pub struct PositionSet {
+    pub positions: Vec<NeckPosition>,
+}
+
+impl PositionSet {
+    /// No position constraint — the whole neck is available.
+    pub fn unrestricted() -> Self {
+        Self { positions: Vec::new() }
+    }
+
+    /// One `NeckPosition` per base fret (1-12). An empty slice yields an unrestricted set.
+    pub fn from_base_frets(base_frets: &[u8]) -> Self {
+        Self {
+            positions: base_frets.iter().map(|&f| NeckPosition::new(f)).collect(),
+        }
+    }
+
+    pub fn is_unrestricted(&self) -> bool {
+        self.positions.is_empty()
+    }
+
+    /// Every fretboard note matching `pitch_classes` that lies in the allowed region, sorted by
+    /// pitch. Empty set → scan the whole neck; otherwise union the per-position windows,
+    /// deduping notes that overlapping windows would otherwise return twice.
+    pub fn find_notes(&self, fretboard: &Fretboard, pitch_classes: &[u8]) -> Vec<FretNote> {
+        let mut notes = Vec::new();
+        if self.positions.is_empty() {
+            for s in 0..fretboard.num_strings() {
+                for fret in 0..=fretboard.num_frets {
+                    if let Some(note) = fretboard.get_note(s, fret) {
+                        if pitch_classes.contains(&note.pitch_class) {
+                            notes.push(FretNote {
+                                string: s as u8,
+                                fret: fret as u8,
+                                midi: note.midi(),
+                                pitch_class: note.pitch_class,
+                            });
+                        }
+                    }
+                }
+            }
+        } else {
+            let mut seen = std::collections::HashSet::new();
+            for pos in &self.positions {
+                for n in pos.find_notes(fretboard, pitch_classes) {
+                    if seen.insert((n.string, n.fret)) {
+                        notes.push(n);
+                    }
+                }
+            }
+        }
+        notes.sort_by_key(|n| n.midi);
+        notes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,5 +208,72 @@ mod tests {
         let stretch = FretNote { string: 0, fret: 4, midi: 39, pitch_class: 3 };
         assert!(!pos.is_stretch(core.fret));
         assert!(pos.is_stretch(stretch.fret));
+    }
+
+    // --- PositionSet: 0..N neck regions, empty = unrestricted ---
+
+    #[test]
+    fn position_set_unrestricted_flag() {
+        assert!(PositionSet::unrestricted().is_unrestricted());
+        assert!(!PositionSet::from_base_frets(&[5]).is_unrestricted());
+    }
+
+    #[test]
+    fn position_set_empty_spans_the_whole_neck() {
+        // No restriction: the pool reaches both the open frets and the high neck — far wider
+        // than any single 6-fret stretch box.
+        let fb = Fretboard::standard_tuning();
+        let notes = PositionSet::unrestricted().find_notes(&fb, &[0, 4, 7]);
+        let min_fret = notes.iter().map(|n| n.fret).min().unwrap();
+        let max_fret = notes.iter().map(|n| n.fret).max().unwrap();
+        assert!(min_fret <= 1, "expected an open/low note, got min fret {}", min_fret);
+        assert!(max_fret >= 12, "expected a high-neck note, got max fret {}", max_fret);
+    }
+
+    #[test]
+    fn position_set_single_matches_neck_position() {
+        // A one-element set must reproduce the legacy single-NeckPosition pool exactly
+        // (this is what keeps the native egui app's behavior unchanged).
+        let fb = Fretboard::standard_tuning();
+        let pcs = [0, 4, 7];
+        let single: Vec<(u8, u8)> =
+            NeckPosition::new(5).find_notes(&fb, &pcs).iter().map(|n| (n.string, n.fret)).collect();
+        let via_set: Vec<(u8, u8)> =
+            PositionSet::from_base_frets(&[5]).find_notes(&fb, &pcs).iter().map(|n| (n.string, n.fret)).collect();
+        assert_eq!(single, via_set);
+    }
+
+    #[test]
+    fn position_set_union_covers_both_windows_and_excludes_the_gap() {
+        // base 2 -> stretch (1,6); base 9 -> stretch (8,13). Fret 7 sits in neither window.
+        let fb = Fretboard::standard_tuning();
+        let notes = PositionSet::from_base_frets(&[2, 9]).find_notes(&fb, &[0, 4, 7]);
+        assert!(notes.iter().any(|n| (1..=6).contains(&n.fret)), "no note in the low window");
+        assert!(notes.iter().any(|n| (8..=13).contains(&n.fret)), "no note in the high window");
+        assert!(
+            notes.iter().all(|n| (1..=6).contains(&n.fret) || (8..=13).contains(&n.fret)),
+            "a note fell outside both selected windows",
+        );
+        assert!(!notes.iter().any(|n| n.fret == 7), "fret 7 is in the gap and must be excluded");
+    }
+
+    #[test]
+    fn position_set_dedups_overlapping_windows() {
+        // base 5 -> (4,9); base 7 -> (6,11) overlap on frets 6..9 — each (string,fret) once.
+        let fb = Fretboard::standard_tuning();
+        let notes = PositionSet::from_base_frets(&[5, 7]).find_notes(&fb, &[0, 4, 7]);
+        let mut seen = std::collections::HashSet::new();
+        for n in &notes {
+            assert!(seen.insert((n.string, n.fret)), "duplicate (string {}, fret {})", n.string, n.fret);
+        }
+    }
+
+    #[test]
+    fn position_set_result_sorted_by_midi() {
+        let fb = Fretboard::standard_tuning();
+        let notes = PositionSet::from_base_frets(&[2, 9]).find_notes(&fb, &[0, 4, 7]);
+        for i in 1..notes.len() {
+            assert!(notes[i].midi >= notes[i - 1].midi, "pool not sorted by midi");
+        }
     }
 }

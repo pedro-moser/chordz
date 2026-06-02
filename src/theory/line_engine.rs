@@ -1,9 +1,12 @@
 use crate::theory::chart::Chart;
 use crate::theory::gmc::{self, TriadPairSet};
-use crate::theory::line_pattern::{Anchor, Direction, Pattern, RhythmicFigure, Shape, TriadId};
-use crate::theory::position::{FretNote, NeckPosition};
+use crate::theory::line_pattern::{
+    Connector, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId,
+};
+use crate::theory::position::{FretNote, PositionSet};
 use crate::theory::scale_defaults;
 use crate::theory::scales::Scale;
+use crate::theory::triad_shape::{inversion_ladder, TriadShape};
 use crate::voicings::fretboard::Fretboard;
 
 #[derive(Clone, Debug)]
@@ -21,78 +24,177 @@ pub struct NoteEvent {
 pub struct LineConfig {
     pub pattern: Pattern,
     pub figure: RhythmicFigure,
-    pub position: NeckPosition,
+    /// The neck region(s) the line may use. Empty set = no position restriction.
+    pub positions: PositionSet,
 }
 
-/// Two 3-note pools plus their pitch classes in role order (a GMC triad pair from
-/// `resolve_triad_notes`).
-struct TriadNotes {
-    t1: Vec<FretNote>,
-    t2: Vec<FretNote>,
-    /// The triad pitch classes in role order (0,1,2 = scale-index order), so a `Shape::Order`
-    /// or an `Anchor` can target a specific voice (root/3rd/5th of a stacked-thirds pair).
-    t1_pcs: [u8; 3],
-    t2_pcs: [u8; 3],
+/// One triad's inversion ladder for a chord: grips sorted ascending by pitch, plus the triad's
+/// role-ordered pitch classes (so `Shape::Order` / `Anchor` can target a specific voice).
+struct TriadLadder {
+    grips: Vec<TriadShape>,
+    pcs: [u8; 3],
 }
 
-impl TriadNotes {
-    fn notes_for(&self, triad: TriadId) -> &[FretNote] {
-        match triad {
-            TriadId::T1 => &self.t1,
-            TriadId::T2 => &self.t2,
+impl TriadLadder {
+    /// The rung nearest a previous note's pitch (by grip centre) — voice-leads the hand into a
+    /// new chord; the lowest rung when there is no previous note.
+    fn nearest_rung(&self, to: Option<i32>) -> usize {
+        match to {
+            None => 0,
+            Some(midi) => self
+                .grips
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, g)| (grip_center(g) - midi).abs())
+                .map(|(i, _)| i)
+                .unwrap_or(0),
         }
     }
 
-    fn pcs_for(&self, triad: TriadId) -> [u8; 3] {
-        match triad {
-            TriadId::T1 => self.t1_pcs,
-            TriadId::T2 => self.t2_pcs,
+    /// The lowest rung whose bottom note is the given pitch class — lets `Anchor::Third` start the
+    /// climb on a first-inversion grip, etc. Falls back to rung 0.
+    fn rung_on_pc(&self, pc: u8) -> usize {
+        self.grips
+            .iter()
+            .position(|g| g.notes[0].pitch_class == pc)
+            .unwrap_or(0)
+    }
+}
+
+/// A grip's mean pitch — its hand height for voice-leading comparisons.
+fn grip_center(g: &TriadShape) -> i32 {
+    (g.notes[0].midi + g.notes[1].midi + g.notes[2].midi) / 3
+}
+
+/// Build a triad's inversion ladder in the region. If no legal grip fits (a window too narrow
+/// for any shape), fall back to a single pseudo-grip from the lowest in-region fretted notes so
+/// the line still generates.
+fn triad_ladder(fretboard: &Fretboard, positions: &PositionSet, pcs: [u8; 3]) -> TriadLadder {
+    let grips = inversion_ladder(fretboard, positions, &pcs);
+    if !grips.is_empty() {
+        return TriadLadder { grips, pcs };
+    }
+    let notes = fallback_notes(positions, fretboard, &pcs);
+    let grips = if notes.is_empty() {
+        Vec::new()
+    } else {
+        let mut g = [
+            notes[0],
+            notes.get(1).copied().unwrap_or(notes[0]),
+            notes.get(2).copied().unwrap_or(notes[0]),
+        ];
+        g.sort_by_key(|n| n.midi);
+        vec![TriadShape { notes: g }]
+    };
+    TriadLadder { grips, pcs }
+}
+
+/// In-region notes with open strings removed — used only to build the degenerate fallback grip.
+/// If even that is empty, allow open strings rather than produce no notes at all.
+fn fallback_notes(positions: &PositionSet, fretboard: &Fretboard, pcs: &[u8; 3]) -> Vec<FretNote> {
+    let fretted: Vec<FretNote> = positions
+        .find_notes(fretboard, pcs)
+        .into_iter()
+        .filter(|n| n.fret >= 1)
+        .collect();
+    if fretted.is_empty() {
+        positions.find_notes(fretboard, pcs)
+    } else {
+        fretted
+    }
+}
+
+/// Ping-pong index into a `len`-element sequence: 0,1,…,len-1,len-2,…,1,0,1,… — how a block of
+/// more than `len` notes folds back inside a single grip.
+fn pingpong(k: usize, len: usize) -> usize {
+    if len <= 1 {
+        return 0;
+    }
+    let period = 2 * (len - 1);
+    let m = k % period;
+    if m < len { m } else { period - m }
+}
+
+/// The `count` fretboard notes a block plays from one grip, in its within-grip order.
+/// `Monotonic` walks the grip by pitch in the block's direction (folding back if `count` > 3);
+/// `Order` plays the explicit cyclic role sequence.
+fn block_notes(grip: &TriadShape, pcs: &[u8; 3], block: &PatternBlock) -> Vec<FretNote> {
+    let count = block.count as usize;
+    match &block.shape {
+        Shape::Order(order) => (0..count)
+            .map(|k| {
+                let role = (order[k % order.len()] % 3) as usize;
+                let pc = pcs[role];
+                grip.notes.iter().find(|n| n.pitch_class == pc).copied().unwrap_or(grip.notes[0])
+            })
+            .collect(),
+        Shape::Monotonic => {
+            let mut base = grip.notes.to_vec(); // grip.notes is sorted ascending
+            if block.direction == Direction::Descending {
+                base.reverse();
+            }
+            (0..count).map(|k| base[pingpong(k, base.len())]).collect()
         }
     }
 }
 
-fn resolve_triad_notes(
-    root_pc: u8,
-    scale: &Scale,
-    pair: &TriadPairSet,
-    position: &NeckPosition,
-    fretboard: &Fretboard,
-) -> TriadNotes {
-    let (pcs_a, pcs_b) = gmc::resolve_pair(root_pc, scale, pair);
-    TriadNotes {
-        t1: position.find_notes(fretboard, &pcs_a),
-        t2: position.find_notes(fretboard, &pcs_b),
-        t1_pcs: pcs_a,
-        t2_pcs: pcs_b,
+/// Move the cursor to the next grip per the block's connector. Returns the new `(cursor, flip)`;
+/// `flip` ping-pongs the directional connectors so the line bounces at the region's ends.
+fn advance_cursor(
+    grips: &[TriadShape],
+    cursor: usize,
+    flip: bool,
+    connector: Connector,
+    last_midi: Option<i32>,
+    rng: &mut u64,
+) -> (usize, bool) {
+    let len = grips.len();
+    if len <= 1 {
+        return (cursor, flip);
     }
-}
+    let lowest = |i: usize| grips[i].notes[0].midi;
+    let highest = |i: usize| grips[i].notes[2].midi;
 
-fn find_nearest(notes: &[FretNote], current_midi: i32, direction: Direction) -> Option<&FretNote> {
-    match direction {
-        Direction::Ascending => notes.iter().find(|n| n.midi > current_midi),
-        Direction::Descending => notes.iter().rev().find(|n| n.midi < current_midi),
+    match connector {
+        Connector::VoiceLead => {
+            // Stay near the previous note; nudge a rung if that would land on the same grip.
+            let anchor = last_midi.unwrap_or_else(|| grip_center(&grips[cursor]));
+            let near = grips
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, g)| (grip_center(g) - anchor).abs())
+                .map(|(i, _)| i)
+                .unwrap_or(cursor);
+            let next = if near == cursor { (cursor + 1).min(len - 1) } else { near };
+            (next, flip)
+        }
+        Connector::Random => {
+            *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (((*rng >> 33) as usize) % len, flip)
+        }
+        // Directional connectors: `invert` steps one rung; `nearest` leaps to the next grip clear
+        // of the current one's range. `flip` reverses at the region edge (bounce).
+        Connector::InvertUp | Connector::InvertDown | Connector::NearestUp | Connector::NearestDown => {
+            let base_up = matches!(connector, Connector::InvertUp | Connector::NearestUp);
+            let invert = matches!(connector, Connector::InvertUp | Connector::InvertDown);
+            let step = |up: bool| -> Option<usize> {
+                if invert {
+                    if up { (cursor + 1 < len).then_some(cursor + 1) } else { cursor.checked_sub(1) }
+                } else if up {
+                    (cursor + 1..len).find(|&j| lowest(j) > highest(cursor))
+                } else {
+                    (0..cursor).rev().find(|&j| highest(j) < lowest(cursor))
+                }
+            };
+            match step(base_up ^ flip) {
+                Some(j) => (j, flip),
+                None => {
+                    let nf = !flip;
+                    (step(base_up ^ nf).unwrap_or(cursor), nf)
+                }
+            }
+        }
     }
-}
-
-fn find_closest(notes: &[FretNote], current_midi: i32) -> Option<&FretNote> {
-    notes
-        .iter()
-        .filter(|n| n.midi != current_midi)
-        .min_by_key(|n| (n.midi - current_midi).abs())
-        .or_else(|| notes.first())
-}
-
-/// Nearest fretboard note of a specific pitch class to `reference` — voice-leads a chosen
-/// triad voice (a `Shape::Order` role or an `Anchor`) to the previous note. A low reference
-/// picks the lowest such note in the position (used to start a line).
-fn nearest_of_pc(notes: &[FretNote], pc: u8, reference: i32) -> Option<&FretNote> {
-    notes
-        .iter()
-        // Skip the reference pitch itself, like `find_closest` — otherwise a voice whose nearest
-        // note of the target pc IS the just-played note repeats it. (For the first-note sentinel
-        // reference = -1000, no real note matches, so nothing is excluded.)
-        .filter(|n| n.pitch_class == pc && n.midi != reference)
-        .min_by_key(|n| (n.midi - reference).abs())
 }
 
 pub fn generate_line(
@@ -102,8 +204,9 @@ pub fn generate_line(
     pair: &TriadPairSet,
     config: &LineConfig,
 ) -> Vec<NoteEvent> {
-    // Pre-resolve GMC triad-pair notes per chord, then walk the pattern.
-    let triad_notes_per_chord: Vec<TriadNotes> = chart
+    // Per chord, build each triad's inversion ladder (the rungs a connector steps through),
+    // then walk the pattern over them.
+    let ladders: Vec<[TriadLadder; 2]> = chart
         .changes
         .iter()
         .enumerate()
@@ -112,157 +215,124 @@ pub fn generate_line(
                 .get(i)
                 .and_then(|opt| opt.and_then(|idx| Scale::ALL.get(idx)))
                 .unwrap_or_else(|| scale_defaults::default_scale(change.quality));
-            resolve_triad_notes(change.root_pc, scale, pair, &config.position, fretboard)
+            let (pcs_a, pcs_b) = gmc::resolve_pair(change.root_pc, scale, pair);
+            [
+                triad_ladder(fretboard, &config.positions, pcs_a),
+                triad_ladder(fretboard, &config.positions, pcs_b),
+            ]
         })
         .collect();
-    run_pattern(chart, config, &triad_notes_per_chord)
+    run_pattern(chart, config, &ladders)
 }
 
-/// Walk the configured pattern over already-resolved per-chord note pools, voice-leading
-/// each event to the previous.
-fn run_pattern(
-    chart: &Chart,
-    config: &LineConfig,
-    triad_notes_per_chord: &[TriadNotes],
-) -> Vec<NoteEvent> {
+/// Walk the pattern over the per-chord inversion ladders. Each block plays one grip (so the
+/// `1+1+1`/`2+1`/`1+2`, no-open-string guarantee holds); its connector chooses the next grip,
+/// and the hand voice-leads across chord changes. Timing (grid slots, holds, pickups) is the
+/// same integer-slot scheme as before.
+fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]]) -> Vec<NoteEvent> {
     let beat_dur = config.figure.beat_duration();
-    let total_beats = chart.total_beats();
-    let total_events = (total_beats / beat_dur).round() as usize;
+    let total_events = (chart.total_beats() / beat_dur).round() as usize;
 
-    let mut events = Vec::with_capacity(total_events);
-    let mut pattern_iter = config.pattern.iter();
-    let mut current_direction = Direction::Ascending;
-    let mut current_midi: i32 = 0;
-    let mut first_note = true;
-
-    // Pre-compute chord boundaries
-    let mut chord_boundaries: Vec<(f32, f32, usize)> = Vec::new();
+    // Chord start beats, for mapping a slot to its chord.
+    let mut chord_starts: Vec<f32> = Vec::with_capacity(chart.changes.len());
     let mut cumulative = 0.0_f32;
-    for (i, change) in chart.changes.iter().enumerate() {
-        chord_boundaries.push((cumulative, cumulative + change.beats, i));
+    for change in &chart.changes {
+        chord_starts.push(cumulative);
         cumulative += change.beats;
     }
 
-    let mut block_remaining = 0u8;
-    let mut block_triad = TriadId::T1;
-    let mut block_first = false;
-    let mut block_shape = Shape::Monotonic;
-    let mut block_anchor = Anchor::Nearest;
-    let mut block_step = 0usize; // index of the note within the current block (for Shape::Order)
-    let mut block_hold_last = 0u8;
+    let mut events = Vec::with_capacity(total_events);
+    let mut pattern_iter = config.pattern.iter();
 
-    // Integer grid-slot counter (NOT an accumulated float): onset time = slots * beat_dur, so the
-    // base grid is exact (no f32 drift — the 1/3 triplet accumulation would add/drop notes over a
-    // long chart) and the legacy event count stays `total_events` exactly. Holds/rests consume
-    // extra slots, shifting later notes.
+    // Per-triad walk state: cursor (rung in the current chord's ladder), the chord that cursor
+    // belongs to, and the ping-pong flip for bouncing at the region edges.
+    let mut cursor = [0usize; 2];
+    let mut cursor_chord = [usize::MAX; 2];
+    let mut flip = [false; 2];
+    let mut rng: u64 = 0x9E37_79B9_7F4A_7C15; // deterministic seed for the Random connector
+    let mut last_midi: Option<i32> = None;
     let mut slots = 0usize;
 
-    while slots < total_events {
-        // Advance pattern if needed: load the next block and apply its pickup rest.
-        if block_remaining == 0 {
-            match pattern_iter.next() {
-                Some(block) => {
-                    block_remaining = block.count;
-                    block_triad = block.triad;
-                    current_direction = block.direction;
-                    block_shape = block.shape.clone();
-                    block_anchor = block.anchor;
-                    block_hold_last = block.hold_last;
-                    block_first = true;
-                    block_step = 0;
-                    slots += block.lead_rest as usize; // pickup rest (pure gap)
-                    if slots >= total_events {
-                        break;
-                    }
-                }
-                None => break, // empty pattern (guarded upstream); avoid a non-advancing loop
-            }
+    'blocks: loop {
+        let block = match pattern_iter.next() {
+            Some(b) => b,
+            None => break, // empty pattern (guarded upstream)
+        };
+        slots += block.lead_rest as usize; // pickup rest
+        if slots >= total_events {
+            break;
         }
 
-        // The block's last note sustains when hold_last is set: it consumes 1 + hold_last grid
-        // slots, so later notes shift by the surplus (slots jumps in integer units, not floats).
-        let hold = if block_remaining == 1 { block_hold_last as usize } else { 0 };
-        let step_slots = 1 + hold;
-        let step_dur = step_slots as f32 * beat_dur;
-
+        let ti = match block.triad {
+            TriadId::T1 => 0,
+            TriadId::T2 => 1,
+        };
         let beat = slots as f32 * beat_dur;
+        let chord_idx = chord_starts.iter().rposition(|&s| beat >= s).unwrap_or(0);
+        let ladder = &ladders[chord_idx][ti];
 
-        // Find which chord we're in
-        let chord_idx = chord_boundaries
-            .iter()
-            .rposition(|&(start, _, _)| beat >= start)
-            .unwrap_or(0);
-
-        let triad_notes = &triad_notes_per_chord[chord_idx];
-        let pool = triad_notes.notes_for(block_triad);
-
-        if pool.is_empty() {
-            block_remaining = block_remaining.saturating_sub(1);
-            block_step += 1;
-            slots += step_slots;
+        if ladder.grips.is_empty() {
+            slots += block.count as usize; // no notes available — silent block
+            if slots >= total_events {
+                break;
+            }
             continue;
         }
-        let pcs = triad_notes.pcs_for(block_triad);
-        // No previous pitch on the very first note: anchor low so the line starts at the
-        // bottom of the position (matches the legacy `pool.first()`).
-        let reference = if first_note { -1000 } else { current_midi };
 
-        let chosen = match &block_shape {
-            Shape::Order(order) => {
-                // Play the triad voices in the explicit cyclic role order, each voice-led
-                // to the previous note.
-                let role = (order[block_step % order.len()] % 3) as usize;
-                nearest_of_pc(pool, pcs[role], reference).or_else(|| pool.first())
-            }
-            Shape::Monotonic => {
-                if first_note {
-                    match block_anchor.role() {
-                        Some(r) => nearest_of_pc(pool, pcs[r], reference).or_else(|| pool.first()),
-                        None => pool.first(),
-                    }
-                } else if block_first {
-                    // Connect to the new triad: the anchored voice if requested, else the
-                    // nearest distinct note (legacy), then continue in direction.
-                    match block_anchor.role() {
-                        Some(r) => nearest_of_pc(pool, pcs[r], current_midi)
-                            .or_else(|| find_closest(pool, current_midi)),
-                        None => find_closest(pool, current_midi),
-                    }
-                } else {
-                    let candidate = find_nearest(pool, current_midi, current_direction);
-                    if candidate.is_some() {
-                        candidate
-                    } else {
-                        current_direction = current_direction.invert();
-                        let inverted = find_nearest(pool, current_midi, current_direction);
-                        if inverted.is_some() {
-                            inverted
-                        } else {
-                            find_closest(pool, current_midi)
-                        }
-                    }
-                }
-            }
-        };
-        block_first = false;
-
-        if let Some(note) = chosen {
-            events.push(NoteEvent {
-                beat,
-                string: note.string,
-                fret: note.fret,
-                triad: block_triad,
-                pitch_class: note.pitch_class,
-                midi: note.midi,
-                duration: step_dur,
-            });
-            current_midi = note.midi;
-            first_note = false;
+        // New chord for this triad: voice-lead the cursor to the nearest rung, or honour an
+        // explicit anchor (Run→1/3/5 chooses the starting inversion).
+        if cursor_chord[ti] != chord_idx {
+            cursor[ti] = match block.anchor.role() {
+                Some(r) => ladder.rung_on_pc(ladder.pcs[r]),
+                None => ladder.nearest_rung(last_midi),
+            };
+            cursor_chord[ti] = chord_idx;
         }
 
-        block_remaining = block_remaining.saturating_sub(1);
-        block_step += 1;
-        slots += step_slots;
+        // No-repeat: never start a block on the previous pitch. Nudge rung-by-rung until the
+        // start differs (consecutive grips can share the role's pitch, so one nudge isn't always
+        // enough); give up after a full lap rather than loop forever.
+        if let Some(prev) = last_midi {
+            let len = ladder.grips.len();
+            let mut tries = 0;
+            while len > 1
+                && tries < len
+                && block_notes(&ladder.grips[cursor[ti]], &ladder.pcs, block)
+                    .first()
+                    .is_some_and(|n| n.midi == prev)
+            {
+                cursor[ti] = (cursor[ti] + 1) % len;
+                tries += 1;
+            }
+        }
+
+        let notes = block_notes(&ladder.grips[cursor[ti]], &ladder.pcs, block);
+        let count = block.count as usize;
+        for (k, note) in notes.iter().enumerate() {
+            if slots >= total_events {
+                break 'blocks;
+            }
+            // The block's last note sustains `1 + hold_last` grid slots; others take one.
+            let hold = if k + 1 == count { block.hold_last as usize } else { 0 };
+            let step_slots = 1 + hold;
+            events.push(NoteEvent {
+                beat: slots as f32 * beat_dur,
+                string: note.string,
+                fret: note.fret,
+                triad: block.triad,
+                pitch_class: note.pitch_class,
+                midi: note.midi,
+                duration: step_slots as f32 * beat_dur,
+            });
+            last_midi = Some(note.midi);
+            slots += step_slots;
+        }
+
+        // Choose the next grip for this triad via the block's connector.
+        let (nc, nf) =
+            advance_cursor(&ladder.grips, cursor[ti], flip[ti], block.connector, last_midi, &mut rng);
+        cursor[ti] = nc;
+        flip[ti] = nf;
     }
 
     events
@@ -273,8 +343,8 @@ mod tests {
     use super::*;
     use crate::theory::chart::Chart;
     use crate::theory::gmc::PAIRS;
-    use crate::theory::line_pattern::{Anchor, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId};
-    use crate::theory::position::NeckPosition;
+    use crate::theory::line_pattern::{Anchor, Connector, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId};
+    use crate::theory::position::{NeckPosition, PositionSet};
     use crate::voicings::fretboard::Fretboard;
 
     /// A one-block pattern with an explicit shape + anchor, for the Fase-1 tests.
@@ -282,10 +352,10 @@ mod tests {
         LineConfig {
             pattern: Pattern {
                 name: "test",
-                blocks: vec![PatternBlock { count, direction: Direction::Ascending, triad, shape, anchor, hold_last: 0, lead_rest: 0 }],
+                blocks: vec![PatternBlock { count, direction: Direction::Ascending, triad, shape, anchor, hold_last: 0, lead_rest: 0, connector: Connector::default() }],
             },
             figure: RhythmicFigure::Eighth,
-            position: NeckPosition::new(5),
+            positions: PositionSet::from_base_frets(&[5]),
         }
     }
 
@@ -320,16 +390,16 @@ mod tests {
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Cm7 | % |").unwrap();
         let arch = vec![
-            PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T1, shape: Shape::Order(vec![0, 1, 2]), anchor: Anchor::Root, hold_last: 0, lead_rest: 0 },
-            PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T2, shape: Shape::Order(vec![0, 1, 2]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0 },
-            PatternBlock { count: 2, direction: Direction::Ascending, triad: TriadId::T1, shape: Shape::Order(vec![2, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0 },
-            PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T2, shape: Shape::Order(vec![2, 1, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0 },
-            PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T1, shape: Shape::Order(vec![2, 1, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0 },
+            PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T1, shape: Shape::Order(vec![0, 1, 2]), anchor: Anchor::Root, hold_last: 0, lead_rest: 0, connector: Connector::default() },
+            PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T2, shape: Shape::Order(vec![0, 1, 2]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0, connector: Connector::default() },
+            PatternBlock { count: 2, direction: Direction::Ascending, triad: TriadId::T1, shape: Shape::Order(vec![2, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0, connector: Connector::default() },
+            PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T2, shape: Shape::Order(vec![2, 1, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0, connector: Connector::default() },
+            PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T1, shape: Shape::Order(vec![2, 1, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0, connector: Connector::default() },
         ];
         let config = LineConfig {
             pattern: Pattern { name: "arch", blocks: arch },
             figure: RhythmicFigure::Sixteenth,
-            position: NeckPosition::new(5),
+            positions: PositionSet::from_base_frets(&[5]),
         };
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
         for i in 1..events.len() {
@@ -357,7 +427,7 @@ mod tests {
         LineConfig {
             pattern: Pattern::preset_alternating(),
             figure: RhythmicFigure::Eighth,
-            position: NeckPosition::new(5),
+            positions: PositionSet::from_base_frets(&[5]),
         }
     }
 
@@ -365,7 +435,7 @@ mod tests {
         LineConfig {
             pattern: Pattern { name: "t", blocks: vec![block] },
             figure,
-            position: NeckPosition::new(5),
+            positions: PositionSet::from_base_frets(&[5]),
         }
     }
 
@@ -388,6 +458,7 @@ mod tests {
         let block = PatternBlock {
             count: 2, direction: Direction::Ascending, triad: TriadId::T1,
             shape: Shape::Monotonic, anchor: Anchor::Nearest, hold_last: 1, lead_rest: 0,
+            connector: Connector::default(),
         };
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &one_block_config(block, RhythmicFigure::Eighth));
         assert_eq!(events[0].duration, 0.5);
@@ -402,6 +473,7 @@ mod tests {
         let block = PatternBlock {
             count: 4, direction: Direction::Ascending, triad: TriadId::T1,
             shape: Shape::Monotonic, anchor: Anchor::Nearest, hold_last: 0, lead_rest: 1,
+            connector: Connector::default(),
         };
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &one_block_config(block, RhythmicFigure::Eighth));
         assert_eq!(events[0].beat, 0.5);
@@ -451,7 +523,8 @@ mod tests {
         let chart = Chart::parse("Test", "| Dm7 | G7 |").unwrap();
         let config = simple_config();
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
-        let (lo, hi) = config.position.stretch_range();
+        // simple_config() restricts to a single position at base fret 5.
+        let (lo, hi) = NeckPosition::new(5).stretch_range();
         for e in &events {
             assert!(e.fret >= lo && e.fret <= hi,
                 "fret {} outside stretch range {}-{}", e.fret, lo, hi);
@@ -531,58 +604,170 @@ mod tests {
         assert_eq!(events.len(), 12);
     }
 
+    /// Build a single-block pattern with an explicit connector, for the connector contour tests.
+    fn connector_config(connector: Connector, direction: Direction) -> LineConfig {
+        LineConfig {
+            pattern: Pattern {
+                name: "conn",
+                blocks: vec![PatternBlock {
+                    count: 3,
+                    direction,
+                    triad: TriadId::T1,
+                    shape: Shape::Monotonic,
+                    anchor: Anchor::Nearest,
+                    hold_last: 0,
+                    lead_rest: 0,
+                    connector,
+                }],
+            },
+            figure: RhythmicFigure::Eighth,
+            positions: PositionSet::from_base_frets(&[5]),
+        }
+    }
+
+    /// The first note of every block (a triad's grip) is the lowest grip note in ascending mode;
+    /// across a held chord those block-starts must climb when the connector is `InvertUp` and
+    /// never repeat the previous pitch.
     #[test]
-    fn block_boundary_connects_to_nearest_distinct_note() {
+    fn invert_up_connector_climbs_the_inversion_ladder() {
         let fb = Fretboard::standard_tuning();
-        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
-        let config = simple_config();
-        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        let chart = Chart::parse("Test", "| Cmaj7 | % | % | % |").unwrap();
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &connector_config(Connector::InvertUp, Direction::Ascending));
+        // No consecutive repeats anywhere.
+        for i in 1..events.len() {
+            assert_ne!(events[i].midi, events[i - 1].midi, "repeat at {}", i);
+        }
+        // Each ascending block of 3 starts on its grip's lowest note; those starts should rise
+        // over the first few blocks (the staircase) rather than stay pinned.
+        let starts: Vec<i32> = events.chunks(3).take(3).map(|c| c[0].midi).collect();
+        assert!(starts.len() == 3 && starts[2] > starts[0], "inversion starts did not climb: {:?}", starts);
+    }
 
-        // preset_alternating = 3xT1 then 3xT2: index 3 is the first note of the new
-        // (T2) block — the "connecting" note produced by the block_first branch.
-        assert_eq!(events[3].triad, TriadId::T2);
-        // It must not simply repeat the previous pitch when an alternative exists.
-        assert_ne!(events[3].midi, events[2].midi);
+    /// `NearestUp` should travel further than `InvertUp` over the same span — it leaps past the
+    /// overlapping inversions to the next non-overlapping grip, so it covers more pitch range.
+    #[test]
+    fn nearest_up_travels_a_wider_range_than_invert_up() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Cmaj7 | % | % | % |").unwrap();
+        let span = |conn| {
+            let evs = generate_line(&chart, &[], &fb, &PAIRS[0], &connector_config(conn, Direction::Ascending));
+            let lo = evs.iter().map(|e| e.midi).min().unwrap();
+            let hi = evs.iter().map(|e| e.midi).max().unwrap();
+            hi - lo
+        };
+        assert!(span(Connector::NearestUp) >= span(Connector::InvertUp), "nearest should cover at least as much range");
+    }
 
-        // And it must be exactly the closest distinct note of the new triad's pool to
-        // the previous note — the find_closest contract this feature depends on. (This
-        // guards against silently reverting to the plain find_nearest path.)
-        let scale = crate::theory::scale_defaults::default_scale(chart.changes[0].quality);
-        let tn = super::resolve_triad_notes(
-            chart.changes[0].root_pc,
-            scale,
-            &PAIRS[0],
-            &config.position,
-            &fb,
-        );
-        let expected = super::find_closest(tn.notes_for(TriadId::T2), events[2].midi).unwrap();
-        assert_eq!(events[3].midi, expected.midi);
+    /// No connector may ever produce a repeated pitch back-to-back (the "connect on a different
+    /// note" rule), across all connector types and directions.
+    #[test]
+    fn no_connector_repeats_a_pitch() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 | G7 | Cmaj7 | % |").unwrap();
+        for conn in [
+            Connector::NearestUp, Connector::NearestDown, Connector::InvertUp,
+            Connector::InvertDown, Connector::VoiceLead, Connector::Random,
+        ] {
+            for dir in [Direction::Ascending, Direction::Descending] {
+                let events = generate_line(&chart, &[], &fb, &PAIRS[0], &connector_config(conn, dir));
+                for i in 1..events.len() {
+                    assert_ne!(events[i].midi, events[i - 1].midi, "{:?}/{:?} repeated at {}", conn, dir, i);
+                }
+            }
+        }
     }
 
     #[test]
-    fn find_closest_skips_the_current_note() {
-        // Pool drawn from a real triad position so we exercise actual FretNote data.
+    fn every_triad_is_played_as_a_valid_ergonomic_grip() {
+        // Free mode (whole neck) is the hardest case: with no grip model the line would grab
+        // open strings and stack notes on one string. Each triad's notes must instead form one
+        // legal grip — ≤3 notes on adjacent strings, ≤2 per string, no open strings, compact span.
         let fb = Fretboard::standard_tuning();
-        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
-        let config = simple_config();
-        let scale = crate::theory::scale_defaults::default_scale(chart.changes[0].quality);
-        let tn = super::resolve_triad_notes(
-            chart.changes[0].root_pc,
-            scale,
-            &PAIRS[0],
-            &config.position,
-            &fb,
-        );
-        let pool = tn.notes_for(TriadId::T1);
-        let target = pool[0].midi;
-        let has_distinct = pool.iter().any(|n| n.midi != target);
-        let got = super::find_closest(pool, target).unwrap();
-        if has_distinct {
-            // Filter branch: skip the equal-pitch note when an alternative exists.
-            assert_ne!(got.midi, target);
-        } else {
-            // or_else fallback: a single repeated pitch is the only valid choice.
-            assert_eq!(got.midi, target);
+        let chart = Chart::parse("Test", "| Cmaj7 |").unwrap();
+        let config = LineConfig {
+            pattern: Pattern::preset_alternating(),
+            figure: RhythmicFigure::Eighth,
+            positions: PositionSet::unrestricted(),
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        assert!(!events.is_empty());
+        assert!(events.iter().all(|e| e.fret >= 1), "no open strings allowed");
+
+        for triad in [TriadId::T1, TriadId::T2] {
+            let positions: std::collections::BTreeSet<(u8, u8)> = events
+                .iter()
+                .filter(|e| e.triad == triad)
+                .map(|e| (e.string, e.fret))
+                .collect();
+            assert!(positions.len() <= 3, "{:?} used {} distinct positions", triad, positions.len());
+            if positions.is_empty() {
+                continue;
+            }
+            let strings: std::collections::BTreeSet<u8> = positions.iter().map(|p| p.0).collect();
+            let span_strings = strings.iter().max().unwrap() - strings.iter().min().unwrap();
+            match strings.len() {
+                3 => assert_eq!(span_strings, 2, "1+1+1 must use consecutive strings"),
+                2 => assert_eq!(span_strings, 1, "a two-string grip must use adjacent strings"),
+                1 => {} // a partial triad confined to one string is still inside a grip
+                n => panic!("{:?} spread over {} strings", triad, n),
+            }
+            for s in &strings {
+                let count = positions.iter().filter(|p| p.0 == *s).count();
+                assert!(count <= 2, "more than two notes on string {}", s);
+            }
+            let frets: Vec<u8> = positions.iter().map(|p| p.1).collect();
+            let span = frets.iter().max().unwrap() - frets.iter().min().unwrap();
+            assert!(
+                span <= crate::theory::triad_shape::MAX_FRET_SPAN,
+                "{:?} span {} too wide", triad, span,
+            );
+        }
+    }
+
+    #[test]
+    fn grips_hold_across_a_progression_in_several_regions() {
+        // The no-open-string + valid-grip guarantee must survive a whole progression in every
+        // region mode — including low position I (where open strings are reachable) and a
+        // split multi-position selection.
+        let fb = Fretboard::standard_tuning();
+        let chart =
+            Chart::parse("Test", "| Dm7 | G7 | Cmaj7 | A7 | Em7b5 | A7 | Dm7 | G7 |").unwrap();
+        let regions = [
+            ("free", PositionSet::unrestricted()),
+            ("V", PositionSet::from_base_frets(&[5])),
+            ("I", PositionSet::from_base_frets(&[1])),
+            ("III+IX", PositionSet::from_base_frets(&[3, 9])),
+        ];
+        for (name, positions) in regions {
+            let config = LineConfig {
+                pattern: Pattern::preset_alternating(),
+                figure: RhythmicFigure::Sixteenth,
+                positions,
+            };
+            let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+            assert!(!events.is_empty(), "{name}: no events");
+            assert!(events.iter().all(|e| e.fret >= 1), "{name}: produced an open string");
+        }
+    }
+
+    #[test]
+    fn multi_position_keeps_events_within_the_union_of_windows() {
+        // Two disjoint boxes: base 2 -> stretch (1,6), base 9 -> stretch (8,13). Every event
+        // must land in one of them and never in the fret-7 gap between.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 | G7 |").unwrap();
+        let config = LineConfig {
+            pattern: Pattern::preset_alternating(),
+            figure: RhythmicFigure::Eighth,
+            positions: PositionSet::from_base_frets(&[2, 9]),
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        assert!(!events.is_empty());
+        for e in &events {
+            assert!(
+                (1..=6).contains(&e.fret) || (8..=13).contains(&e.fret),
+                "fret {} outside the selected windows", e.fret,
+            );
         }
     }
 

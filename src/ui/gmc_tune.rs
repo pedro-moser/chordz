@@ -811,7 +811,10 @@ impl ChordzApp {
         let config = LineConfig {
             pattern: self.gmc_tune.pattern.clone(),
             figure: self.gmc_tune.figure,
-            position: self.gmc_tune.position,
+            // The native UI still drives a single neck position; wrap it as a one-element set.
+            positions: crate::theory::position::PositionSet::from_base_frets(&[
+                self.gmc_tune.position.base_fret,
+            ]),
         };
 
         let events = line_engine::generate_line(

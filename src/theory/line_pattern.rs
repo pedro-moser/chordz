@@ -78,6 +78,41 @@ pub enum Shape {
 }
 
 /// Which triad voice a block lands on for its first (connecting) note.
+/// How a block links to the next: which rung of the triad's inversion ladder its grip moves to.
+/// (The note order *within* a grip stays governed by the block's `direction` / `shape`; the
+/// connector only chooses the next grip.) This is the per-block "step strategy" — the dimension
+/// a probabilistic étude generator samples.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Connector {
+    /// Continue to the next grip whose lowest note clears the current grip's top — a continuous,
+    /// non-overlapping climb up the neck.
+    NearestUp,
+    /// Continuous descent (next grip whose top clears the current grip's bottom).
+    NearestDown,
+    /// Step one inversion up the ladder (overlapping grips — the inversion staircase).
+    InvertUp,
+    /// Step one inversion down.
+    InvertDown,
+    /// Least hand movement: the grip nearest the previous note, never repeating it.
+    #[default]
+    VoiceLead,
+    /// Pseudo-random rung — deterministic per occurrence; the generative-variety hook.
+    Random,
+}
+
+impl Connector {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NearestUp => "↑ run",
+            Self::NearestDown => "↓ run",
+            Self::InvertUp => "↑ invert",
+            Self::InvertDown => "↓ invert",
+            Self::VoiceLead => "voice-lead",
+            Self::Random => "random",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Anchor {
     /// Nearest distinct note of the new triad — the original block-boundary behaviour.
@@ -116,6 +151,8 @@ pub struct PatternBlock {
     pub hold_last: u8,
     /// `lead_rest` grid steps of silence before the block's first note (a pickup). 0 = off.
     pub lead_rest: u8,
+    /// How this block's grip links to the next block's grip (inter-grip movement on the ladder).
+    pub connector: Connector,
 }
 
 impl PatternBlock {
@@ -129,6 +166,7 @@ impl PatternBlock {
             anchor: Anchor::Nearest,
             hold_last: 0,
             lead_rest: 0,
+            connector: Connector::default(),
         }
     }
 

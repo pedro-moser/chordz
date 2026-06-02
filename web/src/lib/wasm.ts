@@ -199,6 +199,8 @@ export interface GmcPatternBlock {
   holdLast?: number;
   /** Pickup rest: grid steps of silence before the block's first note. Absent/0 = off. */
   leadRest?: number;
+  /** How this block's grip links to the next (inter-grip movement). Absent = voice-lead. */
+  connector?: 'nearestUp' | 'nearestDown' | 'invertUp' | 'invertDown' | 'voiceLead' | 'random';
 }
 
 export function generateGmcLine(
@@ -207,10 +209,10 @@ export function generateGmcLine(
   pairIndex: number,
   scaleOverrides: (number | null)[],
   figureIndex: number,
-  positionFret: number,
+  positions: number[],
   pattern: GmcPatternBlock[],
 ): GmcLineResult {
-  return getWasm().generate_gmc_line(chartText, title, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
+  return getWasm().generate_gmc_line(chartText, title, pairIndex, scaleOverrides, figureIndex, positions, pattern);
 }
 
 /** The controls the Shell Étude preset sets. `pattern` reuses the GMC pattern-block shape. */

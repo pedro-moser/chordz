@@ -32,6 +32,19 @@
     { label: '5·3·1', title: 'Descending arpeggio (5th–3rd–root)', shape: [2, 1, 0] },
   ];
 
+  // Per-block "connector": how this block's grip links to the next one (inter-grip movement on
+  // the triad's inversion ladder). The within-grip note order stays the Voicing/direction above.
+  type ConnectorValue = NonNullable<GmcPatternBlock['connector']>;
+  const CONNECTORS: { value: ConnectorValue; label: string; title: string }[] = [
+    { value: 'invertUp', label: '↑inv', title: 'Invert up — step one inversion up (the staircase)' },
+    { value: 'invertDown', label: '↓inv', title: 'Invert down — step one inversion down' },
+    { value: 'nearestUp', label: '↑run', title: 'Continue up — leap to the next grip past this one (continuous climb)' },
+    { value: 'nearestDown', label: '↓run', title: 'Continue down' },
+    { value: 'voiceLead', label: 'voice', title: 'Voice-lead — least hand movement, never repeats a note' },
+    { value: 'random', label: 'rand', title: 'Random rung (generative variety)' },
+  ];
+  const DEFAULT_CONNECTOR: ConnectorValue = 'invertUp';
+
   // Data loaded once
   let presets = $state<Preset[]>([]);
   let pairs = $state<PairInfo[]>([]);
@@ -42,10 +55,12 @@
   let chartInput = $state('Em7b5 | A7b9 | Cm7 | F7 | Fm7 | Bb7 | Ebmaj7 | Ab7#11 | Bbmaj7 | Em7b5 A7b9 | Dm7 | Bbm7 Eb7 | Fmaj7 | Em7b5 | Ebmaj7 | D7b9 | G7b13 | % | Cm7 | % | Ab7#11 | % | Bbmaj7 | % | Em7b5 | A7b9 | Dm7b5 | G7b9 | Cm7b5 | F7b9 | Bbmaj7 | %');
   let pairIndex = $state(0);
   let figureIndex = $state(0);
-  let positionFret = $state(5);
+  // Selected neck positions (base frets 1-12). Empty = no restriction: the line may use the
+  // whole neck. Defaults to a single position (V) to match the previous behavior.
+  let selectedPositions = $state<number[]>([5]);
   let pattern = $state<GmcPatternBlock[]>([
-    { count: 3, direction: 'asc', triad: 'T1' },
-    { count: 3, direction: 'desc', triad: 'T2' },
+    { count: 3, direction: 'asc', triad: 'T1', connector: DEFAULT_CONNECTOR },
+    { count: 3, direction: 'desc', triad: 'T2', connector: DEFAULT_CONNECTOR },
   ]);
   let scaleOverrides = $state<(number | null)[]>([]);
   // The chart text the current overrides were keyed to. Overrides are positional, so
@@ -91,14 +106,40 @@
 
   let selectedMeasureData = $derived(measures[selectedMeasure] ?? null);
 
-  // Fretboard range for selected measure
+  const NUM_FRETS = 24;
+
+  // Fretboard window for the selected measure's diagram.
+  // - 1+ positions selected → the union of their stretch boxes (stable across measures), with
+  //   each core box (`cores`) highlighted.
+  // - Free (none selected) → fit the window to the notes actually played in this measure, since
+  //   there's no fixed box to anchor on. No core highlight.
   let fretRange = $derived((() => {
-    const coreStart = positionFret;
-    const coreEnd = positionFret + 3;
-    const stretchStart = Math.max(0, positionFret - 1);
-    const stretchEnd = positionFret + 4;
-    return { coreStart, coreEnd, stretchStart, stretchEnd };
+    if (selectedPositions.length > 0) {
+      const sorted = [...selectedPositions].sort((a, b) => a - b);
+      const stretchStart = Math.max(0, sorted[0] - 1);
+      const stretchEnd = Math.min(NUM_FRETS, sorted[sorted.length - 1] + 4);
+      const cores = sorted.map(p => ({ start: p, end: p + 3 }));
+      return { stretchStart, stretchEnd, cores };
+    }
+    const frets = (selectedMeasureData?.events ?? []).map(e => e.fret);
+    if (frets.length === 0) return { stretchStart: 0, stretchEnd: 5, cores: [] };
+    const lo = Math.max(0, Math.min(...frets) - 1);
+    const hi = Math.min(NUM_FRETS, Math.max(...frets) + 1);
+    return { stretchStart: lo, stretchEnd: Math.max(hi, lo + 4), cores: [] };
   })());
+
+  function isCoreFret(fretNum: number): boolean {
+    return fretRange.cores.some(c => fretNum >= c.start && fretNum <= c.end);
+  }
+
+  function togglePosition(fret: number) {
+    selectedPositions = selectedPositions.includes(fret)
+      ? selectedPositions.filter(p => p !== fret)
+      : [...selectedPositions, fret];
+    // Re-place the line for the new region right away (mirrors the scale-override flow), so the
+    // diagram window and its notes never disagree.
+    if (result) regenerate();
+  }
 
   onMount(() => {
     presets = getPresets();
@@ -144,7 +185,7 @@
   }
 
   function generate() {
-    const res = generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
+    const res = generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, selectedPositions, pattern);
     if (res.error) {
       error = res.error;
       result = null;
@@ -164,7 +205,7 @@
 
   function regenerate() {
     // Regenerate with current scale overrides
-    const res = generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, positionFret, pattern);
+    const res = generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, selectedPositions, pattern);
     if (!res.error) {
       result = res;
     }
@@ -219,7 +260,7 @@
 
   // Pattern editing
   function addBlock() {
-    pattern = [...pattern, { count: 3, direction: 'asc', triad: 'T1' }];
+    pattern = [...pattern, { count: 3, direction: 'asc', triad: 'T1', connector: DEFAULT_CONNECTOR }];
   }
 
   function removeBlock(idx: number) {
@@ -252,6 +293,11 @@
   function setBlockVoicing(idx: number, vIdx: number) {
     const v = VOICINGS[vIdx];
     pattern[idx] = { ...pattern[idx], shape: v.shape, anchor: v.anchor };
+    pattern = [...pattern];
+  }
+
+  function setBlockConnector(idx: number, value: ConnectorValue) {
+    pattern[idx] = { ...pattern[idx], connector: value };
     pattern = [...pattern];
   }
 
@@ -467,12 +513,15 @@
         </div>
       </div>
 
-      <!-- Position selector -->
+      <!-- Position selector (multi-select; none = no restriction) -->
       <div class="control-row">
-        <span class="control-label">Position</span>
+        <span class="control-label">
+          Position
+          {#if selectedPositions.length === 0}<span class="free-tag">— free (whole neck)</span>{/if}
+        </span>
         <div class="btn-group position-group">
           {#each POSITION_LABELS as label, i}
-            <button class="filter-btn pos-btn" class:active={positionFret === i + 1} onclick={() => positionFret = i + 1}>{label}</button>
+            <button class="filter-btn pos-btn" class:active={selectedPositions.includes(i + 1)} onclick={() => togglePosition(i + 1)}>{label}</button>
           {/each}
         </div>
       </div>
@@ -505,6 +554,16 @@
             >
               {#each VOICINGS as v, vi}
                 <option value={vi} title={v.title}>{v.label}</option>
+              {/each}
+            </select>
+            <select
+              class="voicing-select"
+              title="Connector — how this block links to the next grip"
+              value={block.connector ?? 'voiceLead'}
+              onchange={(e) => setBlockConnector(i, (e.target as HTMLSelectElement).value as ConnectorValue)}
+            >
+              {#each CONNECTORS as c}
+                <option value={c.value} title={c.title}>{c.label}</option>
               {/each}
             </select>
             <input
@@ -707,7 +766,7 @@
           <div class="fb-header">
             <span class="fb-chord">{selectedMeasureData.chord.chord}</span>
             <span class="fb-scale" class:override={selectedMeasureData.chord.isOverride}>{selectedMeasureData.chord.activeScale}</span>
-            <span class="fb-position">Position {POSITION_LABELS[positionFret - 1]}</span>
+            <span class="fb-position">{selectedPositions.length ? 'Position ' + [...selectedPositions].sort((a, b) => a - b).map(p => POSITION_LABELS[p - 1]).join(', ') : 'Free'}</span>
             <div class="fb-label-toggle">
               <button class="fb-toggle-btn" class:active={fbLabelMode === 'order'} onclick={() => fbLabelMode = 'order'}>#</button>
               <button class="fb-toggle-btn" class:active={fbLabelMode === 'notes'} onclick={() => fbLabelMode = 'notes'}>Notes</button>
@@ -737,7 +796,7 @@
               {#each Array(fbFretCount) as _, fi}
                 {@const fretNum = fretRange.stretchStart + fi}
                 {@const x = FB_MARGIN_LEFT + fi * FB_FRET_WIDTH + FB_FRET_WIDTH / 2}
-                {@const isCore = fretNum >= fretRange.coreStart && fretNum <= fretRange.coreEnd}
+                {@const isCore = isCoreFret(fretNum)}
                 <text
                   {x}
                   y={FB_MARGIN_TOP - 8}
@@ -1000,6 +1059,11 @@
     padding: 3px 5px;
     font-size: 10px;
     min-width: 0;
+  }
+
+  .free-tag {
+    color: var(--text-disabled);
+    font-style: italic;
   }
 
   /* Pattern builder */
