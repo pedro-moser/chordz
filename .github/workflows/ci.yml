@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (tests + wasm check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # kira -> cpal -> alsa-sys needs the ALSA headers on Linux
+      - name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test --lib
+      - name: Type-check wasm feature
+        run: cargo check --lib --no-default-features --features wasm
+
+  web:
+    name: Web (svelte-check + vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Svelte check
+        run: npm run check
+      - name: Unit tests
+        run: npm test
