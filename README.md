@@ -4,6 +4,8 @@ A procedural harmony lab for jazz guitar. chordz generates voicings, voice-led
 paths through chord charts, and single-note études from music theory and
 guitar constraints — nothing comes from a static lookup table.
 
+Try it: <https://pedro-moser.github.io/chordz/> (work in progress).
+
 One Rust core, two frontends:
 
 - **Web** (SvelteKit + WebAssembly): fretboard visualizations, triad-pair
