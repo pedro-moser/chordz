@@ -6,7 +6,9 @@ export function nearestSampledMidi(midi: number, sampled: number[]): number {
   );
 }
 
+import { base } from '$app/paths';
 import { GUITAR_MANIFEST } from './guitarManifest';
+import { withBase } from './assetUrl';
 
 let buffers: Map<number, AudioBuffer> | null = null;
 let loadPromise: Promise<void> | null = null;
@@ -23,7 +25,7 @@ export function loadSampler(ctx: AudioContext): Promise<void> {
     await Promise.all(
       Object.entries(GUITAR_MANIFEST).map(async ([midiStr, url]) => {
         try {
-          const res = await fetch(url);
+          const res = await fetch(withBase(base, url));
           const arr = await res.arrayBuffer();
           map.set(Number(midiStr), await ctx.decodeAudioData(arr));
         } catch (e) {
