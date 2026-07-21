@@ -4,6 +4,8 @@ web/node_modules/
 web/pkg/
 web/build/
 web/.svelte-kit/
+tools/capture/out/
+tools/capture/node_modules
 
 # Local agent state, tooling, and reference material — not part of the codebase
 /.claude/
