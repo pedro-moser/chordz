@@ -104,6 +104,9 @@ fn fallback_notes(positions: &PositionSet, fretboard: &Fretboard, pcs: &[u8; 3])
     }
 }
 
+/// Float slack for beat-vs-chord-start comparisons (triplet grids accumulate f32 error).
+const BEAT_EPS: f32 = 1e-4;
+
 /// Ping-pong index into a `len`-element sequence: 0,1,…,len-1,len-2,…,1,0,1,… — how a block of
 /// more than `len` notes folds back inside a single grip.
 fn pingpong(k: usize, len: usize) -> usize {
@@ -115,27 +118,39 @@ fn pingpong(k: usize, len: usize) -> usize {
     if m < len { m } else { period - m }
 }
 
-/// The `count` fretboard notes a block plays from one grip, in its within-grip order.
-/// `Monotonic` walks the grip by pitch in the block's direction (folding back if `count` > 3);
-/// `Order` plays the explicit cyclic role sequence.
-fn block_notes(grip: &TriadShape, pcs: &[u8; 3], block: &PatternBlock) -> Vec<FretNote> {
-    let count = block.count as usize;
+/// The k-th fretboard note a block plays from one grip (0-based within the block).
+/// `Monotonic` walks the grip by pitch in the block's direction (folding back via `pingpong`
+/// if `count` > 3); `Order` plays the explicit cyclic role sequence.
+fn note_at(grip: &TriadShape, pcs: &[u8; 3], block: &PatternBlock, k: usize) -> FretNote {
     match &block.shape {
-        Shape::Order(order) => (0..count)
-            .map(|k| {
-                let role = (order[k % order.len()] % 3) as usize;
-                let pc = pcs[role];
-                grip.notes.iter().find(|n| n.pitch_class == pc).copied().unwrap_or(grip.notes[0])
-            })
-            .collect(),
+        Shape::Order(order) => {
+            let role = (order[k % order.len()] % 3) as usize;
+            let pc = pcs[role];
+            grip.notes.iter().find(|n| n.pitch_class == pc).copied().unwrap_or(grip.notes[0])
+        }
         Shape::Monotonic => {
             let mut base = grip.notes.to_vec(); // grip.notes is sorted ascending
             if block.direction == Direction::Descending {
                 base.reverse();
             }
-            (0..count).map(|k| base[pingpong(k, base.len())]).collect()
+            base[pingpong(k, base.len())]
         }
     }
+}
+
+/// At a mid-block chord change, the rung of the NEW chord's ladder whose next note (the k-th
+/// of the block) best glues to the previous pitch: chromatic steps (±1/±2 semitones) first,
+/// then the smallest move; the same pitch only when there is no alternative.
+fn glue_rung(ladder: &TriadLadder, block: &PatternBlock, k: usize, prev: i32) -> usize {
+    let cost = |i: usize| {
+        let midi = note_at(&ladder.grips[i], &ladder.pcs, block, k).midi;
+        match (midi - prev).abs() {
+            0 => (2, 0),
+            d @ (1 | 2) => (0, d),
+            d => (1, d),
+        }
+    };
+    (0..ladder.grips.len()).min_by_key(|&i| cost(i)).unwrap_or(0)
 }
 
 /// Move the cursor to the next grip per the block's connector. Returns the new `(cursor, flip)`;
@@ -268,7 +283,7 @@ fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]])
             TriadId::T2 => 1,
         };
         let beat = slots as f32 * beat_dur;
-        let chord_idx = chord_starts.iter().rposition(|&s| beat >= s).unwrap_or(0);
+        let chord_idx = chord_starts.iter().rposition(|&s| beat >= s - BEAT_EPS).unwrap_or(0);
         let ladder = &ladders[chord_idx][ti];
 
         if ladder.grips.is_empty() {
@@ -297,26 +312,48 @@ fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]])
             let mut tries = 0;
             while len > 1
                 && tries < len
-                && block_notes(&ladder.grips[cursor[ti]], &ladder.pcs, block)
-                    .first()
-                    .is_some_and(|n| n.midi == prev)
+                && note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, 0).midi == prev
             {
                 cursor[ti] = (cursor[ti] + 1) % len;
                 tries += 1;
             }
         }
 
-        let notes = block_notes(&ladder.grips[cursor[ti]], &ladder.pcs, block);
         let count = block.count as usize;
-        for (k, note) in notes.iter().enumerate() {
+        let mut active_chord = chord_idx;
+        let mut silenced = false;
+        for k in 0..count {
             if slots >= total_events {
                 break 'blocks;
             }
+            let beat_now = slots as f32 * beat_dur;
+            // Re-resolve mid-block chord changes: the rest of the block plays the NEW chord's
+            // triad, entered from the last sounded pitch by chromatic glue.
+            let chord_now = chord_starts
+                .iter()
+                .rposition(|&s| beat_now >= s - BEAT_EPS)
+                .unwrap_or(0);
+            if chord_now != active_chord {
+                let new_ladder = &ladders[chord_now][ti];
+                if new_ladder.grips.is_empty() {
+                    slots += count - k; // no notes available — the rest of the block is silent
+                    silenced = true;
+                    break;
+                }
+                cursor[ti] = match last_midi {
+                    Some(prev) => glue_rung(new_ladder, block, k, prev),
+                    None => new_ladder.nearest_rung(None),
+                };
+                active_chord = chord_now;
+                cursor_chord[ti] = chord_now;
+            }
+            let ladder = &ladders[active_chord][ti];
+            let note = note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, k);
             // The block's last note sustains `1 + hold_last` grid slots; others take one.
             let hold = if k + 1 == count { block.hold_last as usize } else { 0 };
             let step_slots = 1 + hold;
             events.push(NoteEvent {
-                beat: slots as f32 * beat_dur,
+                beat: beat_now,
                 string: note.string,
                 fret: note.fret,
                 triad: block.triad,
@@ -327,8 +364,16 @@ fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]])
             last_midi = Some(note.midi);
             slots += step_slots;
         }
+        if silenced {
+            if slots >= total_events {
+                break;
+            }
+            continue;
+        }
 
-        // Choose the next grip for this triad via the block's connector.
+        // Choose the next grip for this triad via the block's connector — on the ladder of the
+        // chord the block ENDED in (it may have glued into a new one mid-block).
+        let ladder = &ladders[active_chord][ti];
         let (nc, nf) =
             advance_cursor(&ladder.grips, cursor[ti], flip[ti], block.connector, last_midi, &mut rng);
         cursor[ti] = nc;
@@ -767,6 +812,69 @@ mod tests {
             assert!(
                 (1..=6).contains(&e.fret) || (8..=13).contains(&e.fret),
                 "fret {} outside the selected windows", e.fret,
+            );
+        }
+    }
+
+    #[test]
+    fn straddling_blocks_switch_to_the_new_chords_pair_at_the_boundary() {
+        // A block that starts under one chord and crosses the barline must play its remaining
+        // notes from the NEW chord's triads. Reproduces the Giant Steps opening leak: with the
+        // 3+3 eighth pattern, the T2 block at beats 1.5-2.5 used to carry Bmaj7's D#/A# onto D7.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Bmaj7 D7 | Gmaj7 Bb7 | Ebmaj7 |").unwrap();
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &simple_config());
+
+        let mut starts: Vec<f32> = Vec::new();
+        let mut legal: Vec<Vec<u8>> = Vec::new();
+        let mut cumul = 0.0_f32;
+        for c in &chart.changes {
+            starts.push(cumul);
+            cumul += c.beats;
+            let scale = scale_defaults::default_scale(c.quality);
+            let (a, b) = gmc::resolve_pair(c.root_pc, scale, &PAIRS[0]);
+            legal.push(a.iter().chain(b.iter()).copied().collect());
+        }
+        for e in &events {
+            let idx = starts.iter().rposition(|&s| e.beat >= s - 1e-4).unwrap_or(0);
+            assert!(
+                legal[idx].contains(&e.pitch_class),
+                "pc {} at beat {} is not in the sounding chord's pair {:?}",
+                e.pitch_class, e.beat, legal[idx]
+            );
+        }
+    }
+
+    #[test]
+    fn boundary_glue_prefers_a_chromatic_step_when_available() {
+        // Unrestricted region: the new chord's ladder offers candidate notes in every octave,
+        // and | Cmaj7 D7 | is built so every old-triad pitch class has a new-triad pitch class
+        // a half/whole step away (T2: {E,G,B} -> {F#,A,C}; T1: {E,G,B} -> {D,F,A}). Note the
+        // glue targets a specific within-grip VOICE (the block's k-th note), so register floors
+        // can rule the chromatic pitch class out — the per-boundary bounds below reflect that.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Cmaj7 D7 | Cmaj7 D7 |").unwrap();
+        let config = LineConfig {
+            pattern: Pattern::preset_alternating(),
+            figure: RhythmicFigure::Eighth,
+            positions: PositionSet::unrestricted(),
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        // Boundary 2.0 (Cmaj7 -> D7) crosses on a MID voice: a 1-2 st target exists in register,
+        // so the glue must be chromatic. Boundary 4.0 (D7 -> Cmaj7) crosses on an ascending
+        // block's TOP voice, and the incoming B2 has no {D,F,A} top note within 2 st (A2 is
+        // never a top voice; the lowest top is D3) — the best available move is 3 st, so assert
+        // the glue still takes that minimal step rather than a leap or a repeat.
+        for (boundary, max_d) in [(2.0_f32, 2), (4.0_f32, 3)] {
+            let cross = events
+                .windows(2)
+                .find(|w| w[0].beat < boundary && w[1].beat >= boundary)
+                .expect("no event pair crossing the boundary");
+            let d = (cross[1].midi - cross[0].midi).abs();
+            assert!(
+                (1..=max_d).contains(&d),
+                "glue into beat {} moved {} semitones (want 1-{}): {} -> {}",
+                boundary, d, max_d, cross[0].midi, cross[1].midi
             );
         }
     }
