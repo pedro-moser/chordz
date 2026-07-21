@@ -1,0 +1,42 @@
+[
+  {
+    "id": "b1",
+    "note": "giant steps play all",
+    "at": 3.092
+  },
+  {
+    "id": "b2",
+    "note": "browse cycling positions",
+    "at": 19.822
+  },
+  {
+    "id": "b3-free",
+    "note": "stella, movement=Free",
+    "at": 34.532
+  },
+  {
+    "id": "b3-tight",
+    "note": "stella, movement=Tight",
+    "at": 46.699
+  },
+  {
+    "id": "b4-first",
+    "note": "gmc line, first generation",
+    "at": 61.673
+  },
+  {
+    "id": "b4-second",
+    "note": "gmc line after shuffle",
+    "at": 74.583
+  },
+  {
+    "id": "b5",
+    "note": "resolve",
+    "at": 86.611
+  },
+  {
+    "id": "end",
+    "note": "end of capture",
+    "at": 90.612
+  }
+]
