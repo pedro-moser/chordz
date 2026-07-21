@@ -2,6 +2,8 @@
 name = "chordz"
 version = "0.1.0"
 edition = "2021"
+description = "Procedural harmony lab for jazz guitar: voicings, voice-led charts, and GMC études"
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
