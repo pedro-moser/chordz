@@ -42,3 +42,18 @@ Ou seja, tanto faz rodar
 
 da raiz do repo quanto de qualquer outro diretório: `OUT` e `DRIVER` são
 resolvidos para caminhos absolutos antes de qualquer coisa.
+
+## Armadilha: vídeo preto
+
+Todo driver precisa passar `--ozone-platform=x11` ao Chromium. Sem isso, numa
+máquina cujo desktop roda Wayland, o Chromium detecta a sessão Wayland real em
+vez do display do Xvfb: os cliques funcionam, o áudio sai certo, e a captura
+grava um quadro totalmente preto.
+
+A falha é silenciosa para qualquer verificação de áudio, então confirme a
+imagem extraindo um quadro:
+
+    ffmpeg -ss 5 -i out/master.mkv -frames:v 1 /tmp/f.png
+
+Duas gravações desta série (o smoke inicial e o probe de andamento) saíram
+pretas por causa disso e ninguém percebeu, porque só o som tinha sido medido.

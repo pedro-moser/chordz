@@ -10,7 +10,7 @@ const H = Number(process.env.CAPTURE_H ?? 1000);
 const browser = await chromium.launch({
   headless: false,
   args: ['--autoplay-policy=no-user-gesture-required', '--window-position=0,0',
-         `--window-size=${W},${H}`, '--start-fullscreen']
+         `--window-size=${W},${H}`, '--start-fullscreen', '--ozone-platform=x11']
 });
 const page = await browser.newPage({ viewport: { width: W, height: H } });
 page.on('console', (m) => console.log(`[page:${m.type()}]`, m.text()));

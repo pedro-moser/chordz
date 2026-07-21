@@ -57,13 +57,8 @@ trap cleanup EXIT
 Xvfb ":$DISPLAY_NUM" -screen 0 "${W}x${H}x24" -nolisten tcp &
 XVFB_PID=$!
 
-# node.pause-on-idle=false is load-bearing: without it PipeWire suspends the
-# null sink while nothing is playing into it, and ffmpeg, already attached to
-# the monitor, keeps reading digital silence after playback starts. The take
-# then measures -91 dB with no error anywhere.
 MODULE_ID=$(pactl load-module module-null-sink \
-  sink_name=$SINK \
-  sink_properties="device.description=chordz_capture node.pause-on-idle=false")
+  sink_name=$SINK sink_properties=device.description=chordz_capture)
 
 # Poll for readiness instead of sleeping a guessed amount. A fixed sleep that
 # expires early means ffmpeg starts before the sink exists; one that expires

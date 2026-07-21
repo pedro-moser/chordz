@@ -13,7 +13,7 @@ const browser = await chromium.launch({
     '--autoplay-policy=no-user-gesture-required',
     '--window-position=0,0',
     `--window-size=${W},${H}`,
-    '--start-fullscreen'
+    '--start-fullscreen', '--ozone-platform=x11'
   ]
 });
 const page = await browser.newPage({ viewport: { width: W, height: H } });
