@@ -207,7 +207,12 @@ async function stellaWith(movement) {
   await page.waitForSelector('button.action-btn:has-text("Play all")');
   await page.fill('#bpm-input', TEMPOS['Stella by Starlight']);
   await enableBass();
-  await page.click('button.toggle-btn:has-text("Constraints")');
+  // The Constraints panel is open by default (constraintsOpen = $state(true)),
+  // so clicking the toggle unconditionally CLOSED it and every knob below
+  // vanished: both Stella takes then timed out and recorded 34s of silence.
+  // Open it only when the caret says it is shut.
+  const toggle = page.locator('button.toggle-btn:has-text("Constraints")');
+  if ((await toggle.innerText()).includes('▸')) await toggle.click();
   await page
     .locator('.constraint-row', { hasText: 'Movement' })
     .locator(`button.filter-btn:has-text("${movement}")`)
