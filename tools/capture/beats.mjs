@@ -30,7 +30,10 @@ const TEMPOS = { 'Giant Steps': '285', 'Stella by Starlight': '140', "Moment's N
 // Dominant, Minor, Half-dim, Diminished), not chord qualities.
 const B2_FAMILY = process.env.B2_FAMILY ?? 'Dominant';
 const B2_ROOT = process.env.B2_ROOT ?? 'C';
-const B2_CHORDS = (process.env.B2_CHORDS ?? 'C7,C9,C13,C7b9,C7#9').split(',');
+// C13 e C7b13 ficaram DE FORA de propósito: com 4 vozes o app reduz C13 ao mesmo
+// conjunto do C9 (`3 1 2 b7`) e C7b13 ao mesmo do C7 (`5 1 3 b7`), perdendo a
+// tensão que nomeia o acorde. Bug registrado como issue no repo.
+const B2_CHORDS = (process.env.B2_CHORDS ?? 'C7,C9,C7b9,C7#9,C7#11').split(',');
 
 // App mode (--app=URL) instead of a normal window: no tab strip, no omnibox, no
 // title bar. Xvfb has no window manager, so --start-fullscreen and --kiosk are
@@ -126,16 +129,34 @@ const beats = {
       '.voicing-item',
       (nodes, wanted) => {
         const found = {};
-        nodes.forEach((n, i) => {
-          const chord = n.querySelector('.v-chord')?.textContent?.trim();
-          const recipe = n.querySelector('.v-recipe')?.textContent?.trim();
-          // drop2 is the most idiomatic guitar spelling of the four on offer,
-          // so the comparison across chords is not muddied by the voicing type.
-          if (recipe === 'drop2' && wanted.includes(chord) && found[chord] === undefined) {
-            found[chord] = i;
+        const takenSets = new Set();
+        const rows = nodes.map((n, i) => ({
+          i,
+          chord: n.querySelector('.v-chord')?.textContent?.trim(),
+          recipe: n.querySelector('.v-recipe')?.textContent?.trim(),
+          iv: n.querySelector('.v-intervals')?.textContent?.trim() ?? ''
+        }));
+        for (const chord of wanted) {
+          const hit = rows.find(
+            (r) =>
+              r.chord === chord &&
+              r.recipe === 'drop2' &&
+              // The guide tones define a dominant. The app's note-count
+              // reduction happily drops the b7, which turns C9 into an add9
+              // and makes different chords collapse onto the same grip, so the
+              // voicing is chosen by content instead of by list position.
+              /(^| )3( |$)/.test(r.iv) &&
+              /(^| )b7( |$)/.test(r.iv) &&
+              !takenSets.has([...r.iv.split(/\s+/)].sort().join(' '))
+          );
+          if (hit) {
+            found[chord] = hit.i;
+            takenSets.add([...hit.iv.split(/\s+/)].sort().join(' '));
           }
-        });
-        return wanted.map((c) => ({ chord: c, index: found[c] })).filter((p) => p.index !== undefined);
+        }
+        return wanted
+          .map((c) => ({ chord: c, index: found[c] }))
+          .filter((p) => p.index !== undefined);
       },
       B2_CHORDS
     );
@@ -156,13 +177,21 @@ const beats = {
     await wait(1600);
   },
 
-  // Same chart, loose voice leading.
+  // Pedro's note: the contrast reads better constrained first, open after.
+  // Pair A moves the Movement knob (how far the hand may travel).
   async b3a() {
-    await stellaWith('Free');
+    await stellaWith({ movement: 'Tight' });
   },
-  // Same chart, tight voice leading: the hand moves less.
   async b3b() {
-    await stellaWith('Tight');
+    await stellaWith({ movement: 'Free' });
+  },
+  // Pair B moves the Abstraction knob (how much colour the voicings carry),
+  // with Movement held constant so only one variable changes.
+  async b3c() {
+    await stellaWith({ abstraction: 'Grounded' });
+  },
+  async b3d() {
+    await stellaWith({ abstraction: 'Open' });
   },
 
   // A single-note étude over the changes.
@@ -201,7 +230,9 @@ const beats = {
   }
 };
 
-async function stellaWith(movement) {
+// Turns exactly one knob, so what the ear hears is attributable to it.
+// `row` is the constraint row label in the app: Movement or Abstraction.
+async function stellaWith({ movement, abstraction }) {
   await openTune('/chords/tune/', 'Stella by Starlight');
   await page.click('button.solve-btn');
   await page.waitForSelector('button.action-btn:has-text("Play all")');
@@ -213,10 +244,13 @@ async function stellaWith(movement) {
   // Open it only when the caret says it is shut.
   const toggle = page.locator('button.toggle-btn:has-text("Constraints")');
   if ((await toggle.innerText()).includes('▸')) await toggle.click();
+  const [row, value] = movement ? ['Movement', movement] : ['Abstraction', abstraction];
   await page
-    .locator('.constraint-row', { hasText: 'Movement' })
-    .locator(`button.filter-btn:has-text("${movement}")`)
+    .locator('.constraint-row', { hasText: row })
+    .locator(`button.filter-btn:has-text("${value}")`)
+    .first()
     .click();
+  console.log(`[stella] ${row} = ${value}`);
   await page.click('button.solve-btn');
   await settle();
   await page.click('button.action-btn:has-text("Play all")');
