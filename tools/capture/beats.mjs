@@ -1,0 +1,243 @@
+// One recording per musical performance. Pick which with the BEAT env var:
+//
+//     BEAT=b1 ./record.sh out/b1.mkv beats.mjs
+//
+// Why one clip per performance, instead of one long take cut afterwards: the
+// long take had no shared clock. Wall-clock marks written by this script start
+// when node starts, but ffmpeg has been recording since before the browser
+// existed, so every mark sat at an unmeasured offset from the video timeline
+// and cuts landed inside performances. A clip that contains exactly one
+// performance needs no cut at all, and its start can be measured from its own
+// audio (see trim.sh) instead of guessed.
+//
+// It also means a bad beat is re-recorded on its own, not with the other four.
+import { chromium } from 'playwright';
+
+const URL = process.env.CHORDZ_URL ?? 'https://pedro-moser.github.io/chordz';
+const BEAT = process.env.BEAT ?? 'b1';
+// CSS pixels. The Xvfb screen is this times SCALE, so the layout is identical
+// and every pixel is denser: a tight crop on the fretboard stays sharp instead
+// of being an upscale of a small source.
+const W = Number(process.env.LOGICAL_W ?? 1600);
+const H = Number(process.env.LOGICAL_H ?? 1000);
+const SCALE = Number(process.env.CAPTURE_SCALE ?? 1.5);
+
+// Confirmed by Pedro. A standard at the wrong tempo does not sound like itself.
+const TEMPOS = { 'Giant Steps': '285', 'Stella by Starlight': '140', "Moment's Notice": '240' };
+
+// Beat 2 climbs tension on one root. Labels below are the app's own, verified
+// against the deployed build: the Family select offers broad families (Major,
+// Dominant, Minor, Half-dim, Diminished), not chord qualities.
+const B2_FAMILY = process.env.B2_FAMILY ?? 'Dominant';
+const B2_ROOT = process.env.B2_ROOT ?? 'C';
+const B2_CHORDS = (process.env.B2_CHORDS ?? 'C7,C9,C13,C7b9,C7#9').split(',');
+
+// App mode (--app=URL) instead of a normal window: no tab strip, no omnibox, no
+// title bar. Xvfb has no window manager, so --start-fullscreen and --kiosk are
+// requests nobody is listening to -- the first capture recorded the browser
+// chrome and a Google Translate popup over the app. App mode removes the chrome
+// structurally instead of asking for it to go away.
+//
+// launchPersistentContext, not launch(): the --app window IS the context's first
+// page. launch()+newPage() would open a second, normal window with chrome back.
+const context = await chromium.launchPersistentContext('', {
+  headless: false,
+  viewport: { width: W, height: H },
+  args: [
+    `--app=${URL}/`,
+    // The sampler is started from a script call, not a click, so the gesture
+    // gate that would keep the AudioContext suspended has to go.
+    '--autoplay-policy=no-user-gesture-required',
+    '--ozone-platform=x11',
+    // The app UI is in English and the machine is pt-BR, so Chrome offered to
+    // translate it and covered the top of the screen with the prompt.
+    '--disable-features=Translate,TranslateUI',
+    '--lang=en-US',
+    '--disable-infobars',
+    '--window-position=0,0',
+    `--force-device-scale-factor=${SCALE}`,
+    `--window-size=${W},${H}`
+  ]
+});
+const page = context.pages()[0] ?? (await context.newPage());
+page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+const browser = { close: () => context.close() };
+
+const wait = (ms) => page.waitForTimeout(ms);
+
+async function open(path) {
+  await page.goto(`${URL}${path}`, { waitUntil: 'networkidle' });
+  // The guitar samples decode after load; playing before they are ready gives
+  // a first chord with missing voices.
+  await wait(2500);
+}
+
+async function openTune(path, title) {
+  await open(path);
+  await page.waitForSelector('select.preset-select', { timeout: 30_000 });
+  await page.selectOption('select.preset-select', { label: title });
+}
+
+// bassEnabled starts false on both tune pages; the groove depends on this.
+async function enableBass() {
+  await page.check('label:has-text("Bass") input[type="checkbox"]');
+}
+
+// Let the head of the clip settle so trim.sh has clean silence to measure the
+// first onset against, then play. Nothing is cut inside what follows.
+async function settle() {
+  await wait(1200);
+}
+
+const beats = {
+  // Giant Steps, the whole chart, with walking bass.
+  async b1() {
+    await openTune('/chords/tune/', 'Giant Steps');
+    await page.click('button.solve-btn');
+    await page.waitForSelector('button.action-btn:has-text("Play all")');
+    await page.fill('#bpm-input', TEMPOS['Giant Steps']);
+    await enableBass();
+    await settle();
+    await page.click('button.action-btn:has-text("Play all")');
+    await wait(16_000);
+  },
+
+  // One root, rising tension: C7 -> C9 -> C13 -> C7b9 -> C7#9.
+  //
+  // The first cut walked recipes instead, on the assumption that browse offered
+  // drop, shell, quartal and upper-structure. It does not: for every family and
+  // note count, browse only ever lists closed, drop2, drop3 and drop2&3, so that
+  // beat was one chord in four near-identical spellings, which is exactly how it
+  // read. Shell, Quartal and UpperStructureTriad exist in the engine
+  // (src/voicings/recipe.rs) but never reach this screen.
+  //
+  // The chord is the axis with real variety here, and it is audible to someone
+  // who does not read a fretboard.
+  async b2() {
+    await open('/chords/browse/');
+    await page.waitForSelector('.voicing-item', { timeout: 30_000 });
+    await page.selectOption('#select-root', { label: B2_ROOT });
+    await page.selectOption('#select-family', { label: B2_FAMILY });
+    await page.waitForTimeout(800);
+
+    // One round trip instead of thousands: the list holds ~19k groups, so
+    // reading them one locator at a time would take longer than the take.
+    const picks = await page.$$eval(
+      '.voicing-item',
+      (nodes, wanted) => {
+        const found = {};
+        nodes.forEach((n, i) => {
+          const chord = n.querySelector('.v-chord')?.textContent?.trim();
+          const recipe = n.querySelector('.v-recipe')?.textContent?.trim();
+          // drop2 is the most idiomatic guitar spelling of the four on offer,
+          // so the comparison across chords is not muddied by the voicing type.
+          if (recipe === 'drop2' && wanted.includes(chord) && found[chord] === undefined) {
+            found[chord] = i;
+          }
+        });
+        return wanted.map((c) => ({ chord: c, index: found[c] })).filter((p) => p.index !== undefined);
+      },
+      B2_CHORDS
+    );
+    console.log(`[b2] ${picks.map((p) => `${p.chord}@${p.index}`).join(' ')}`);
+    if (picks.length < B2_CHORDS.length) {
+      console.log(`[b2] AVISO: faltaram ${B2_CHORDS.filter((c) => !picks.some((p) => p.chord === c)).join(', ')}`);
+    }
+
+    const items = page.locator('.voicing-item');
+    await settle();
+    for (const { index } of picks) {
+      await items.nth(index).click();
+      await wait(450);
+      await page.click('button.play-btn:has-text("Strum")');
+      await wait(2400);
+    }
+    // Let the last chord ring: the transition is built on top of the ring.
+    await wait(1600);
+  },
+
+  // Same chart, loose voice leading.
+  async b3a() {
+    await stellaWith('Free');
+  },
+  // Same chart, tight voice leading: the hand moves less.
+  async b3b() {
+    await stellaWith('Tight');
+  },
+
+  // A single-note étude over the changes.
+  async b4a() {
+    await gmcLine(false);
+  },
+  // Reshuffled scales, a different étude over the same changes.
+  async b4b() {
+    await gmcLine(true);
+  },
+
+  // The closing shot: one lush chord, strummed once, left to ring. A musical
+  // full stop, not a fade. The composition zooms out over this ring.
+  async b5() {
+    await open('/chords/browse/');
+    await page.waitForSelector('.voicing-item', { timeout: 30_000 });
+    await page.selectOption('#select-root', { label: 'C' });
+    await page.selectOption('#select-family', { label: 'Major' });
+    await page.waitForTimeout(800);
+
+    const index = await page.$$eval('.voicing-item', (nodes) => {
+      for (let i = 0; i < nodes.length; i++) {
+        const chord = nodes[i].querySelector('.v-chord')?.textContent?.trim();
+        const recipe = nodes[i].querySelector('.v-recipe')?.textContent?.trim();
+        if (chord === 'Cmaj7#11' && recipe === 'drop2') return i;
+      }
+      return -1;
+    });
+    console.log(`[b5] Cmaj7#11 drop2 @ ${index}`);
+    if (index >= 0) await page.locator('.voicing-item').nth(index).click();
+    await wait(500);
+
+    await settle();
+    await page.click('button.play-btn:has-text("Arpeggio")');
+    await wait(7000);   // let it ring out; the zoom-out lives here
+  }
+};
+
+async function stellaWith(movement) {
+  await openTune('/chords/tune/', 'Stella by Starlight');
+  await page.click('button.solve-btn');
+  await page.waitForSelector('button.action-btn:has-text("Play all")');
+  await page.fill('#bpm-input', TEMPOS['Stella by Starlight']);
+  await enableBass();
+  await page.click('button.toggle-btn:has-text("Constraints")');
+  await page
+    .locator('.constraint-row', { hasText: 'Movement' })
+    .locator(`button.filter-btn:has-text("${movement}")`)
+    .click();
+  await page.click('button.solve-btn');
+  await settle();
+  await page.click('button.action-btn:has-text("Play all")');
+  await wait(14_000);
+}
+
+async function gmcLine(shuffle) {
+  await openTune('/gmc/tune/', "Moment's Notice");
+  await page.click('button.generate-btn');
+  await page.waitForSelector('button.action-btn:has-text("Play")');
+  await page.fill('#gmc-bpm', TEMPOS["Moment's Notice"]);
+  await enableBass();
+  if (shuffle) {
+    await page.click('button.scales-btn:has-text("Cores")');
+    await page.waitForTimeout(900);
+  }
+  await settle();
+  await page.click('button.action-btn:has-text("Play")');
+  await wait(14_000);
+}
+
+const run = beats[BEAT];
+if (!run) {
+  console.error(`BEAT desconhecido: ${BEAT}. Use um de: ${Object.keys(beats).join(', ')}`);
+  await browser.close();
+  process.exit(1);
+}
+await run();
+await browser.close();

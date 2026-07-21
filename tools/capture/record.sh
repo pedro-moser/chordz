@@ -14,10 +14,28 @@ OUT=${1:?uso: record.sh saida.mkv driver.mjs}
 DRIVER=${2:?uso: record.sh saida.mkv driver.mjs}
 
 DISPLAY_NUM=${DISPLAY_NUM:-99}
-W=${CAPTURE_W:-1600}
-H=${CAPTURE_H:-1000}
+# The browser lays out at LOGICAL_W x LOGICAL_H CSS pixels and renders each of
+# them at CAPTURE_SCALE device pixels (--force-device-scale-factor in the
+# drivers), so the Xvfb screen has to be the scaled size. Same layout, denser
+# pixels: a tight crop on the fretboard stays sharp instead of being an upscale
+# of a small source, which was half of why the first reel looked bad.
+LOGICAL_W=${LOGICAL_W:-1600}
+LOGICAL_H=${LOGICAL_H:-1000}
+CAPTURE_SCALE=${CAPTURE_SCALE:-1.5}
+W=$(awk "BEGIN{printf \"%d\", $LOGICAL_W * $CAPTURE_SCALE}")
+H=$(awk "BEGIN{printf \"%d\", $LOGICAL_H * $CAPTURE_SCALE}")
+W=$((W - W % 2)); H=$((H - H % 2))   # x264 + yuv420p need even dimensions
 FPS=${CAPTURE_FPS:-30}
 SINK=chordz_cap
+export LOGICAL_W LOGICAL_H CAPTURE_SCALE
+
+# pactl finds the PipeWire socket through XDG_RUNTIME_DIR. Some non-login
+# shells (an agent harness, a cron job) start with it unset, and then every
+# pactl call fails with "Connection refused" even though pipewire-pulse is
+# running perfectly. Fall back to the conventional path for this uid.
+if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
 
 # Resolve OUT/DRIVER to absolute paths so this script works no matter which
 # directory it was invoked from.
@@ -76,7 +94,7 @@ pactl list short sinks | grep -q "$SINK" || { echo "sink $SINK nao subiu" >&2; e
 PROGRESS=$(mktemp)
 ffmpeg -hide_banner -loglevel warning -y \
   -progress "$PROGRESS" \
-  -f x11grab -framerate "$FPS" -video_size "${W}x${H}" -i ":$DISPLAY_NUM" \
+  -f x11grab -draw_mouse 0 -framerate "$FPS" -video_size "${W}x${H}" -i ":$DISPLAY_NUM" \
   -f pulse -i "${SINK}.monitor" \
   -c:v libx264 -preset ultrafast -crf 16 -pix_fmt yuv420p \
   -c:a flac \
