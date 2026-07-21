@@ -17,7 +17,7 @@ const config = {
 			// GitHub Pages serves the site under /chordz. Dev and preview keep ''.
 			base: process.env.BASE_PATH ?? '',
 			// Absolute asset paths, so they do not depend on how deep the route
-			// they were rendered from sits. Safe here: the app ships no <base> tag.
+			// they were rendered from sits.
 			relative: false
 		}
 	}
