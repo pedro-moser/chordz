@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import Select from '$lib/components/Select.svelte';
   import { getRoots, getFamilies, generateVoicings } from '$lib/wasm';
@@ -8,8 +9,8 @@
   import { playStrum, playArpeggio } from '$lib/audio';
 
   const chordTabs = [
-    { label: 'Browse', href: '/chords/browse' },
-    { label: 'Tune', href: '/chords/tune' },
+    { label: 'Browse', href: `${base}/chords/browse` },
+    { label: 'Tune', href: `${base}/chords/tune` },
   ];
 
   interface VoicingGroup {

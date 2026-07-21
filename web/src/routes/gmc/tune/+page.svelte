@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import { generateGmcLine, shellEtudePreset, validScalesForChart, getPresets, getPairs, getAllScales } from '$lib/wasm';
   import { scheduleNotes, scheduleBassLine, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
@@ -8,8 +9,8 @@
   import { PATTERN_PRESETS } from '$lib/patternPresets';
 
   const gmcTabs = [
-    { label: 'Browse', href: '/gmc/browse' },
-    { label: 'Tune', href: '/gmc/tune' },
+    { label: 'Browse', href: `${base}/gmc/browse` },
+    { label: 'Tune', href: `${base}/gmc/tune` },
   ];
 
   const FIGURE_LABELS = ['Eighth', 'Sixteenth', 'Triplet'];

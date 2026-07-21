@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
 
   onMount(() => {
-    goto('/gmc/browse', { replaceState: true });
+    goto(`${base}/gmc/browse`, { replaceState: true });
   });
 </script>

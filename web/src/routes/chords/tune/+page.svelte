@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import VoicingFretboard from '$lib/components/VoicingFretboard.svelte';
   import ChartGrid from '$lib/components/ChartGrid.svelte';
@@ -8,8 +9,8 @@
   import type { SolvedChange, SolverConfig, Preset } from '$lib/wasm';
 
   const chordTabs = [
-    { label: 'Browse', href: '/chords/browse' },
-    { label: 'Tune', href: '/chords/tune' },
+    { label: 'Browse', href: `${base}/chords/browse` },
+    { label: 'Tune', href: `${base}/chords/tune` },
   ];
 
   const ALL_RECIPES = ['shell', 'closed', 'drop2', 'drop3', 'rless-a', 'rless-b', 'quartal', 'upper', 'triads'];

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { base } from '$app/paths';
+
   interface Props {
     active: 'chords' | 'gmc';
   }
@@ -7,11 +9,11 @@
 </script>
 
 <nav class="rail">
-  <a href="/chords/browse" class="rail-item" class:active={active === 'chords'}>
+  <a href="{base}/chords/browse" class="rail-item" class:active={active === 'chords'}>
     <span class="rail-icon">♫</span>
     <span class="rail-label">Chords</span>
   </a>
-  <a href="/gmc/browse" class="rail-item" class:active={active === 'gmc'}>
+  <a href="{base}/gmc/browse" class="rail-item" class:active={active === 'gmc'}>
     <span class="rail-icon">◆</span>
     <span class="rail-label">GMC</span>
   </a>

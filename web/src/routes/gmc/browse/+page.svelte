@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import Select from '$lib/components/Select.svelte';
   import Fretboard from '$lib/components/Fretboard.svelte';
@@ -24,8 +25,8 @@
   );
 
   const gmcTabs = [
-    { label: 'Browse', href: '/gmc/browse' },
-    { label: 'Tune', href: '/gmc/tune' },
+    { label: 'Browse', href: `${base}/gmc/browse` },
+    { label: 'Tune', href: `${base}/gmc/tune` },
   ];
 </script>
 
