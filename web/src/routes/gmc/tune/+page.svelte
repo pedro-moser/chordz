@@ -635,10 +635,17 @@
           height={tabSvgHeight}
           class="tab-svg"
         >
+          <!--
+            The staff's top line sits 26px down inside its 96px block, not at the very top.
+            Stems reach about an octave (24.5px) beyond their notehead and beams sit at the
+            stem tip, so a staff pinned near y=0 pushes the beams of high stem-up groups to
+            negative y, where the SVG clips them. 26 leaves headroom above and still clears
+            the lowest notehead (the open low E lands ~52px under the top line) below.
+          -->
           <StaffNotation
             measures={measures}
             grid={staffGrid}
-            top={12}
+            top={26}
             t1Color={T1_COLOR}
             t2Color={T2_COLOR}
           />
