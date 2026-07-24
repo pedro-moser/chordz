@@ -153,3 +153,33 @@ export function splitSpan(
     };
   });
 }
+
+/**
+ * The rests a measure needs: every stretch of the measure no event covers.
+ *
+ * Events are assumed sorted by beat and non-overlapping, which is what the line
+ * engine emits — a held note advances the cursor past the slots it occupies.
+ */
+export function restFigures(
+  events: Array<{ beat: number; duration: number }>,
+  measureStart: number,
+  measureBeats: number,
+  grid: Grid,
+  measureStarts: number[],
+): Figure[] {
+  const end = measureStart + measureBeats;
+  const rests: Figure[] = [];
+  let cursor = measureStart;
+
+  for (const e of events) {
+    if (e.beat - cursor > 1e-6) {
+      rests.push(...splitSpan(cursor, e.beat - cursor, grid, measureStarts));
+    }
+    cursor = Math.max(cursor, e.beat + e.duration);
+  }
+  if (end - cursor > 1e-6) {
+    rests.push(...splitSpan(cursor, end - cursor, grid, measureStarts));
+  }
+  // Rests are never tied.
+  return rests.map((r) => ({ ...r, tiedToNext: false }));
+}

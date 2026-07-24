@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { staffStep, ledgerSteps, splitSpan, GRIDS } from './notation';
+import { staffStep, ledgerSteps, splitSpan, GRIDS, restFigures } from './notation';
 
 describe('staffStep', () => {
   it('puts written E4 on the bottom line', () => {
@@ -92,5 +92,49 @@ describe('splitSpan', () => {
     expect(total(splitSpan(0, 2.5, eighth, bars))).toBeCloseTo(2.5);
     expect(total(splitSpan(3, 2, eighth, bars))).toBeCloseTo(2);
     expect(total(splitSpan(0, 1 / 3, GRIDS.triplet, bars))).toBeCloseTo(1 / 3);
+  });
+});
+
+describe('restFigures', () => {
+  const grid = GRIDS.eighth;
+  const bars = [0, 4];
+
+  it('returns nothing when the measure is full', () => {
+    const events = [
+      { beat: 0, duration: 2 },
+      { beat: 2, duration: 2 },
+    ];
+    expect(restFigures(events, 0, 4, grid, bars)).toEqual([]);
+  });
+
+  it('fills a leading gap from a pickup rest', () => {
+    // lead_rest of 2 eighth slots: the measure starts with one beat of silence.
+    const events = [{ beat: 1, duration: 3 }];
+    const rests = restFigures(events, 0, 4, grid, bars);
+    expect(rests).toHaveLength(1);
+    expect(rests[0].beat).toBe(0);
+    expect(rests[0].beats).toBeCloseTo(1);
+  });
+
+  it('fills a trailing gap', () => {
+    const events = [{ beat: 0, duration: 2 }];
+    const rests = restFigures(events, 0, 4, grid, bars);
+    expect(rests.reduce((a, r) => a + r.beats, 0)).toBeCloseTo(2);
+  });
+
+  it('fills a gap in the middle', () => {
+    const events = [
+      { beat: 0, duration: 1 },
+      { beat: 3, duration: 1 },
+    ];
+    const rests = restFigures(events, 0, 4, grid, bars);
+    expect(rests.reduce((a, r) => a + r.beats, 0)).toBeCloseTo(2);
+    expect(rests[0].beat).toBeCloseTo(1);
+  });
+
+  it('fills an entirely empty measure', () => {
+    const rests = restFigures([], 4, 4, grid, bars);
+    expect(rests.reduce((a, r) => a + r.beats, 0)).toBeCloseTo(4);
+    expect(rests[0].beat).toBe(4);
   });
 });
