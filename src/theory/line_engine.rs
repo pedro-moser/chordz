@@ -1,4 +1,5 @@
 use crate::theory::chart::Chart;
+use crate::theory::contour::resolve_cell;
 use crate::theory::gmc::{self, TriadPairSet};
 use crate::theory::line_pattern::{
     Connector, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId,
@@ -265,7 +266,7 @@ pub fn generate_line(
         ]);
         spellings.push(spelling::spell_scale(&change.root, change.quality, scale));
     }
-    run_pattern(chart, config, &ladders, &spellings)
+    run_pattern(chart, config, fretboard, &ladders, &spellings)
 }
 
 /// Walk the pattern over the per-chord inversion ladders. Each block plays one grip (so the
@@ -275,6 +276,7 @@ pub fn generate_line(
 fn run_pattern(
     chart: &Chart,
     config: &LineConfig,
+    fretboard: &Fretboard,
     ladders: &[[TriadLadder; 2]],
     spellings: &[[Option<Spelled>; 12]],
 ) -> Vec<NoteEvent> {
@@ -358,6 +360,20 @@ fn run_pattern(
         let count = block.count as usize;
         let mut active_chord = chord_idx;
         let mut silenced = false;
+        // Contour blocks resolve a whole cell at once (note k depends on notes 0..k of its
+        // cell), so cache the current cell and serve it by offset. `None` keeps the legacy
+        // per-note path untouched.
+        let cell_len = block.contour.as_ref().map(|c| c.len()).unwrap_or(0);
+        let mut cell: Vec<FretNote> = Vec::new();
+        // `usize::MAX` means "no cell resolved yet". Emptiness cannot carry that meaning:
+        // `resolve_cell` legitimately returns an empty vector when the contour is not
+        // expressible in this region, and that answer must not trigger a re-resolve per note.
+        let mut cell_start = usize::MAX;
+        // Set when a mid-block chord change moves the cursor onto a different grip while `k`
+        // is still inside the cached cell's span. The `k`-vs-`cell_start` check alone can't see
+        // this (the span hasn't been exhausted), so it needs its own signal to force a re-resolve
+        // against the new grip rather than silently serving notes computed from the old one.
+        let mut cell_stale = false;
         for k in 0..count {
             if slots >= total_events {
                 break 'blocks;
@@ -382,9 +398,40 @@ fn run_pattern(
                 };
                 active_chord = chord_now;
                 cursor_chord[ti] = chord_now;
+                // The cached cell was resolved against the OLD chord's grip; a mid-block glue
+                // just moved the cursor onto a different grip (possibly a different chord's
+                // ladder entirely), so the cache is stale regardless of where k sits relative to
+                // cell_start. Force a fresh resolve on the next note.
+                cell_stale = true;
             }
             let ladder = &ladders[active_chord][ti];
-            let note = note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, k);
+            let note = if cell_len > 0 {
+                if cell_start == usize::MAX || k >= cell_start + cell_len || cell_stale {
+                    // Re-align to the cell's own boundary (a multiple of cell_len from the
+                    // block's start) rather than to `k` itself: a stale-cache re-resolve can
+                    // land mid-cell (k not a boundary), and resolving from `k` would shift which
+                    // rank of the contour each remaining note gets.
+                    cell_start = k - (k % cell_len);
+                    cell = resolve_cell(
+                        &ladder.grips[cursor[ti]],
+                        &ladder.pcs,
+                        &config.positions,
+                        fretboard,
+                        block,
+                        cell_start / cell_len,
+                        last_midi,
+                    );
+                    cell_stale = false;
+                }
+                // An empty cell means the contour is not expressible in this region — the
+                // resolver refuses rather than inventing an out-of-region note. Fall back to
+                // the legacy per-note walk, which always yields a note from the current grip.
+                cell.get(k - cell_start)
+                    .copied()
+                    .unwrap_or_else(|| note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, k))
+            } else {
+                note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, k)
+            };
             // The block's last note sustains `1 + hold_last` grid slots; others take one.
             let hold = if k + 1 == count {
                 block.hold_last as usize
@@ -1140,6 +1187,92 @@ mod tests {
                 cross[0].midi,
                 cross[1].midi
             );
+        }
+    }
+
+    /// A one-block pattern carrying a contour.
+    fn contour_config(count: u8, shape: Shape, contour: Vec<u8>) -> LineConfig {
+        LineConfig {
+            pattern: Pattern {
+                name: "test",
+                blocks: vec![PatternBlock {
+                    count,
+                    direction: Direction::Ascending,
+                    triad: TriadId::T1,
+                    shape,
+                    anchor: Anchor::Nearest,
+                    hold_last: 0,
+                    lead_rest: 0,
+                    connector: Connector::default(),
+                    contour: Some(contour),
+                }],
+            },
+            figure: RhythmicFigure::Eighth,
+            positions: PositionSet::from_base_frets(&[5]),
+        }
+    }
+
+    #[test]
+    fn ascending_contour_reproduces_the_legacy_ascending_walk() {
+        // <1 2 3> must be byte-identical to Monotonic + Ascending. This is the non-regression
+        // guarantee the whole design rests on — assert on full event vectors, not spot checks.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 | G7 |").unwrap();
+
+        let legacy = shaped_config(3, TriadId::T1, Shape::Monotonic, Anchor::Nearest);
+        let want = generate_line(&chart, &[], &fb, &PAIRS[0], &legacy);
+
+        let with_contour = contour_config(3, Shape::Monotonic, vec![1, 2, 3]);
+        let got = generate_line(&chart, &[], &fb, &PAIRS[0], &with_contour);
+
+        let key = |e: &NoteEvent| (e.string, e.fret, e.midi, e.beat.to_bits());
+        assert_eq!(
+            got.iter().map(key).collect::<Vec<_>>(),
+            want.iter().map(key).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn descending_contour_reproduces_the_legacy_descending_walk() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 | G7 |").unwrap();
+
+        let mut legacy = shaped_config(3, TriadId::T1, Shape::Monotonic, Anchor::Nearest);
+        legacy.pattern.blocks[0].direction = Direction::Descending;
+        let want = generate_line(&chart, &[], &fb, &PAIRS[0], &legacy);
+
+        let with_contour = contour_config(3, Shape::Monotonic, vec![3, 2, 1]);
+        let got = generate_line(&chart, &[], &fb, &PAIRS[0], &with_contour);
+
+        let key = |e: &NoteEvent| (e.string, e.fret, e.midi);
+        assert_eq!(
+            got.iter().map(key).collect::<Vec<_>>(),
+            want.iter().map(key).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_scrambled_contour_shapes_the_emitted_line() {
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = contour_config(3, Shape::Monotonic, vec![3, 1, 2]);
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        let midis: Vec<i32> = events.iter().take(3).map(|e| e.midi).collect();
+        assert!(midis[0] > midis[2], "first note must be the highest");
+        assert!(midis[1] < midis[2], "second note must be the lowest");
+    }
+
+    #[test]
+    fn a_contour_cycles_over_a_longer_block() {
+        // count=6 with a 3-contour is two identical cells — the same cycling rule Shape::Order uses.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = contour_config(6, Shape::Monotonic, vec![2, 3, 1]);
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        let midis: Vec<i32> = events.iter().take(6).map(|e| e.midi).collect();
+        for cell in [&midis[0..3], &midis[3..6]] {
+            assert!(cell[1] > cell[0], "rank 3 sits at position 1");
+            assert!(cell[2] < cell[0], "rank 1 sits at position 2");
         }
     }
 }
