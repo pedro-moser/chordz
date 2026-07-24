@@ -24,6 +24,7 @@
   } from '$lib/tabLayout';
   import StaffNotation, { STAFF_BLOCK_HEIGHT } from '$lib/components/StaffNotation.svelte';
   import { GRIDS, type GridKind } from '$lib/notation';
+  import { CONTOURS, contourPoints } from '$lib/contour';
 
   const gmcTabs = [
     { label: 'Browse', href: `${base}/gmc/browse` },
@@ -333,6 +334,14 @@
     pattern = [...pattern];
   }
 
+  // Contour: ordinal register shape for a 3-note cell (1 = lowest .. n = highest). Undefined
+  // restores the plain directional walk. Mirrors setBlockConnector — a pattern-state edit that
+  // the user applies with the Generate button, like every other per-block control.
+  function setBlockContour(idx: number, ranks: number[] | undefined) {
+    pattern[idx] = { ...pattern[idx], contour: ranks };
+    pattern = [...pattern];
+  }
+
   function setBlockHold(idx: number, val: number) {
     pattern[idx] = { ...pattern[idx], holdLast: Math.max(0, Math.min(16, val || 0)) };
     pattern = [...pattern];
@@ -588,6 +597,29 @@
                 <option value={c.value} title={c.title}>{c.label}</option>
               {/each}
             </select>
+            {#if block.count === 3}
+              <div class="contour-row">
+                <button
+                  class="filter-btn"
+                  class:active={!block.contour}
+                  title="No contour — the ↑/↓ walk"
+                  onclick={() => setBlockContour(i, undefined)}>—</button>
+                {#each CONTOURS as c}
+                  <button
+                    class="filter-btn contour-btn"
+                    class:active={block.contour?.join() === c.ranks.join()}
+                    title={c.title}
+                    onclick={() => setBlockContour(i, [...c.ranks])}>
+                    <svg viewBox="0 0 30 20" width="30" height="20" aria-hidden="true">
+                      <polyline
+                        points={contourPoints(c.ranks, 30, 20).map((p) => `${p.x},${p.y}`).join(' ')}
+                        fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                {/each}
+              </div>
+            {/if}
             <input
               type="number" min="0" max="16" class="count-input"
               title="Hold the last note (extra grid steps)"
@@ -1490,5 +1522,24 @@
     color: var(--text-disabled);
     font-size: var(--font-label);
     padding-top: 24px;
+  }
+
+  /* Contour picker (3-note cells only) */
+  .contour-row {
+    display: flex;
+    gap: 2px;
+  }
+
+  .contour-btn {
+    width: 34px;
+    height: 24px;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .contour-btn svg {
+    display: block;
   }
 </style>
