@@ -618,7 +618,25 @@ fn parse_pattern_blocks(pattern_js: JsValue) -> Vec<crate::theory::line_pattern:
                 Some("random") => Connector::Random,
                 _ => Connector::VoiceLead,
             };
-            PatternBlock { count, direction, triad, shape, anchor, hold_last, lead_rest, connector, contour: None }
+            // Contour: an optional 1-based rank vector. Unlike `count`, an invalid contour is
+            // REJECTED rather than clamped — clamping would silently hand the player a
+            // different exercise from the one they asked for.
+            let contour = b["contour"].as_array().and_then(|arr| {
+                let ranks: Vec<u8> = arr
+                    .iter()
+                    .filter_map(|v| v.as_u64())
+                    .map(|r| r.min(u8::MAX as u64) as u8)
+                    .collect();
+                // A short `ranks` means some entry was not a number at all: reject, don't
+                // silently resolve a shorter contour than the payload asked for.
+                if ranks.len() == arr.len() && crate::theory::line_pattern::is_valid_contour(&ranks)
+                {
+                    Some(ranks)
+                } else {
+                    None
+                }
+            });
+            PatternBlock { count, direction, triad, shape, anchor, hold_last, lead_rest, connector, contour }
         })
         .collect()
 }

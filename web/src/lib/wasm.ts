@@ -207,6 +207,8 @@ export interface GmcPatternBlock {
   leadRest?: number;
   /** How this block's grip links to the next (inter-grip movement). Absent = voice-lead. */
   connector?: 'nearestUp' | 'nearestDown' | 'invertUp' | 'invertDown' | 'voiceLead' | 'random';
+  /** Ordinal register shape per cell, 1-based (1 = lowest). Must be a permutation of 1..n. */
+  contour?: number[];
 }
 
 export function generateGmcLine(
