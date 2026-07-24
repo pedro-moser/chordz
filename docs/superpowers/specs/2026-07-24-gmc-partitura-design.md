@@ -204,14 +204,21 @@ that turns a measure's events into everything the renderer needs to place glyphs
   where notating it at sounding pitch would need seven. The 12th-fret high E (sounding MIDI 76)
   writes as E6, three ledger lines above. Symmetric, and the whole guitar range fits in roughly 90px.
   Ledger lines are emitted at every even staff step beyond the staff's 0–8 range.
-- **Duration → figures.** Slot counts map to `(value, dots)`. A span that does not match a single
-  figure is split — first at barlines, then at beat divisions — into tied figures. In an eighth grid,
-  2.5 beats becomes a half tied to an eighth. Ties across barlines are explicit output, so the renderer
-  never has to reason about them.
-- **Rests.** The complement of the event spans within each measure. Same beat-splitting decomposition
-  as notes.
-- **Beam groups.** Events grouped by beat: 2 per beat for eighths, 4 for sixteenths, 3 for triplets.
-  A note extended by `hold_last` is not beamable and breaks the group. Triplet groups carry a flag so
+- **Duration → figures.** Slot counts map to `(value, dots)`. A span takes the largest printable
+  figure that fits up to the next barline, repeatedly, and the pieces are tied. In an eighth grid,
+  2.5 beats becomes a half tied to an eighth. A figure may straddle a beat boundary — a half note
+  starting on beat 1 is one figure, not two tied quarters — but never a barline. Ties across barlines
+  are explicit output, so the renderer never has to reason about them.
+  *Deliberately not done:* splitting at beat divisions to expose syncopation (writing an off-beat
+  half as eighth-quarter-eighth tied). The engine's spans are short and grid-aligned, so this costs
+  little today; it is the first thing to add if the rhythm vocabulary widens.
+- **Rests.** The complement of the event spans within each measure, decomposed through the same
+  function as notes. Rests consider notes still sounding from an earlier measure, so a note held
+  across a barline is never covered by a rest.
+- **Beam groups.** Notes grouped by beat. Beamability is decided by the PRINTED FIGURE — only values
+  of 8 or shorter carry a flag — not by sounding length, which is what lets an eighth beam with the
+  sixteenths beside it while keeping a triplet quarter (two slots, but printed as a quarter) out of
+  the beam. A note extended by `hold_last` past a flagged value breaks the group. Triplet groups carry a flag so
   the renderer draws the bracket and the `3`.
 - **Stem direction.** Per beam group, decided by the note furthest from the middle staff line; above
   the middle line stems point down, below they point up. Isolated notes decide individually.
@@ -226,7 +233,8 @@ accidentals (♯, ♭, ♮, 𝄫, 𝄪). Noteheads (rotated ellipses), stems, be
 lines and ties (quadratic béziers) are drawn from geometry, not glyphs.
 
 **New file `web/src/lib/components/StaffNotation.svelte`.** Renders an SVG `<g>`, not a standalone
-`<svg>`. It is mounted *inside* the existing tab `<svg>` so that one scroll container, one
+`<svg>`. It receives the whole line at once, not one measure at a time — a note held across a
+barline has to be filed into two measures simultaneously, which per-measure layout cannot express. It is mounted *inside* the existing tab `<svg>` so that one scroll container, one
 selected-measure highlight and one click target span staff and tab together — the Guitar Pro layout.
 Noteheads inherit the T1/T2 colours already used for the tab fret numbers, so the triad-pair reading
 survives into the notation.
@@ -311,6 +319,10 @@ chart + pattern
   than a responsive-design problem.
 - **WASM rebuild required.** The new `NoteEvent` fields mean the web bundle must be rebuilt before the
   staff shows anything; the rebuild toolchain has known path quirks.
+- **The staff must render under the figure the line was GENERATED with**, not the one currently
+  selected in the controls. The rhythmic-figure buttons do not regenerate the line, so deriving the
+  grid from the live control silently re-interprets existing events — measured, clicking Triplet
+  turned 256 beamed eighths into 256 unbeamed quarters while the tab sat unchanged.
 
 ## Out of Scope
 
