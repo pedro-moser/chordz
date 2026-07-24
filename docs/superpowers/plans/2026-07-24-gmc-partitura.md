@@ -1514,7 +1514,7 @@ Group notes by beat so their flags become beams, and decide which way the stems 
 - Consumes: `Grid`, `staffStep`, `Spelled` (Tasks 7–8)
 - Produces:
   - `export interface BeamGroup<T> { notes: T[]; stemUp: boolean; bracket: boolean }`
-  - `export function beamGroups<T extends { beat: number; beats: number; staffStep: number }>(notes: T[], grid: Grid): BeamGroup<T>[]`
+  - `export function beamGroups<T extends { beat: number; beats: number; staffStep: number; value: number }>(notes: T[], grid: Grid): BeamGroup<T>[]`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1524,7 +1524,12 @@ Append to `web/src/lib/notation.test.ts`:
 import { beamGroups } from './notation';
 
 describe('beamGroups', () => {
-  const note = (beat: number, beats: number, staffStep: number) => ({ beat, beats, staffStep });
+  const note = (beat: number, beats: number, staffStep: number, value = 8) => ({
+    beat,
+    beats,
+    staffStep,
+    value,
+  });
 
   it('beams two eighths per beat', () => {
     const groups = beamGroups(
@@ -1537,7 +1542,7 @@ describe('beamGroups', () => {
   });
 
   it('beams four sixteenths per beat', () => {
-    const notes = [0, 0.25, 0.5, 0.75].map((b) => note(b, 0.25, 0));
+    const notes = [0, 0.25, 0.5, 0.75].map((b) => note(b, 0.25, 0, 16));
     const groups = beamGroups(notes, GRIDS.sixteenth);
     expect(groups).toHaveLength(1);
     expect(groups[0].notes).toHaveLength(4);
@@ -1551,14 +1556,31 @@ describe('beamGroups', () => {
   });
 
   it('does not bracket a note that fills a whole beat', () => {
-    const groups = beamGroups([note(0, 1, 0)], GRIDS.triplet);
+    // Three triplet slots make a plain quarter (value 4) — no flag, so no beam, no bracket.
+    const groups = beamGroups([note(0, 1, 0, 4)], GRIDS.triplet);
     expect(groups[0].bracket).toBe(false);
   });
 
-  it('breaks the group at a note longer than one slot', () => {
-    // A hold_last note occupying a whole beat cannot be beamed to its neighbour.
-    const groups = beamGroups([note(0, 0.5, 0), note(0.5, 1.5, 0)], GRIDS.eighth);
+  it('breaks the group at a flagless note', () => {
+    // A hold_last landing note prints as a dotted quarter (value 4): no flag, no beam.
+    const groups = beamGroups([note(0, 0.5, 0), note(0.5, 1.5, 0, 4)], GRIDS.eighth);
     expect(groups).toHaveLength(2);
+  });
+
+  it('beams an eighth together with the sixteenths beside it', () => {
+    // A holdLast note on a sixteenth grid prints as an eighth. Standard engraving puts it
+    // under the same primary beam as the sixteenths sharing its beat; judging beamability
+    // by sounding length instead of printed value would strand it alone.
+    const groups = beamGroups(
+      [note(0, 0.25, 0, 16), note(0.25, 0.25, 1, 16), note(0.5, 0.5, 2, 8)],
+      GRIDS.sixteenth,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].notes).toHaveLength(3);
+  });
+
+  it('returns nothing for no notes', () => {
+    expect(beamGroups([], GRIDS.eighth)).toEqual([]);
   });
 
   it('stems down when the group sits above the middle line', () => {
@@ -1610,7 +1632,7 @@ export interface BeamGroup<T> {
  * carries a flagless value and ends its group. Stem direction is decided per group by
  * the note furthest from the middle line, so the whole beam points the same way.
  */
-export function beamGroups<T extends { beat: number; beats: number; staffStep: number }>(
+export function beamGroups<T extends { beat: number; beats: number; staffStep: number; value: number }>(
   notes: T[],
   grid: Grid,
 ): BeamGroup<T>[] {
@@ -1633,7 +1655,11 @@ export function beamGroups<T extends { beat: number; beats: number; staffStep: n
 
   for (const n of notes) {
     const beatIndex = Math.floor(n.beat + 1e-6);
-    const beamable = n.beats < 1 - 1e-6 && n.beats <= grid.step + 1e-6;
+    // Only figures that carry flags can be beamed: eighths and shorter, i.e. value >= 8.
+    // Judging by the printed value rather than by sounding length is what lets an eighth
+    // beam with the sixteenths beside it on a sixteenth grid, while still keeping a
+    // triplet quarter (two slots long, but value 4) out of the beam.
+    const beamable = n.value >= 8;
     if (beatIndex !== currentBeat || !beamable) {
       flush();
       currentBeat = beatIndex;
@@ -1652,7 +1678,7 @@ export function beamGroups<T extends { beat: number; beats: number; staffStep: n
 cd web && npm run test -- notation
 ```
 
-Expected: PASS, 27 tests.
+Expected: PASS, 29 tests.
 
 - [ ] **Step 5: Commit**
 
