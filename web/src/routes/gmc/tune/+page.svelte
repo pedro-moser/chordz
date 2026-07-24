@@ -7,6 +7,18 @@
   import { generateWalkingBass } from '$lib/wasm';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
   import { PATTERN_PRESETS } from '$lib/patternPresets';
+  import {
+    TAB_STRING_GAP,
+    TAB_MEASURE_WIDTH,
+    TAB_MARGIN_LEFT,
+    TAB_MARGIN_TOP,
+    TAB_CHORD_Y,
+    TAB_SCALE_Y_OFFSET,
+    STRING_LABELS,
+    tabX,
+    tabY,
+    measureX,
+  } from '$lib/tabLayout';
 
   const gmcTabs = [
     { label: 'Browse', href: `${base}/gmc/browse` },
@@ -392,14 +404,6 @@
   );
 
   // --- TAB SVG constants ---
-  const TAB_STRING_GAP = 18;
-  const TAB_MEASURE_WIDTH = 140;
-  const TAB_MARGIN_LEFT = 10;
-  const TAB_MARGIN_TOP = 28;
-  const TAB_CHORD_Y = 12;
-  const TAB_SCALE_Y_OFFSET = 16;
-  const STRING_LABELS = ['e', 'B', 'G', 'D', 'A', 'E'];
-
   let tabSvgWidth = $derived(TAB_MARGIN_LEFT + measures.length * TAB_MEASURE_WIDTH + 20);
   let tabSvgHeight = $derived(TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET + 14);
 
@@ -413,21 +417,6 @@
   let fbFretCount = $derived(fretRange.stretchEnd - fretRange.stretchStart + 1);
   let fbSvgWidth = $derived(FB_MARGIN_LEFT + fbFretCount * FB_FRET_WIDTH + 20);
   let fbSvgHeight = $derived(FB_MARGIN_TOP + 5 * FB_STRING_GAP + 30);
-
-  // Helper: get tab Y position for a string (engine string 0=low E, tab line 0=high e at top)
-  function tabY(engineString: number): number {
-    const tabLine = 5 - engineString;
-    return TAB_MARGIN_TOP + tabLine * TAB_STRING_GAP;
-  }
-
-  // Helper: get tab X position for a note event within its measure
-  function tabX(event: GmcLineEvent, measure: typeof measures[0]): number {
-    const measureStart = TAB_MARGIN_LEFT + measure.index * TAB_MEASURE_WIDTH;
-    const beatDuration = measure.chord.beats;
-    const relBeat = event.beat - measure.startBeat;
-    const fraction = relBeat / beatDuration;
-    return measureStart + 12 + fraction * (TAB_MEASURE_WIDTH - 24);
-  }
 
   // Helper: fretboard note position
   function fbNoteX(fret: number): number {
@@ -445,7 +434,7 @@
 
   function scrollToMeasure(idx: number) {
     if (!tabContainer) return;
-    const x = TAB_MARGIN_LEFT + idx * TAB_MEASURE_WIDTH;
+    const x = measureX(idx);
     const containerWidth = tabContainer.clientWidth;
     const scrollLeft = x - containerWidth / 3;
     tabContainer.scrollTo({ left: Math.max(0, scrollLeft), behavior: 'smooth' });
@@ -660,7 +649,7 @@
 
           <!-- Measures -->
           {#each measures as measure, mi}
-            {@const mx = TAB_MARGIN_LEFT + mi * TAB_MEASURE_WIDTH}
+            {@const mx = measureX(mi)}
 
             <!-- Selected measure highlight -->
             {#if mi === selectedMeasure}
@@ -750,9 +739,9 @@
           <!-- Final bar line -->
           {#if measures.length > 0}
             <line
-              x1={TAB_MARGIN_LEFT + measures.length * TAB_MEASURE_WIDTH}
+              x1={measureX(measures.length)}
               y1={TAB_MARGIN_TOP}
-              x2={TAB_MARGIN_LEFT + measures.length * TAB_MEASURE_WIDTH}
+              x2={measureX(measures.length)}
               y2={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP}
               stroke="var(--text-disabled)"
               stroke-width="2"
