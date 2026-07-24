@@ -6,6 +6,7 @@ use crate::theory::line_pattern::{
 use crate::theory::position::{FretNote, PositionSet};
 use crate::theory::scale_defaults;
 use crate::theory::scales::Scale;
+use crate::theory::spelling::{self, Spelled};
 use crate::theory::triad_shape::{inversion_ladder, TriadShape};
 use crate::voicings::fretboard::Fretboard;
 
@@ -19,6 +20,12 @@ pub struct NoteEvent {
     pub midi: i32,
     /// Sounding length in beats. Uniform (= the figure's grid) unless `hold_last` extends it.
     pub duration: f32,
+    /// Notation spelling: 0=C … 6=B.
+    pub step: u8,
+    /// Notation spelling: -2=bb … +2=##.
+    pub alter: i8,
+    /// Notation spelling: sounding octave, middle C is C4.
+    pub octave: i8,
 }
 
 pub struct LineConfig {
@@ -242,32 +249,35 @@ pub fn generate_line(
     pair: &TriadPairSet,
     config: &LineConfig,
 ) -> Vec<NoteEvent> {
-    // Per chord, build each triad's inversion ladder (the rungs a connector steps through),
-    // then walk the pattern over them.
-    let ladders: Vec<[TriadLadder; 2]> = chart
-        .changes
-        .iter()
-        .enumerate()
-        .map(|(i, change)| {
-            let scale = scale_overrides
-                .get(i)
-                .and_then(|opt| opt.and_then(|idx| Scale::ALL.get(idx)))
-                .unwrap_or_else(|| scale_defaults::default_scale(change.quality));
-            let (pcs_a, pcs_b) = gmc::resolve_pair(change.root_pc, scale, pair);
-            [
-                triad_ladder(fretboard, &config.positions, pcs_a),
-                triad_ladder(fretboard, &config.positions, pcs_b),
-            ]
-        })
-        .collect();
-    run_pattern(chart, config, &ladders)
+    // Per chord, build each triad's inversion ladder (the rungs a connector steps through)
+    // and the spelling table notation reads the line through, then walk the pattern.
+    let mut ladders: Vec<[TriadLadder; 2]> = Vec::with_capacity(chart.changes.len());
+    let mut spellings: Vec<[Option<Spelled>; 12]> = Vec::with_capacity(chart.changes.len());
+    for (i, change) in chart.changes.iter().enumerate() {
+        let scale = scale_overrides
+            .get(i)
+            .and_then(|opt| opt.and_then(|idx| Scale::ALL.get(idx)))
+            .unwrap_or_else(|| scale_defaults::default_scale(change.quality));
+        let (pcs_a, pcs_b) = gmc::resolve_pair(change.root_pc, scale, pair);
+        ladders.push([
+            triad_ladder(fretboard, &config.positions, pcs_a),
+            triad_ladder(fretboard, &config.positions, pcs_b),
+        ]);
+        spellings.push(spelling::spell_scale(&change.root, change.quality, scale));
+    }
+    run_pattern(chart, config, &ladders, &spellings)
 }
 
 /// Walk the pattern over the per-chord inversion ladders. Each block plays one grip (so the
 /// `1+1+1`/`2+1`/`1+2`, no-open-string guarantee holds); its connector chooses the next grip,
 /// and the hand voice-leads across chord changes. Timing (grid slots, holds, pickups) is the
 /// same integer-slot scheme as before.
-fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]]) -> Vec<NoteEvent> {
+fn run_pattern(
+    chart: &Chart,
+    config: &LineConfig,
+    ladders: &[[TriadLadder; 2]],
+    spellings: &[[Option<Spelled>; 12]],
+) -> Vec<NoteEvent> {
     let beat_dur = config.figure.beat_duration();
     let total_events = (chart.total_beats() / beat_dur).round() as usize;
 
@@ -382,6 +392,7 @@ fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]])
                 0
             };
             let step_slots = 1 + hold;
+            let spelled = spelling::spell_midi(&spellings[active_chord], note.midi);
             events.push(NoteEvent {
                 beat: beat_now,
                 string: note.string,
@@ -390,6 +401,9 @@ fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]])
                 pitch_class: note.pitch_class,
                 midi: note.midi,
                 duration: step_slots as f32 * beat_dur,
+                step: spelled.step,
+                alter: spelled.alter,
+                octave: spelled.octave,
             });
             last_midi = Some(note.midi);
             slots += step_slots;
@@ -1023,6 +1037,54 @@ mod tests {
                 e.pitch_class,
                 e.beat,
                 legal[idx]
+            );
+        }
+    }
+
+    #[test]
+    fn events_carry_functional_spelling() {
+        let chart = Chart::parse("t", "G7").unwrap();
+        let altered = Scale::ALL.iter().position(|s| s.name == "Altered").unwrap();
+        let config = LineConfig {
+            pattern: Pattern {
+                name: "t",
+                blocks: vec![PatternBlock::legacy(8, Direction::Ascending, TriadId::T1)],
+            },
+            figure: RhythmicFigure::Eighth,
+            positions: PositionSet::default(),
+        };
+        let events = generate_line(
+            &chart,
+            &[Some(altered)],
+            &Fretboard::standard_tuning(),
+            &PAIRS[0],
+            &config,
+        );
+
+        assert!(!events.is_empty(), "the fixture must produce notes");
+        for e in &events {
+            // Every spelling must round-trip to the pitch class it came from.
+            let natural = [0u8, 2, 4, 5, 7, 9, 11][e.step as usize];
+            let spelled_pc = (natural as i16 + e.alter as i16).rem_euclid(12) as u8;
+            assert_eq!(
+                spelled_pc, e.pitch_class,
+                "step {} alter {} does not spell pc {}",
+                e.step, e.alter, e.pitch_class
+            );
+            // G7 + Altered never needs a double accidental.
+            assert!(e.alter.abs() <= 1, "unexpected double accidental: {:?}", e);
+        }
+
+        // The third of G7 must read as B (step 6, natural), never as Cb.
+        if let Some(third) = events.iter().find(|e| e.pitch_class == 11) {
+            assert_eq!((third.step, third.alter), (6, 0), "third of G7 must be B");
+        }
+        // The #11 must read as C# (step 0, sharp), never as Db.
+        if let Some(sharp11) = events.iter().find(|e| e.pitch_class == 1) {
+            assert_eq!(
+                (sharp11.step, sharp11.alter),
+                (0, 1),
+                "#11 of G7 must be C#"
             );
         }
     }
