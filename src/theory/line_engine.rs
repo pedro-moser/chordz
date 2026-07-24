@@ -154,23 +154,21 @@ fn note_at(grip: &TriadShape, pcs: &[u8; 3], block: &PatternBlock, k: usize) -> 
     }
 }
 
-/// The note a rung would produce at block-position `cell_index` — the prediction both
-/// `glue_rung` and the no-repeat probe need before they commit to a rung.
+/// The note a rung would produce at block-position `pos` — the prediction both `glue_rung` and
+/// the no-repeat probe need before they commit to a rung.
 ///
-/// `cell_index` is the note's position within the whole block (both call sites pass the same
-/// value for `cell_index` and `k`; `k` alone feeds the `note_at` fallback). It must be split into
-/// a resolve-cell index and an intra-cell offset the SAME way the per-note cache in `run_pattern`
-/// does (`cell_start = pos - pos % cell_len`, then `cell.get(pos - cell_start)`) — otherwise this
+/// `pos` is the note's position within the whole block. It must be split into a resolve-cell
+/// index and an intra-cell offset the SAME way the per-note cache in `run_pattern` does
+/// (`cell_start = pos - pos % cell_len`, then `cell.get(pos - cell_start)`) — otherwise this
 /// predicts the cell's position-0 note while the block actually plays a different offset,
 /// picking a rung by a voice that is never sounded.
-fn first_note_of(
+fn rung_note_at(
     ladder: &TriadLadder,
     rung: usize,
     positions: &PositionSet,
     fretboard: &Fretboard,
     block: &PatternBlock,
-    cell_index: usize,
-    k: usize,
+    pos: usize,
     prev_midi: Option<i32>,
 ) -> FretNote {
     if let Some(contour) = &block.contour {
@@ -181,14 +179,14 @@ fn first_note_of(
             positions,
             fretboard,
             block,
-            cell_index / cell_len,
+            pos,
             prev_midi,
         );
-        if let Some(note) = cell.get(cell_index % cell_len) {
+        if let Some(note) = cell.get(pos % cell_len) {
             return *note;
         }
     }
-    note_at(&ladder.grips[rung], &ladder.pcs, block, k)
+    note_at(&ladder.grips[rung], &ladder.pcs, block, pos)
 }
 
 /// At a mid-block chord change, the rung of the NEW chord's ladder whose next note (the k-th
@@ -203,7 +201,7 @@ fn glue_rung(
     fretboard: &Fretboard,
 ) -> usize {
     let cost = |i: usize| {
-        let midi = first_note_of(ladder, i, positions, fretboard, block, k, k, Some(prev)).midi;
+        let midi = rung_note_at(ladder, i, positions, fretboard, block, k, Some(prev)).midi;
         match (midi - prev).abs() {
             0 => (2, 0),
             d @ (1 | 2) => (0, d),
@@ -394,13 +392,12 @@ fn run_pattern(
             let mut tries = 0;
             while len > 1
                 && tries < len
-                && first_note_of(
+                && rung_note_at(
                     ladder,
                     cursor[ti],
                     &config.positions,
                     fretboard,
                     block,
-                    0,
                     0,
                     last_midi,
                 )
@@ -469,13 +466,17 @@ fn run_pattern(
                     // land mid-cell (k not a boundary), and resolving from `k` would shift which
                     // rank of the contour each remaining note gets.
                     cell_start = k - (k % cell_len);
+                    // Pass `k`, not `cell_start`: `resolve_cell` derives the same cell boundary
+                    // from it (`k / cell_len == cell_start / cell_len`) but also recovers `k`'s
+                    // offset inside that cell, which it needs to glue the right note to
+                    // `last_midi` when this re-resolve landed mid-cell.
                     cell = resolve_cell(
                         &ladder.grips[cursor[ti]],
                         &ladder.pcs,
                         &config.positions,
                         fretboard,
                         block,
-                        cell_start / cell_len,
+                        k,
                         last_midi,
                     );
                     cell_stale = false;
@@ -1553,10 +1554,21 @@ mod tests {
         // Two chords per bar with sixteenths gives each chord two beats; a 3-cell straddles the
         // change. Cells must restart on the new ladder rather than resolve across two harmonies.
         //
-        // T1 of Dm7 under the default Dorian scale with PAIRS[0] resolves to the role-ordered
-        // pitch classes [E=4, G=7, B=11] — the same fixture the Order tests above rely on. So a
-        // note sounding during the Dm7 that carries any other pitch class can only have come from
-        // a cell resolved against a different chord.
+        // The property that matters is directional: cells always resolve against the currently
+        // active ladder, so every note sounding DURING the first chord necessarily carries that
+        // chord's pitch classes no matter what — asserting on that direction proves nothing (a
+        // prior version of this test did exactly that, and stayed green even with `|| cell_stale`
+        // deleted from the re-resolve condition in `run_pattern`, which is the guard that keeps a
+        // stale cell from leaking across the boundary). The failure mode this guards against is a
+        // stale cell — cached against the OLD chord's ladder — continuing to serve notes AFTER
+        // the change. So this test asserts on the notes sounding after the change: they must all
+        // carry the NEW chord's (G7) triad pitch classes, never a leftover from Dm7's cell.
+        //
+        // T1 of G7 under the default Mixolydian scale with PAIRS[0] resolves to the role-ordered
+        // pitch classes [A=9, C=0, E=4] — obtained by printing
+        // `gmc::resolve_pair(change.root_pc, scale_defaults::default_scale(change.quality),
+        // &PAIRS[0])` for the G7 change of this exact chart, the same way the Dm7 fixture
+        // above documents `[E=4, G=7, B=11]`.
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Dm7 G7 |").unwrap();
         let mut config = contour_config(6, Shape::Monotonic, vec![2, 3, 1], Direction::Ascending);
@@ -1565,13 +1577,13 @@ mod tests {
         assert!(!events.is_empty(), "the fixture must produce notes");
 
         let dm7_beats = chart.changes[0].beats;
-        let during_dm7: Vec<&NoteEvent> = events.iter().filter(|e| e.beat < dm7_beats).collect();
-        assert!(during_dm7.len() >= 4, "expected several notes inside the first chord");
-        for e in &during_dm7 {
+        let after_change: Vec<&NoteEvent> = events.iter().filter(|e| e.beat >= dm7_beats).collect();
+        assert!(after_change.len() >= 4, "expected several notes inside the second chord");
+        for e in &after_change {
             assert!(
-                [4, 7, 11].contains(&e.pitch_class),
-                "pitch class {} at beat {} does not belong to T1 of Dm7 — a cell leaked across \
-                 the chord change",
+                [9, 0, 4].contains(&e.pitch_class),
+                "pitch class {} at beat {} does not belong to T1 of G7 — a cell resolved \
+                 against the OLD chord (Dm7) leaked forward across the chord change",
                 e.pitch_class,
                 e.beat
             );

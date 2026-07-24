@@ -301,7 +301,8 @@
   }
 
   function setBlockCount(idx: number, val: number) {
-    pattern[idx] = { ...pattern[idx], count: Math.max(1, Math.min(6, val)) };
+    const count = Math.max(1, Math.min(6, val));
+    pattern[idx] = { ...pattern[idx], count, contour: count === 3 ? pattern[idx].contour : undefined };
     pattern = [...pattern];
   }
 

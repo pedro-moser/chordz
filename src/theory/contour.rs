@@ -34,6 +34,12 @@ const MAX_ASSIGNMENTS: usize = 512;
 
 /// Resolve one cell into fretboard notes, in playing order.
 ///
+/// `pos` is the note's absolute position within the block (not the cell) — the same index space
+/// as the caller's per-note loop. It picks out both which cell this is (`pos / contour.len()`)
+/// and, when the caller is resuming a cell it did not start (a mid-block chord change), which of
+/// that cell's own positions is about to sound (`pos % contour.len()`); see the `offset`/`anchor`
+/// wiring below for why that second part matters to voice-leading cost.
+///
 /// Returns an empty vector when the block carries no contour, when the contour is malformed
 /// (not a permutation of `1..=n`), or when some playing position has no in-region occurrence of
 /// its wanted pitch class — in every such case the caller is expected to fall back to its own
@@ -46,7 +52,7 @@ pub fn resolve_cell(
     positions: &PositionSet,
     fretboard: &Fretboard,
     block: &PatternBlock,
-    cell_index: usize,
+    pos: usize,
     prev_midi: Option<i32>,
 ) -> Vec<FretNote> {
     let contour = match &block.contour {
@@ -59,6 +65,13 @@ pub fn resolve_cell(
         return Vec::new();
     }
     let n = contour.len();
+    // `pos` is the note's absolute position within the block. `cell_index` (which cell) and
+    // `offset` (this cell's own position, 0-based) are the same split `run_pattern`'s cache uses
+    // (`cell_start = pos - pos % n`). A mid-block chord change can force a re-resolve when `pos`
+    // is not itself a cell boundary — the caller keeps serving from `offset` onward, so `offset`,
+    // not 0, is the position whose glue to `prev_midi` actually matters (see `Search::score`).
+    let cell_index = pos / n;
+    let offset = pos % n;
 
     // One candidate list per playing position: every in-region occurrence of its pitch class.
     let candidates: Vec<Vec<FretNote>> = (0..n)
@@ -107,6 +120,7 @@ pub fn resolve_cell(
         by_rank: &by_rank,
         grip_midis: grip.notes.iter().map(|note| note.midi).collect(),
         prev_midi,
+        anchor: offset,
         visited: 0,
         best: None,
         deepest: (0, vec![None; n]),
@@ -196,6 +210,11 @@ struct Search<'a> {
     by_rank: &'a [usize],
     grip_midis: Vec<i32>,
     prev_midi: Option<i32>,
+    /// Playing position whose note actually follows `prev_midi` in performance order — 0 unless
+    /// a mid-block chord change forced this cell to be re-resolved starting mid-cell (see
+    /// `resolve_cell`'s `offset`). The glue/repeat terms in `score` must anchor here, not at 0:
+    /// positions before `anchor` belong to this cell's shape but are never actually sounded.
+    anchor: usize,
     visited: usize,
     best: Option<(i32, Vec<FretNote>)>,
     deepest: (usize, Vec<Option<FretNote>>),
@@ -248,8 +267,8 @@ impl Search<'_> {
                 .filter(|note| !self.grip_midis.contains(&note.midi))
                 .count() as i32;
         if let Some(prev) = self.prev_midi {
-            cost += (cell[0].midi - prev).abs();
-            if cell[0].midi == prev {
+            cost += (cell[self.anchor].midi - prev).abs();
+            if cell[self.anchor].midi == prev {
                 cost += REPEAT;
             }
         }
@@ -539,6 +558,41 @@ mod tests {
         let got: Vec<i32> = cell.iter().map(|n| n.midi).collect();
         let want: Vec<i32> = grip.notes.iter().map(|n| n.midi).collect();
         assert_eq!(got, want, "short-circuit must keep the reused-string grip for <1 2 3>");
+    }
+
+    // --- Finding 4 (whole-branch review): the glue-to-`prev_midi` term must anchor on the
+    // position that actually sounds next, not on position 0, once a mid-block chord change
+    // forces `resolve_cell` to resume a cell it did not start. ---
+    #[test]
+    fn glue_anchor_targets_the_resumed_position_not_index_zero() {
+        // Fixture grip (C major triad, fret 4-9 region): [(str0,fret8,midi48,pc0),
+        // (str1,fret7,midi52,pc4), (str2,fret5,midi55,pc7)]. Scrambled contour <3,1,2> forces
+        // displacement (see `scrambled_contours_must_leave_the_grip`); measured directly via
+        // `occurrences`: pc0 -> [48,60,72], pc4 -> [52,64,64], pc7 -> [55,67]. Two strictly-
+        // ascending assignments both realize the contour: {60,52,55} and {72,64,67}.
+        //
+        // With `prev_midi = 65`: resolving from `pos = 0` (offset 0 — the cell's own note 0 is
+        // what follows `prev_midi`) must anchor on position 0's candidate and prefer {60,52,55}
+        // (60 is 5 semitones from 65; 72 is 7). Resolving from `pos = 1` (offset 1 — as if a
+        // mid-block chord change forced a re-resolve that resumes at this cell's position 1, the
+        // note that actually follows `prev_midi` in performance order) must instead anchor on
+        // position 1's candidate and prefer {72,64,67} (64 is 1 semitone from 65; 52 is 13).
+        // Both are measured by running the search, not derived by hand (see report).
+        let (fb, positions, grip, pcs) = fixture();
+        let block = block_with(vec![3, 1, 2], Shape::Monotonic);
+
+        let from_start = resolve_cell(&grip, &pcs, &positions, &fb, &block, 0, Some(65));
+        let midi_start: Vec<i32> = from_start.iter().map(|n| n.midi).collect();
+        assert_eq!(midi_start, vec![60, 52, 55], "offset 0 must anchor on position 0");
+
+        let mid_cell = resolve_cell(&grip, &pcs, &positions, &fb, &block, 1, Some(65));
+        let midi_mid: Vec<i32> = mid_cell.iter().map(|n| n.midi).collect();
+        assert_eq!(
+            midi_mid,
+            vec![72, 64, 67],
+            "offset 1 must anchor on position 1 — the note that actually follows prev_midi — \
+             not on position 0's stale candidate"
+        );
     }
 
     // The short-circuit must not over-apply: on this same reused-string grip, a genuinely
