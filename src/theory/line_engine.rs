@@ -1285,4 +1285,88 @@ mod tests {
             assert!(cell[2] < cell[0], "rank 1 sits at position 2");
         }
     }
+
+    /// Compute ordinal ranking (1-based) of a list of midis — the inverse permutation.
+    fn ranks_of(midis: &[i32]) -> Vec<u8> {
+        let mut sorted: Vec<i32> = midis.to_vec();
+        sorted.sort_unstable();
+        midis
+            .iter()
+            .map(|m| (sorted.iter().position(|s| *s == *m).unwrap() + 1) as u8)
+            .collect()
+    }
+
+    #[test]
+    fn order_with_contour_produces_the_requested_ordinal_shape() {
+        // Shape::Order(0,2,1) + contour(2,3,1) must emit notes with ordinal ranking [2,3,1]
+        // i.e. the first note is middle, the second is highest, the third is lowest.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 |").unwrap();
+        let config = LineConfig {
+            pattern: Pattern {
+                name: "test",
+                blocks: vec![PatternBlock {
+                    count: 3,
+                    direction: Direction::Ascending,
+                    triad: TriadId::T1,
+                    shape: Shape::Order(vec![0, 2, 1]),
+                    anchor: Anchor::Nearest,
+                    hold_last: 0,
+                    lead_rest: 0,
+                    connector: Connector::default(),
+                    contour: Some(vec![2, 3, 1]),
+                }],
+            },
+            figure: RhythmicFigure::Eighth,
+            positions: PositionSet::from_base_frets(&[5]),
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        let midis: Vec<i32> = events.iter().take(3).map(|e| e.midi).collect();
+        let ranking = ranks_of(&midis);
+        assert_eq!(ranking, vec![2, 3, 1]);
+    }
+
+    #[test]
+    #[ignore = "known gap, closed by Task 4: glue_rung predicts with note_at, not the resolved cell"]
+    fn order_with_contour_survives_a_mid_block_chord_change() {
+        // Shape::Order + contour across a mid-block chord change must not panic and
+        // must not emit consecutive duplicate pitches.
+        //
+        // Currently FAILS, and the failure is diagnostic rather than mysterious. With sixteenths
+        // the Dm7 fills 16 slots, so slot 16 is the first note of G7 and lands at k=4 of a
+        // 6-note block — a MID-BLOCK chord change. That path picks its rung through `glue_rung`,
+        // which still predicts a rung's note with `note_at`. For a contour block the note that
+        // actually sounds comes from `resolve_cell` instead, so the rung chosen to dodge a
+        // repeat is chosen by looking at a note that is never played. Observed emission:
+        //   [.., 64, 71, 55, 64, 64, 48, 57, ..]
+        //                        ^^^^^^ slots 15 and 16
+        // Task 4 routes `glue_rung` and the no-repeat probe through the resolved cell; remove
+        // this `#[ignore]` there and let this test be the proof.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 | G7 |").unwrap();
+        let config = LineConfig {
+            pattern: Pattern {
+                name: "test",
+                blocks: vec![PatternBlock {
+                    count: 6,
+                    direction: Direction::Ascending,
+                    triad: TriadId::T1,
+                    shape: Shape::Order(vec![0, 2, 1]),
+                    anchor: Anchor::Nearest,
+                    hold_last: 0,
+                    lead_rest: 0,
+                    connector: Connector::default(),
+                    contour: Some(vec![2, 3, 1]),
+                }],
+            },
+            figure: RhythmicFigure::Sixteenth,
+            positions: PositionSet::from_base_frets(&[5]),
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        assert!(!events.is_empty(), "generate_line produced no events");
+        let midis: Vec<i32> = events.iter().map(|e| e.midi).collect();
+        for window in midis.windows(2) {
+            assert_ne!(window[0], window[1], "found consecutive duplicate pitch");
+        }
+    }
 }
