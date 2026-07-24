@@ -2130,10 +2130,11 @@ export const CLEF_OCTAVE_TEXT = '8';
 
 /** Rests, anchored on the middle staff line, keyed by note value. */
 export const REST_PATHS: Record<number, string> = {
-  // Whole rest: a block hanging under the fourth line.
-  1: 'M-1.0,-1.0 h2.0 v1.0 h-2.0 z',
-  // Half rest: a block sitting on the middle line.
-  2: 'M-1.0,0.0 h2.0 v1.0 h-2.0 z',
+  // Whole rest: a block hanging UNDER the fourth line, i.e. filling staff steps 5-6.
+  // The anchor is the middle line (step 4) and y grows downward, so that is y -2 to -1.
+  1: 'M-1.0,-2.0 h2.0 v1.0 h-2.0 z',
+  // Half rest: a block sitting ON the middle line, filling staff steps 4-5, i.e. y -1 to 0.
+  2: 'M-1.0,-1.0 h2.0 v1.0 h-2.0 z',
   // Quarter rest.
   4: 'M-0.4,-2.0 L0.6,-0.7 L-0.2,0.2 L0.8,1.6 L0.2,1.9 C-0.6,1.0 -1.0,0.4 -0.5,-0.2 L-1.0,-0.9 z',
   // Eighth rest: one hook.
@@ -2329,7 +2330,8 @@ Create `web/src/lib/components/StaffNotation.svelte`:
           />
         {/if}
       {/each}
-      {#if group.notes.length > 1 && first.value >= 8}
+      {#if group.notes.length > 1}
+        <!-- Primary beam spans the whole group: every note in a group carries a flag. -->
         <line
           x1={first.x + (up ? 4 : -4)}
           y1={tipY}
@@ -2338,16 +2340,23 @@ Create `web/src/lib/components/StaffNotation.svelte`:
           stroke="var(--text)"
           stroke-width="2.4"
         />
-        {#if first.value >= 16}
-          <line
-            x1={first.x + (up ? 4 : -4)}
-            y1={tipY + (up ? 4 : -4)}
-            x2={last.x + (up ? 4 : -4)}
-            y2={tipY + (up ? 4 : -4)}
-            stroke="var(--text)"
-            stroke-width="2.4"
-          />
-        {/if}
+        <!--
+          Secondary beam is per adjacent PAIR, not per group. A group may legitimately mix
+          an eighth with sixteenths, and a group-wide flag would either drop the second beam
+          (making sixteenths read as eighths) or run it under the eighth's stem.
+        -->
+        {#each group.notes.slice(0, -1) as n, bi}
+          {#if n.value >= 16 && group.notes[bi + 1].value >= 16}
+            <line
+              x1={n.x + (up ? 4 : -4)}
+              y1={tipY + (up ? 4 : -4)}
+              x2={group.notes[bi + 1].x + (up ? 4 : -4)}
+              y2={tipY + (up ? 4 : -4)}
+              stroke="var(--text)"
+              stroke-width="2.4"
+            />
+          {/if}
+        {/each}
       {:else if first.value >= 8}
         <!-- Lone eighth or shorter: a flag, drawn as a short hook off the stem. -->
         <path
@@ -2390,7 +2399,17 @@ Create `web/src/lib/components/StaffNotation.svelte`:
         stroke-width={note.value <= 2 ? 1.2 : 0}
       />
       {#if note.dots === 1}
-        <circle cx={note.x + 7} cy={y(note.staffStep) - UNIT} r="1.1" fill={color} />
+        <!--
+          The dot always sits in a SPACE. A note on a line (even staff step) pushes it to
+          the space above; a note already in a space keeps its own height. A fixed offset
+          would put the dot of a space-note straight onto the line above.
+        -->
+        <circle
+          cx={note.x + 7}
+          cy={y(note.staffStep % 2 === 0 ? note.staffStep + 1 : note.staffStep)}
+          r="1.1"
+          fill={color}
+        />
       {/if}
       <!--
         The tie's partner is usually the next note in this measure, but for a note held
