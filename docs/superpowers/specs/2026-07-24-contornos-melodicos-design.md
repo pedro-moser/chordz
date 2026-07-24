@@ -204,6 +204,24 @@ base octave, so cells are pinned to a register floor and register never becomes 
 the previous block. Contour therefore *composes* with the existing `Connector` and voice-leading
 machinery instead of fighting it.
 
+### When the region admits only one realization
+
+A narrow region plus a scrambled contour can collapse the feasible set to exactly one assignment.
+The cost function then decides nothing — grip affinity, compactness and repeat-avoidance all become
+inert, because there is nothing to choose between. If that single assignment happens to open on the
+pitch that just sounded, the line repeats a note across the boundary and no rung choice can prevent
+it: the constraint is feasibility, not search.
+
+The engine's answer is to **keep the contour and stay in the region**, accepting the repeat. Both
+alternatives are worse: breaking the contour silently would make the exercise a lie about its own
+shape, and leaving the region would break the position discipline the whole line generator is built
+on. A repeat is audible and self-explanatory to the player; the other two failures are invisible.
+
+This is why the resolver still carries a repeat penalty (`REPEAT = 48`) even though it cannot help
+here — it avoids repeats in every case where an alternative exists, which is the common one. The
+forced case is covered by its own test, `a_single_position_region_can_force_a_repeated_pitch`, so
+the trade-off is recorded rather than rediscovered as a bug.
+
 ### Degradation
 
 If no realization satisfies strict monotonicity within the region, the contour is unrealizable
