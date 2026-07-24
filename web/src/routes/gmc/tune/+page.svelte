@@ -18,6 +18,9 @@
     tabX,
     tabY,
     measureX,
+    splitSystems,
+    systemOf,
+    SYSTEM_GAP,
   } from '$lib/tabLayout';
   import StaffNotation, { STAFF_BLOCK_HEIGHT } from '$lib/components/StaffNotation.svelte';
   import { GRIDS, type GridKind } from '$lib/notation';
@@ -420,10 +423,21 @@
   );
 
   // --- TAB SVG constants ---
-  let tabSvgWidth = $derived(TAB_MARGIN_LEFT + measures.length * TAB_MEASURE_WIDTH + 20);
-  let tabSvgHeight = $derived(
-    STAFF_BLOCK_HEIGHT + TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET + 14,
+  /**
+   * Systems, not one endless strip. A sixteenth-note measure needs roughly 280px to engrave
+   * and a 32-bar tune would run 9000px wide, showing four bars at a time. So the line wraps
+   * to the container's width and stacks, and the container scrolls DOWN instead of across.
+   */
+  let containerWidth = $state(0);
+  let systems = $derived(splitSystems(measures.length, containerWidth || 1200));
+  /** Height of one system's tab block, below its staff. */
+  const TAB_BLOCK_HEIGHT = TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET + 14;
+  const SYSTEM_HEIGHT = STAFF_BLOCK_HEIGHT + TAB_BLOCK_HEIGHT + SYSTEM_GAP;
+  /** Every system but the last is full width, so the first one sets the SVG width. */
+  let systemWidth = $derived(
+    TAB_MARGIN_LEFT + (systems[0]?.count ?? 1) * TAB_MEASURE_WIDTH + 20,
   );
+  let tabSvgHeight = $derived(Math.max(1, systems.length) * SYSTEM_HEIGHT);
 
   // --- FRETBOARD SVG constants ---
   const FB_STRING_GAP = 28;
@@ -450,12 +464,12 @@
   // Scroll tab to keep selected measure visible
   let tabContainer: HTMLDivElement | undefined = $state(undefined);
 
+  /** Bring the SYSTEM holding a measure into view. Systems stack, so this scrolls down. */
   function scrollToMeasure(idx: number) {
     if (!tabContainer) return;
-    const x = measureX(idx);
-    const containerWidth = tabContainer.clientWidth;
-    const scrollLeft = x - containerWidth / 3;
-    tabContainer.scrollTo({ left: Math.max(0, scrollLeft), behavior: 'smooth' });
+    const si = systemOf(systems, idx);
+    const top = si * SYSTEM_HEIGHT - SYSTEM_HEIGHT / 3;
+    tabContainer.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   }
 
   // Watch selectedMeasure changes
@@ -640,151 +654,155 @@
       </div>
 
       <!-- Tab SVG -->
-      <div class="tab-container" bind:this={tabContainer}>
-        <svg
-          width={tabSvgWidth}
-          height={tabSvgHeight}
-          class="tab-svg"
-        >
-          <!--
-            The staff's top line sits 34px down inside its 104px block, not at the very top.
-            Stems reach about an octave (24.5px) beyond their notehead and beams sit at the
-            stem tip, so a staff pinned near y=0 pushes the beams of high stem-up groups (and,
-            on the sixteenth/triplet grids, flats and triplet brackets sitting above the beam)
-            to negative y, where the SVG clips them. Measured across all three rhythmic grids,
-            34 is the smallest offset that keeps every glyph at y >= 0; it still clears the
-            lowest notehead (the open low E lands ~52px under the top line) below.
-          -->
-          <StaffNotation
-            measures={measures}
-            grid={staffGrid}
-            top={34}
-            t1Color={T1_COLOR}
-            t2Color={T2_COLOR}
-          />
+      <div class="tab-container" bind:this={tabContainer} bind:clientWidth={containerWidth}>
+        <svg width={systemWidth} height={tabSvgHeight} class="tab-svg">
+          {#each systems as sys, si}
+            <g transform="translate(0, {si * SYSTEM_HEIGHT})">
+              <!--
+                The staff's top line sits 34px down inside its 104px block, not at the very
+                top. Stems reach about an octave beyond their notehead and beams sit at the
+                stem tip, so a staff pinned near y=0 pushes the beams of high stem-up groups
+                (and, on the sixteenth/triplet grids, flats and triplet brackets above the
+                beam) to negative y, where the SVG clips them. Measured across all three
+                rhythmic grids, 34 is the smallest offset that keeps every glyph at y >= 0.
 
-          <g transform="translate(0, {STAFF_BLOCK_HEIGHT})">
-
-          <!-- String lines -->
-          {#each STRING_LABELS as label, si}
-            <line
-              x1={0}
-              y1={TAB_MARGIN_TOP + si * TAB_STRING_GAP}
-              x2={tabSvgWidth}
-              y2={TAB_MARGIN_TOP + si * TAB_STRING_GAP}
-              stroke="var(--border)"
-              stroke-width="1"
-            />
-            <text
-              x={3}
-              y={TAB_MARGIN_TOP + si * TAB_STRING_GAP + 4}
-              fill="var(--text-disabled)"
-              font-size="9"
-              font-family="var(--font)"
-            >{label}</text>
-          {/each}
-
-          <!-- Measures -->
-          {#each measures as measure, mi}
-            {@const mx = measureX(mi)}
-
-            <!-- Selected measure highlight -->
-            {#if mi === selectedMeasure}
-              <rect
-                x={mx}
-                y={TAB_CHORD_Y - 4 - STAFF_BLOCK_HEIGHT}
-                width={TAB_MEASURE_WIDTH}
-                height={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET + 8 - TAB_CHORD_Y + 4 + STAFF_BLOCK_HEIGHT}
-                fill="var(--primary-muted)"
-                opacity="0.25"
-                rx="3"
+                `measures` is the WHOLE line on purpose — layoutLine needs every measure to
+                place a note held across a barline. The component draws only `sys`.
+              -->
+              <StaffNotation
+                measures={measures}
+                grid={staffGrid}
+                system={sys}
+                isLast={si === systems.length - 1}
+                top={34}
+                t1Color={T1_COLOR}
+                t2Color={T2_COLOR}
               />
-            {/if}
 
-            <!-- Click target (keyboard nav handled globally via onKey) -->
-            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
-            <rect
-              x={mx}
-              y={-STAFF_BLOCK_HEIGHT}
-              width={TAB_MEASURE_WIDTH}
-              height={tabSvgHeight}
-              fill="transparent"
-              style="cursor: pointer"
-              role="button"
-              tabindex="-1"
-              onclick={() => selectedMeasure = mi}
-            />
+              <g transform="translate(0, {STAFF_BLOCK_HEIGHT})">
+                <!-- String lines -->
+                {#each STRING_LABELS as label, sti}
+                  <line
+                    x1={0}
+                    y1={TAB_MARGIN_TOP + sti * TAB_STRING_GAP}
+                    x2={measureX(sys.count)}
+                    y2={TAB_MARGIN_TOP + sti * TAB_STRING_GAP}
+                    stroke="var(--border)"
+                    stroke-width="1"
+                  />
+                  <text
+                    x={3}
+                    y={TAB_MARGIN_TOP + sti * TAB_STRING_GAP + 4}
+                    fill="var(--text-disabled)"
+                    font-size="9"
+                    font-family="var(--font)"
+                  >{label}</text>
+                {/each}
 
-            <!-- Bar line -->
-            <line
-              x1={mx}
-              y1={TAB_MARGIN_TOP}
-              x2={mx}
-              y2={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP}
-              stroke="var(--text-disabled)"
-              stroke-width="1"
-            />
+                <!-- This system's measures, redrawn at local indices -->
+                {#each Array.from({ length: sys.count }) as _, li}
+                  {@const mi = sys.first + li}
+                  {@const measure = measures[mi]}
+                  {@const local = { ...measure, index: li }}
+                  {@const mx = measureX(li)}
 
-            <!-- Chord name -->
-            <text
-              x={mx + TAB_MEASURE_WIDTH / 2}
-              y={TAB_CHORD_Y}
-              text-anchor="middle"
-              fill="var(--text)"
-              font-size="11"
-              font-weight="700"
-              font-family="var(--font)"
-            >{measure.chord.chord}</text>
+                  <!-- Selected measure highlight -->
+                  {#if mi === selectedMeasure}
+                    <rect
+                      x={mx}
+                      y={TAB_CHORD_Y - 4 - STAFF_BLOCK_HEIGHT}
+                      width={TAB_MEASURE_WIDTH}
+                      height={TAB_BLOCK_HEIGHT + STAFF_BLOCK_HEIGHT - TAB_CHORD_Y + 4}
+                      fill="var(--primary-muted)"
+                      opacity="0.25"
+                      rx="3"
+                    />
+                  {/if}
 
-            <!-- Scale name below strings -->
-            <text
-              x={mx + TAB_MEASURE_WIDTH / 2}
-              y={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET}
-              text-anchor="middle"
-              fill={measure.chord.isOverride ? '#ffc83c' : 'var(--text-disabled)'}
-              font-size="9"
-              font-family="var(--font)"
-            >{measure.chord.activeScale}</text>
+                  <!-- Click target (keyboard nav handled globally via onKey) -->
+                  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
+                  <rect
+                    x={mx}
+                    y={-STAFF_BLOCK_HEIGHT}
+                    width={TAB_MEASURE_WIDTH}
+                    height={STAFF_BLOCK_HEIGHT + TAB_BLOCK_HEIGHT}
+                    fill="transparent"
+                    style="cursor: pointer"
+                    role="button"
+                    tabindex="-1"
+                    onclick={() => selectedMeasure = mi}
+                  />
 
-            <!-- Notes -->
-            {#each measure.events as event}
-              {@const x = tabX(event, measure)}
-              {@const y = tabY(event.string)}
-              {@const color = event.triad === 'T1' ? T1_COLOR : T2_COLOR}
-              <rect
-                x={x - 7}
-                y={y - 7}
-                width="14"
-                height="14"
-                rx="2"
-                fill="var(--bg-base)"
-                opacity="0.85"
-              />
-              <text
-                {x}
-                {y}
-                text-anchor="middle"
-                dominant-baseline="central"
-                fill={color}
-                font-size="11"
-                font-weight="700"
-                font-family="var(--font)"
-              >{event.fret}</text>
-            {/each}
+                  <!-- Bar line -->
+                  <line
+                    x1={mx}
+                    y1={TAB_MARGIN_TOP}
+                    x2={mx}
+                    y2={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP}
+                    stroke="var(--text-disabled)"
+                    stroke-width="1"
+                  />
+
+                  <!-- Chord name -->
+                  <text
+                    x={mx + TAB_MEASURE_WIDTH / 2}
+                    y={TAB_CHORD_Y}
+                    text-anchor="middle"
+                    fill="var(--text)"
+                    font-size="11"
+                    font-weight="700"
+                    font-family="var(--font)"
+                  >{measure.chord.chord}</text>
+
+                  <!-- Scale name below strings -->
+                  <text
+                    x={mx + TAB_MEASURE_WIDTH / 2}
+                    y={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET}
+                    text-anchor="middle"
+                    fill={measure.chord.isOverride ? '#ffc83c' : 'var(--text-disabled)'}
+                    font-size="9"
+                    font-family="var(--font)"
+                  >{measure.chord.activeScale}</text>
+
+                  <!-- Notes -->
+                  {#each measure.events as event}
+                    {@const x = tabX(event, local)}
+                    {@const y = tabY(event.string)}
+                    {@const color = event.triad === 'T1' ? T1_COLOR : T2_COLOR}
+                    <rect
+                      x={x - 7}
+                      y={y - 7}
+                      width="14"
+                      height="14"
+                      rx="2"
+                      fill="var(--bg-base)"
+                      opacity="0.85"
+                    />
+                    <text
+                      {x}
+                      {y}
+                      text-anchor="middle"
+                      dominant-baseline="central"
+                      fill={color}
+                      font-size="11"
+                      font-weight="700"
+                      font-family="var(--font)"
+                    >{event.fret}</text>
+                  {/each}
+                {/each}
+
+                <!-- Closing bar line for this system; heavy only on the last one -->
+                <line
+                  x1={measureX(sys.count)}
+                  y1={TAB_MARGIN_TOP}
+                  x2={measureX(sys.count)}
+                  y2={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP}
+                  stroke="var(--text-disabled)"
+                  stroke-width={si === systems.length - 1 ? 2 : 1}
+                />
+              </g>
+            </g>
           {/each}
-
-          <!-- Final bar line -->
-          {#if measures.length > 0}
-            <line
-              x1={measureX(measures.length)}
-              y1={TAB_MARGIN_TOP}
-              x2={measureX(measures.length)}
-              y2={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP}
-              stroke="var(--text-disabled)"
-              stroke-width="2"
-            />
-          {/if}
-          </g>
         </svg>
       </div>
 
@@ -1384,8 +1402,11 @@
   /* Tab container */
   .tab-container {
     flex-shrink: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
+    /* Systems stack, so this scrolls down. Horizontal overflow would mean a system
+       wider than the container, which splitSystems exists to prevent. */
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: 52vh;
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 6px;

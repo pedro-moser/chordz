@@ -5,7 +5,13 @@
 
 <script lang="ts">
   import { layoutLine, STAFF_LINE_GAP, type Grid, type MeasureLayout } from '$lib/notation';
-  import { measureX, TAB_MEASURE_WIDTH, TAB_MARGIN_LEFT, type MeasureLike } from '$lib/tabLayout';
+  import {
+    measureX,
+    TAB_MEASURE_WIDTH,
+    TAB_MARGIN_LEFT,
+    type MeasureLike,
+    type System,
+  } from '$lib/tabLayout';
   import {
     SMUFL_FONT,
     CLEF_8VB,
@@ -17,15 +23,24 @@
   import type { GmcLineEvent } from '$lib/wasm';
 
   interface Props {
+    /**
+     * The WHOLE line, always — not this system's slice. `layoutLine` needs every measure
+     * to place a note held across a barline, and a partial slice silently resurrects the
+     * bug it exists to prevent. The component draws only `system`'s share of the result.
+     */
     measures: Array<MeasureLike & { events: GmcLineEvent[] }>;
     grid: Grid;
+    /** Which run of measures this instance draws. */
+    system: System;
+    /** True for the final system, which closes with a heavy barline. */
+    isLast: boolean;
     /** Y of the staff's top line within the parent SVG. */
     top: number;
     t1Color: string;
     t2Color: string;
   }
 
-  let { measures, grid, top, t1Color, t2Color }: Props = $props();
+  let { measures, grid, system, isLast, top, t1Color, t2Color }: Props = $props();
 
   // ---------------------------------------------------------------------------
   // Engraving metrics.
@@ -82,7 +97,14 @@
   // measures at once, which a per-measure call cannot do.
   let layouts = $derived(layoutLine(measures, grid) as MeasureLayout[]);
 
-  let staffWidth = $derived(TAB_MARGIN_LEFT + measures.length * TAB_MEASURE_WIDTH);
+  /**
+   * How far left to slide this system's content. Layout x values are absolute along the
+   * whole line, so system N's first measure has to come back to the left gutter.
+   */
+  let shift = $derived(system.first * TAB_MEASURE_WIDTH);
+  /** Last measure index this system draws, exclusive. */
+  let systemEnd = $derived(system.first + system.count);
+  let staffWidth = $derived(TAB_MARGIN_LEFT + system.count * TAB_MEASURE_WIDTH);
 
   /**
    * An accidental hangs to the LEFT of its notehead, clearing it by its own width — a
@@ -117,7 +139,13 @@
     font-family={SMUFL_FONT}>{CLEF_8VB}</text
   >
 
+  <!--
+    Everything below is positioned in whole-line coordinates, so one translate brings this
+    system's slice back to the gutter. The staff lines and clef above are already local.
+  -->
+  <g transform="translate({-shift}, 0)">
   {#each layouts as layout, mi}
+    {#if mi >= system.first && mi < systemEnd}
     <!-- Barline -->
     <line
       x1={measureX(mi)}
@@ -267,9 +295,12 @@
         across a barline it is the FIRST note of the next measure — that continuation is
         exactly what layoutLine exists to produce, and looking only within this measure
         would silently drop the curve on the one case the whole design is about.
-        Measures render into the same coordinate space, so the lookup just crosses arrays.
+        Measures render into the same coordinate space, so the lookup just crosses arrays —
+        but only WITHIN this system. Across a system break the partner is on the next line
+        entirely, and a curve reaching for it would stretch back across the whole staff.
       -->
-      {@const tiePartner = layout.notes[ni + 1] ?? layouts[mi + 1]?.notes[0]}
+      {@const tiePartner =
+        layout.notes[ni + 1] ?? (mi + 1 < systemEnd ? layouts[mi + 1]?.notes[0] : undefined)}
       {#if note.tiedToNext && tiePartner}
         <path
           d="M{note.x + NOTEHEAD_RX},{y(note.staffStep) + 0.6 * SP} Q{(note.x +
@@ -283,17 +314,22 @@
         />
       {/if}
     {/each}
+    {/if}
   {/each}
 
-  <!-- Final barline -->
-  {#if measures.length > 0}
+  <!--
+    Every system closes with a barline. Only the last one gets the heavy one — a barline at
+    a system break is just a bar, not the end of the piece.
+  -->
+  {#if system.count > 0}
     <line
-      x1={measureX(measures.length)}
+      x1={measureX(systemEnd)}
       y1={y(8)}
-      x2={measureX(measures.length)}
+      x2={measureX(systemEnd)}
       y2={y(0)}
       stroke="var(--text-disabled)"
-      stroke-width={THICK_BARLINE}
+      stroke-width={isLast ? THICK_BARLINE : THIN_BARLINE}
     />
   {/if}
+  </g>
 </g>
