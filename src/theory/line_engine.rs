@@ -1429,16 +1429,65 @@ mod tests {
         // Shape::Order + contour across a mid-block chord change must not panic and
         // must not emit consecutive duplicate pitches.
         //
-        // Currently FAILS, and the failure is diagnostic rather than mysterious. With sixteenths
-        // the Dm7 fills 16 slots, so slot 16 is the first note of G7 and lands at k=4 of a
-        // 6-note block — a MID-BLOCK chord change. That path picks its rung through `glue_rung`,
-        // which still predicts a rung's note with `note_at`. For a contour block the note that
-        // actually sounds comes from `resolve_cell` instead, so the rung chosen to dodge a
-        // repeat is chosen by looking at a note that is never played. Observed emission:
-        //   [.., 64, 71, 55, 64, 64, 48, 57, ..]
-        //                        ^^^^^^ slots 15 and 16
-        // Task 4 routes `glue_rung` and the no-repeat probe through the resolved cell; remove
-        // this `#[ignore]` there and let this test be the proof.
+        // With sixteenths the Dm7 fills 16 slots, so slot 16 is the first note of G7 and lands
+        // at k=4 of a 6-note block — a MID-BLOCK chord change. That path picks its rung through
+        // `glue_rung`, and for a contour block the note that actually sounds comes from
+        // `resolve_cell`. Task 4 routed `glue_rung` and the no-repeat probe through the resolved
+        // cell so the rung is chosen by looking at the note that is actually played.
+        //
+        // The region is deliberately two positions wide (`from_base_frets(&[5, 9])`), not one.
+        // A single narrow position here admits exactly one contour-satisfying assignment on each
+        // side of the chord change, so no rung choice — and no cost term — can avoid the repeat;
+        // that forced-singleton case is its own test,
+        // `a_single_position_region_can_force_a_repeated_pitch`. This test needs a region that
+        // actually offers alternatives, so a failure here is meaningful: it would mean rung
+        // prediction stopped going through the resolved cell, not that the region ran out of room.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 | G7 |").unwrap();
+        let config = LineConfig {
+            pattern: Pattern {
+                name: "test",
+                blocks: vec![PatternBlock {
+                    count: 6,
+                    direction: Direction::Ascending,
+                    triad: TriadId::T1,
+                    shape: Shape::Order(vec![0, 2, 1]),
+                    anchor: Anchor::Nearest,
+                    hold_last: 0,
+                    lead_rest: 0,
+                    connector: Connector::default(),
+                    contour: Some(vec![2, 3, 1]),
+                }],
+            },
+            figure: RhythmicFigure::Sixteenth,
+            positions: PositionSet::from_base_frets(&[5, 9]),
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        assert!(!events.is_empty(), "generate_line produced no events");
+        let midis: Vec<i32> = events.iter().map(|e| e.midi).collect();
+        for window in midis.windows(2) {
+            assert_ne!(window[0], window[1], "found consecutive duplicate pitch");
+        }
+    }
+
+    #[test]
+    fn a_single_position_region_can_force_a_repeated_pitch() {
+        // A DELIBERATE TRADE-OFF, not an unfixed bug. Read this before "fixing" it.
+        //
+        // Same setup as `order_with_contour_survives_a_mid_block_chord_change`, but confined to
+        // ONE position. In that window, `Shape::Order([0,2,1])` with contour <2 3 1> admits
+        // exactly one assignment satisfying the ranking on each side of the chord change. When
+        // the feasible set has one element the cost function decides nothing — grip affinity,
+        // compactness and the REPEAT penalty are all inert — so if that single assignment opens
+        // on the pitch that just sounded, the line repeats it and no rung choice can intervene.
+        //
+        // Faced with break-the-contour / leave-the-region / repeat-a-pitch, the engine repeats.
+        // The other two fail silently: a broken contour makes the exercise lie about its own
+        // shape, and leaving the region breaks the position discipline the line exists to
+        // practise. A repeated pitch is audible, so the player can see what happened.
+        //
+        // What this test locks down: the contour is still honoured, every note is still in the
+        // region, and the repeat is real rather than incidental.
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Dm7 | G7 |").unwrap();
         let config = LineConfig {
@@ -1460,10 +1509,42 @@ mod tests {
             positions: PositionSet::from_base_frets(&[5]),
         };
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
-        assert!(!events.is_empty(), "generate_line produced no events");
-        let midis: Vec<i32> = events.iter().map(|e| e.midi).collect();
-        for window in midis.windows(2) {
-            assert_ne!(window[0], window[1], "found consecutive duplicate pitch");
+        assert!(events.len() >= 3, "fixture must produce at least one full cell");
+
+        // The contour survives: the first cell, safely inside the Dm7, ranks 2-3-1.
+        let cell: Vec<i32> = events.iter().take(3).map(|e| e.midi).collect();
+        let mut sorted = cell.clone();
+        sorted.sort_unstable();
+        let ranks: Vec<usize> = cell
+            .iter()
+            .map(|m| sorted.iter().position(|s| s == m).unwrap() + 1)
+            .collect();
+        assert_eq!(ranks, vec![2, 3, 1], "contour was abandoned, not just repeated");
+
+        // The region survives: every emitted note is playable inside the one position.
+        let every_pc: Vec<u8> = (0..12).collect();
+        let legal: Vec<i32> = config
+            .positions
+            .find_notes(&fb, &every_pc)
+            .iter()
+            .map(|n| n.midi)
+            .collect();
+        for e in &events {
+            assert!(
+                legal.contains(&e.midi),
+                "midi {} at beat {} escaped the single-position region",
+                e.midi,
+                e.beat
+            );
         }
+
+        // And the repeat really is there — if this ever stops holding, the feasible set widened
+        // and the comment above needs revisiting, so failing here is informative either way.
+        let midis: Vec<i32> = events.iter().map(|e| e.midi).collect();
+        assert!(
+            midis.windows(2).any(|w| w[0] == w[1]),
+            "expected a forced repeated pitch in a single-position region; \
+             if this is gone the trade-off documented above no longer applies"
+        );
     }
 }

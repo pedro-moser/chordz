@@ -22,6 +22,13 @@ const SAME_STRING: i32 = 24;
 /// which genuinely needs displacement can pay it, large enough that nothing drifts for free.
 const OFF_GRIP: i32 = 6;
 
+/// Cost of the cell's first note landing on the same midi as the note that just sounded. Twice
+/// `SAME_STRING` so it dominates every other term but still cannot saturate `i32`. The engine
+/// treats a repeated pitch as a defect everywhere else it decides notes — `solver.rs`'s
+/// `REPEAT_PENALTY` and `run_pattern`'s no-repeat probe both steer away from it — so the cost
+/// search here should too, whenever more than one feasible assignment exists to steer between.
+const REPEAT: i32 = 48;
+
 /// Enumeration guard. Real cells settle in a few dozen assignments; this only bounds pathology.
 const MAX_ASSIGNMENTS: usize = 512;
 
@@ -242,6 +249,9 @@ impl Search<'_> {
                 .count() as i32;
         if let Some(prev) = self.prev_midi {
             cost += (cell[0].midi - prev).abs();
+            if cell[0].midi == prev {
+                cost += REPEAT;
+            }
         }
         cost
     }
@@ -544,5 +554,28 @@ mod tests {
         let cell_midis: Vec<i32> = cell.iter().map(|n| n.midi).collect();
         assert_ne!(cell_midis, grip_midis, "a scrambled contour must not short-circuit to the grip");
         assert_eq!(ranks_of(&cell), vec![3, 1, 2]);
+    }
+
+    #[test]
+    fn zzz_debug_widened_region_occurrences() {
+        let fb = Fretboard::standard_tuning();
+        let narrow = PositionSet::from_base_frets(&[5]);
+        let wide = PositionSet::from_base_frets(&[5, 9]);
+        for pc in [9u8, 0, 4] {
+            eprintln!(
+                "G7 T1 pc={} narrow={:?} wide={:?}",
+                pc,
+                occurrences(&narrow, &fb, pc).iter().map(|n| n.midi).collect::<Vec<_>>(),
+                occurrences(&wide, &fb, pc).iter().map(|n| n.midi).collect::<Vec<_>>()
+            );
+        }
+        for pc in [4u8, 7, 11] {
+            eprintln!(
+                "Dm7 T1 pc={} narrow={:?} wide={:?}",
+                pc,
+                occurrences(&narrow, &fb, pc).iter().map(|n| n.midi).collect::<Vec<_>>(),
+                occurrences(&wide, &fb, pc).iter().map(|n| n.midi).collect::<Vec<_>>()
+            );
+        }
     }
 }
