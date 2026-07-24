@@ -24,10 +24,11 @@ export const CLEF_OCTAVE_TEXT = '8';
 
 /** Rests, anchored on the middle staff line, keyed by note value. */
 export const REST_PATHS: Record<number, string> = {
-  // Whole rest: a block hanging under the fourth line.
-  1: 'M-1.0,-1.0 h2.0 v1.0 h-2.0 z',
-  // Half rest: a block sitting on the middle line.
-  2: 'M-1.0,0.0 h2.0 v1.0 h-2.0 z',
+  // Whole rest: a block hanging UNDER the fourth line, i.e. filling staff steps 5-6.
+  // The anchor is the middle line (step 4) and y grows downward, so that is y -2 to -1.
+  1: 'M-1.0,-2.0 h2.0 v1.0 h-2.0 z',
+  // Half rest: a block sitting ON the middle line, filling staff steps 4-5, i.e. y -1 to 0.
+  2: 'M-1.0,-1.0 h2.0 v1.0 h-2.0 z',
   // Quarter rest.
   4: 'M-0.4,-2.0 L0.6,-0.7 L-0.2,0.2 L0.8,1.6 L0.2,1.9 C-0.6,1.0 -1.0,0.4 -0.5,-0.2 L-1.0,-0.9 z',
   // Eighth rest: one hook.
