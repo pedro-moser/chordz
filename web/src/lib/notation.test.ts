@@ -138,3 +138,61 @@ describe('restFigures', () => {
     expect(rests[0].beat).toBe(4);
   });
 });
+
+import { beamGroups } from './notation';
+
+describe('beamGroups', () => {
+  const note = (beat: number, beats: number, staffStep: number) => ({ beat, beats, staffStep });
+
+  it('beams two eighths per beat', () => {
+    const groups = beamGroups(
+      [note(0, 0.5, 0), note(0.5, 0.5, 1), note(1, 0.5, 2), note(1.5, 0.5, 3)],
+      GRIDS.eighth,
+    );
+    expect(groups).toHaveLength(2);
+    expect(groups[0].notes).toHaveLength(2);
+    expect(groups[1].notes).toHaveLength(2);
+  });
+
+  it('beams four sixteenths per beat', () => {
+    const notes = [0, 0.25, 0.5, 0.75].map((b) => note(b, 0.25, 0));
+    const groups = beamGroups(notes, GRIDS.sixteenth);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].notes).toHaveLength(4);
+  });
+
+  it('brackets a triplet group of three', () => {
+    const notes = [0, 1 / 3, 2 / 3].map((b) => note(b, 1 / 3, 0));
+    const groups = beamGroups(notes, GRIDS.triplet);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].bracket).toBe(true);
+  });
+
+  it('does not bracket a note that fills a whole beat', () => {
+    const groups = beamGroups([note(0, 1, 0)], GRIDS.triplet);
+    expect(groups[0].bracket).toBe(false);
+  });
+
+  it('breaks the group at a note longer than one slot', () => {
+    // A hold_last note occupying a whole beat cannot be beamed to its neighbour.
+    const groups = beamGroups([note(0, 0.5, 0), note(0.5, 1.5, 0)], GRIDS.eighth);
+    expect(groups).toHaveLength(2);
+  });
+
+  it('stems down when the group sits above the middle line', () => {
+    // Middle line is staff step 4.
+    const groups = beamGroups([note(0, 0.5, 6), note(0.5, 0.5, 7)], GRIDS.eighth);
+    expect(groups[0].stemUp).toBe(false);
+  });
+
+  it('stems up when the group sits below the middle line', () => {
+    const groups = beamGroups([note(0, 0.5, 1), note(0.5, 0.5, 0)], GRIDS.eighth);
+    expect(groups[0].stemUp).toBe(true);
+  });
+
+  it('lets the note furthest from the middle line decide a mixed group', () => {
+    // Step 0 is 4 away from the middle; step 5 is only 1 away. The low note wins.
+    const groups = beamGroups([note(0, 0.5, 0), note(0.5, 0.5, 5)], GRIDS.eighth);
+    expect(groups[0].stemUp).toBe(true);
+  });
+});

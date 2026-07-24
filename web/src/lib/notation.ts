@@ -183,3 +183,55 @@ export function restFigures(
   // Rests are never tied.
   return rests.map((r) => ({ ...r, tiedToNext: false }));
 }
+
+/** The middle staff line (B4 written) — the pivot for stem direction. */
+const MIDDLE_STEP = 4;
+
+export interface BeamGroup<T> {
+  notes: T[];
+  stemUp: boolean;
+  /** True for a triplet group, which prints a bracket and a 3. */
+  bracket: boolean;
+}
+
+/**
+ * Group notes into beams, one group per beat.
+ *
+ * A note longer than one grid slot cannot be beamed — a `hold_last` landing note
+ * carries a flagless value and ends its group. Stem direction is decided per group by
+ * the note furthest from the middle line, so the whole beam points the same way.
+ */
+export function beamGroups<T extends { beat: number; beats: number; staffStep: number }>(
+  notes: T[],
+  grid: Grid,
+): BeamGroup<T>[] {
+  const groups: BeamGroup<T>[] = [];
+  let current: T[] = [];
+  let currentBeat = -1;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    const furthest = current.reduce((best, n) =>
+      Math.abs(n.staffStep - MIDDLE_STEP) > Math.abs(best.staffStep - MIDDLE_STEP) ? n : best,
+    );
+    groups.push({
+      notes: current,
+      stemUp: furthest.staffStep < MIDDLE_STEP,
+      bracket: grid.kind === 'triplet' && current.length > 1,
+    });
+    current = [];
+  };
+
+  for (const n of notes) {
+    const beatIndex = Math.floor(n.beat + 1e-6);
+    const beamable = n.beats < 1 - 1e-6 && n.beats <= grid.step + 1e-6;
+    if (beatIndex !== currentBeat || !beamable) {
+      flush();
+      currentBeat = beatIndex;
+    }
+    current.push(n);
+    if (!beamable) flush();
+  }
+  flush();
+  return groups;
+}
