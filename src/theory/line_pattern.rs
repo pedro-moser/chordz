@@ -138,6 +138,32 @@ impl Anchor {
     }
 }
 
+/// The longest cell the resolver will enumerate. 8! assignments is already far past anything
+/// musical; the bound exists so a hostile wasm payload cannot make the search explode.
+pub const MAX_CONTOUR_LEN: usize = 8;
+
+/// A contour is valid iff it is a permutation of `1..=c.len()` — every rank present exactly
+/// once. Rejects the empty vector and anything longer than `MAX_CONTOUR_LEN`.
+pub fn is_valid_contour(c: &[u8]) -> bool {
+    let n = c.len();
+    if n == 0 || n > MAX_CONTOUR_LEN {
+        return false;
+    }
+    let mut seen = vec![false; n];
+    for &rank in c {
+        // Ranks are 1-based, so 0 is invalid; `checked_sub` catches it without underflow.
+        let idx = match (rank as usize).checked_sub(1) {
+            Some(i) => i,
+            None => return false,
+        };
+        if idx >= n || seen[idx] {
+            return false;
+        }
+        seen[idx] = true;
+    }
+    true
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PatternBlock {
     pub count: u8,
@@ -153,6 +179,10 @@ pub struct PatternBlock {
     pub lead_rest: u8,
     /// How this block's grip links to the next block's grip (inter-grip movement on the ladder).
     pub connector: Connector,
+    /// Ordinal register shape of each cell, 1-based (1 = lowest pitch). `None` = today's
+    /// behaviour on every path. Length is the cell size and cycles over the block, the way
+    /// `Shape::Order` cycles. Always a permutation of `1..=len` — see `is_valid_contour`.
+    pub contour: Option<Vec<u8>>,
 }
 
 impl PatternBlock {
@@ -167,6 +197,7 @@ impl PatternBlock {
             hold_last: 0,
             lead_rest: 0,
             connector: Connector::default(),
+            contour: None,
         }
     }
 
@@ -309,5 +340,37 @@ mod tests {
     fn all_presets_listed() {
         let presets = Pattern::all_presets();
         assert_eq!(presets.len(), 3);
+    }
+
+    #[test]
+    fn valid_contours_are_permutations_of_one_through_n() {
+        // The six 3-note contours — the whole vocabulary for a triad cell.
+        for c in [
+            vec![1, 2, 3],
+            vec![1, 3, 2],
+            vec![2, 1, 3],
+            vec![2, 3, 1],
+            vec![3, 1, 2],
+            vec![3, 2, 1],
+        ] {
+            assert!(is_valid_contour(&c), "{c:?} should be valid");
+        }
+        assert!(is_valid_contour(&[1]));
+        assert!(is_valid_contour(&[2, 1]));
+    }
+
+    #[test]
+    fn invalid_contours_are_rejected() {
+        assert!(!is_valid_contour(&[]), "empty");
+        assert!(!is_valid_contour(&[0, 1, 2]), "0 is not a rank; ranks are 1-based");
+        assert!(!is_valid_contour(&[1, 1, 2]), "duplicate rank");
+        assert!(!is_valid_contour(&[1, 2, 4]), "rank above n");
+        assert!(!is_valid_contour(&[1, 2, 3, 4, 5, 6, 7, 8, 9]), "longer than 8");
+    }
+
+    #[test]
+    fn legacy_blocks_have_no_contour() {
+        let b = PatternBlock::legacy(3, Direction::Ascending, TriadId::T1);
+        assert_eq!(b.contour, None);
     }
 }

@@ -458,6 +458,7 @@ mod tests {
                     hold_last: 0,
                     lead_rest: 0,
                     connector: Connector::default(),
+                    contour: None,
                 }],
             },
             figure: RhythmicFigure::Eighth,
@@ -505,6 +506,7 @@ mod tests {
                 hold_last: 0,
                 lead_rest: 0,
                 connector: Connector::default(),
+                contour: None,
             },
             PatternBlock {
                 count: 3,
@@ -515,6 +517,7 @@ mod tests {
                 hold_last: 0,
                 lead_rest: 0,
                 connector: Connector::default(),
+                contour: None,
             },
             PatternBlock {
                 count: 2,
@@ -525,6 +528,7 @@ mod tests {
                 hold_last: 0,
                 lead_rest: 0,
                 connector: Connector::default(),
+                contour: None,
             },
             PatternBlock {
                 count: 3,
@@ -535,6 +539,7 @@ mod tests {
                 hold_last: 0,
                 lead_rest: 0,
                 connector: Connector::default(),
+                contour: None,
             },
             PatternBlock {
                 count: 3,
@@ -545,6 +550,7 @@ mod tests {
                 hold_last: 0,
                 lead_rest: 0,
                 connector: Connector::default(),
+                contour: None,
             },
         ];
         let config = LineConfig {
@@ -621,6 +627,7 @@ mod tests {
             hold_last: 1,
             lead_rest: 0,
             connector: Connector::default(),
+            contour: None,
         };
         let events = generate_line(
             &chart,
@@ -647,6 +654,7 @@ mod tests {
             hold_last: 0,
             lead_rest: 1,
             connector: Connector::default(),
+            contour: None,
         };
         let events = generate_line(
             &chart,
@@ -806,6 +814,7 @@ mod tests {
                     hold_last: 0,
                     lead_rest: 0,
                     connector,
+                    contour: None,
                 }],
             },
             figure: RhythmicFigure::Eighth,

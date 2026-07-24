@@ -618,7 +618,7 @@ fn parse_pattern_blocks(pattern_js: JsValue) -> Vec<crate::theory::line_pattern:
                 Some("random") => Connector::Random,
                 _ => Connector::VoiceLead,
             };
-            PatternBlock { count, direction, triad, shape, anchor, hold_last, lead_rest, connector }
+            PatternBlock { count, direction, triad, shape, anchor, hold_last, lead_rest, connector, contour: None }
         })
         .collect()
 }
