@@ -115,7 +115,11 @@ fn pingpong(k: usize, len: usize) -> usize {
     }
     let period = 2 * (len - 1);
     let m = k % period;
-    if m < len { m } else { period - m }
+    if m < len {
+        m
+    } else {
+        period - m
+    }
 }
 
 /// The k-th fretboard note a block plays from one grip (0-based within the block).
@@ -126,7 +130,11 @@ fn note_at(grip: &TriadShape, pcs: &[u8; 3], block: &PatternBlock, k: usize) -> 
         Shape::Order(order) => {
             let role = (order[k % order.len()] % 3) as usize;
             let pc = pcs[role];
-            grip.notes.iter().find(|n| n.pitch_class == pc).copied().unwrap_or(grip.notes[0])
+            grip.notes
+                .iter()
+                .find(|n| n.pitch_class == pc)
+                .copied()
+                .unwrap_or(grip.notes[0])
         }
         Shape::Monotonic => {
             let mut base = grip.notes.to_vec(); // grip.notes is sorted ascending
@@ -150,7 +158,9 @@ fn glue_rung(ladder: &TriadLadder, block: &PatternBlock, k: usize, prev: i32) ->
             d => (1, d),
         }
     };
-    (0..ladder.grips.len()).min_by_key(|&i| cost(i)).unwrap_or(0)
+    (0..ladder.grips.len())
+        .min_by_key(|&i| cost(i))
+        .unwrap_or(0)
 }
 
 /// Move the cursor to the next grip per the block's connector. Returns the new `(cursor, flip)`;
@@ -180,21 +190,34 @@ fn advance_cursor(
                 .min_by_key(|(_, g)| (grip_center(g) - anchor).abs())
                 .map(|(i, _)| i)
                 .unwrap_or(cursor);
-            let next = if near == cursor { (cursor + 1).min(len - 1) } else { near };
+            let next = if near == cursor {
+                (cursor + 1).min(len - 1)
+            } else {
+                near
+            };
             (next, flip)
         }
         Connector::Random => {
-            *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (((*rng >> 33) as usize) % len, flip)
         }
         // Directional connectors: `invert` steps one rung; `nearest` leaps to the next grip clear
         // of the current one's range. `flip` reverses at the region edge (bounce).
-        Connector::InvertUp | Connector::InvertDown | Connector::NearestUp | Connector::NearestDown => {
+        Connector::InvertUp
+        | Connector::InvertDown
+        | Connector::NearestUp
+        | Connector::NearestDown => {
             let base_up = matches!(connector, Connector::InvertUp | Connector::NearestUp);
             let invert = matches!(connector, Connector::InvertUp | Connector::InvertDown);
             let step = |up: bool| -> Option<usize> {
                 if invert {
-                    if up { (cursor + 1 < len).then_some(cursor + 1) } else { cursor.checked_sub(1) }
+                    if up {
+                        (cursor + 1 < len).then_some(cursor + 1)
+                    } else {
+                        cursor.checked_sub(1)
+                    }
                 } else if up {
                     (cursor + 1..len).find(|&j| lowest(j) > highest(cursor))
                 } else {
@@ -283,7 +306,10 @@ fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]])
             TriadId::T2 => 1,
         };
         let beat = slots as f32 * beat_dur;
-        let chord_idx = chord_starts.iter().rposition(|&s| beat >= s - BEAT_EPS).unwrap_or(0);
+        let chord_idx = chord_starts
+            .iter()
+            .rposition(|&s| beat >= s - BEAT_EPS)
+            .unwrap_or(0);
         let ladder = &ladders[chord_idx][ti];
 
         if ladder.grips.is_empty() {
@@ -350,7 +376,11 @@ fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]])
             let ladder = &ladders[active_chord][ti];
             let note = note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, k);
             // The block's last note sustains `1 + hold_last` grid slots; others take one.
-            let hold = if k + 1 == count { block.hold_last as usize } else { 0 };
+            let hold = if k + 1 == count {
+                block.hold_last as usize
+            } else {
+                0
+            };
             let step_slots = 1 + hold;
             events.push(NoteEvent {
                 beat: beat_now,
@@ -374,8 +404,14 @@ fn run_pattern(chart: &Chart, config: &LineConfig, ladders: &[[TriadLadder; 2]])
         // Choose the next grip for this triad via the block's connector — on the ladder of the
         // chord the block ENDED in (it may have glued into a new one mid-block).
         let ladder = &ladders[active_chord][ti];
-        let (nc, nf) =
-            advance_cursor(&ladder.grips, cursor[ti], flip[ti], block.connector, last_midi, &mut rng);
+        let (nc, nf) = advance_cursor(
+            &ladder.grips,
+            cursor[ti],
+            flip[ti],
+            block.connector,
+            last_midi,
+            &mut rng,
+        );
         cursor[ti] = nc;
         flip[ti] = nf;
     }
@@ -388,7 +424,9 @@ mod tests {
     use super::*;
     use crate::theory::chart::Chart;
     use crate::theory::gmc::PAIRS;
-    use crate::theory::line_pattern::{Anchor, Connector, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId};
+    use crate::theory::line_pattern::{
+        Anchor, Connector, Direction, Pattern, PatternBlock, RhythmicFigure, Shape, TriadId,
+    };
     use crate::theory::position::{NeckPosition, PositionSet};
     use crate::voicings::fretboard::Fretboard;
 
@@ -397,7 +435,16 @@ mod tests {
         LineConfig {
             pattern: Pattern {
                 name: "test",
-                blocks: vec![PatternBlock { count, direction: Direction::Ascending, triad, shape, anchor, hold_last: 0, lead_rest: 0, connector: Connector::default() }],
+                blocks: vec![PatternBlock {
+                    count,
+                    direction: Direction::Ascending,
+                    triad,
+                    shape,
+                    anchor,
+                    hold_last: 0,
+                    lead_rest: 0,
+                    connector: Connector::default(),
+                }],
             },
             figure: RhythmicFigure::Eighth,
             positions: PositionSet::from_base_frets(&[5]),
@@ -435,14 +482,62 @@ mod tests {
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Cm7 | % |").unwrap();
         let arch = vec![
-            PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T1, shape: Shape::Order(vec![0, 1, 2]), anchor: Anchor::Root, hold_last: 0, lead_rest: 0, connector: Connector::default() },
-            PatternBlock { count: 3, direction: Direction::Ascending, triad: TriadId::T2, shape: Shape::Order(vec![0, 1, 2]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0, connector: Connector::default() },
-            PatternBlock { count: 2, direction: Direction::Ascending, triad: TriadId::T1, shape: Shape::Order(vec![2, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0, connector: Connector::default() },
-            PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T2, shape: Shape::Order(vec![2, 1, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0, connector: Connector::default() },
-            PatternBlock { count: 3, direction: Direction::Descending, triad: TriadId::T1, shape: Shape::Order(vec![2, 1, 0]), anchor: Anchor::Nearest, hold_last: 0, lead_rest: 0, connector: Connector::default() },
+            PatternBlock {
+                count: 3,
+                direction: Direction::Ascending,
+                triad: TriadId::T1,
+                shape: Shape::Order(vec![0, 1, 2]),
+                anchor: Anchor::Root,
+                hold_last: 0,
+                lead_rest: 0,
+                connector: Connector::default(),
+            },
+            PatternBlock {
+                count: 3,
+                direction: Direction::Ascending,
+                triad: TriadId::T2,
+                shape: Shape::Order(vec![0, 1, 2]),
+                anchor: Anchor::Nearest,
+                hold_last: 0,
+                lead_rest: 0,
+                connector: Connector::default(),
+            },
+            PatternBlock {
+                count: 2,
+                direction: Direction::Ascending,
+                triad: TriadId::T1,
+                shape: Shape::Order(vec![2, 0]),
+                anchor: Anchor::Nearest,
+                hold_last: 0,
+                lead_rest: 0,
+                connector: Connector::default(),
+            },
+            PatternBlock {
+                count: 3,
+                direction: Direction::Descending,
+                triad: TriadId::T2,
+                shape: Shape::Order(vec![2, 1, 0]),
+                anchor: Anchor::Nearest,
+                hold_last: 0,
+                lead_rest: 0,
+                connector: Connector::default(),
+            },
+            PatternBlock {
+                count: 3,
+                direction: Direction::Descending,
+                triad: TriadId::T1,
+                shape: Shape::Order(vec![2, 1, 0]),
+                anchor: Anchor::Nearest,
+                hold_last: 0,
+                lead_rest: 0,
+                connector: Connector::default(),
+            },
         ];
         let config = LineConfig {
-            pattern: Pattern { name: "arch", blocks: arch },
+            pattern: Pattern {
+                name: "arch",
+                blocks: arch,
+            },
             figure: RhythmicFigure::Sixteenth,
             positions: PositionSet::from_base_frets(&[5]),
         };
@@ -478,7 +573,10 @@ mod tests {
 
     fn one_block_config(block: PatternBlock, figure: RhythmicFigure) -> LineConfig {
         LineConfig {
-            pattern: Pattern { name: "t", blocks: vec![block] },
+            pattern: Pattern {
+                name: "t",
+                blocks: vec![block],
+            },
             figure,
             positions: PositionSet::from_base_frets(&[5]),
         }
@@ -501,11 +599,22 @@ mod tests {
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Dm7 |").unwrap();
         let block = PatternBlock {
-            count: 2, direction: Direction::Ascending, triad: TriadId::T1,
-            shape: Shape::Monotonic, anchor: Anchor::Nearest, hold_last: 1, lead_rest: 0,
+            count: 2,
+            direction: Direction::Ascending,
+            triad: TriadId::T1,
+            shape: Shape::Monotonic,
+            anchor: Anchor::Nearest,
+            hold_last: 1,
+            lead_rest: 0,
             connector: Connector::default(),
         };
-        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &one_block_config(block, RhythmicFigure::Eighth));
+        let events = generate_line(
+            &chart,
+            &[],
+            &fb,
+            &PAIRS[0],
+            &one_block_config(block, RhythmicFigure::Eighth),
+        );
         assert_eq!(events[0].duration, 0.5);
         assert_eq!(events[1].duration, 1.0);
         assert_eq!(events[2].beat, 1.5);
@@ -516,11 +625,22 @@ mod tests {
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Dm7 |").unwrap();
         let block = PatternBlock {
-            count: 4, direction: Direction::Ascending, triad: TriadId::T1,
-            shape: Shape::Monotonic, anchor: Anchor::Nearest, hold_last: 0, lead_rest: 1,
+            count: 4,
+            direction: Direction::Ascending,
+            triad: TriadId::T1,
+            shape: Shape::Monotonic,
+            anchor: Anchor::Nearest,
+            hold_last: 0,
+            lead_rest: 1,
             connector: Connector::default(),
         };
-        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &one_block_config(block, RhythmicFigure::Eighth));
+        let events = generate_line(
+            &chart,
+            &[],
+            &fb,
+            &PAIRS[0],
+            &one_block_config(block, RhythmicFigure::Eighth),
+        );
         assert_eq!(events[0].beat, 0.5);
     }
 
@@ -557,8 +677,12 @@ mod tests {
         let config = simple_config();
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
         for i in 1..events.len() {
-            assert!(events[i].beat > events[i - 1].beat,
-                "beat {} not after {}", events[i].beat, events[i - 1].beat);
+            assert!(
+                events[i].beat > events[i - 1].beat,
+                "beat {} not after {}",
+                events[i].beat,
+                events[i - 1].beat
+            );
         }
     }
 
@@ -571,8 +695,13 @@ mod tests {
         // simple_config() restricts to a single position at base fret 5.
         let (lo, hi) = NeckPosition::new(5).stretch_range();
         for e in &events {
-            assert!(e.fret >= lo && e.fret <= hi,
-                "fret {} outside stretch range {}-{}", e.fret, lo, hi);
+            assert!(
+                e.fret >= lo && e.fret <= hi,
+                "fret {} outside stretch range {}-{}",
+                e.fret,
+                lo,
+                hi
+            );
         }
     }
 
@@ -677,7 +806,13 @@ mod tests {
     fn invert_up_connector_climbs_the_inversion_ladder() {
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Cmaj7 | % | % | % |").unwrap();
-        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &connector_config(Connector::InvertUp, Direction::Ascending));
+        let events = generate_line(
+            &chart,
+            &[],
+            &fb,
+            &PAIRS[0],
+            &connector_config(Connector::InvertUp, Direction::Ascending),
+        );
         // No consecutive repeats anywhere.
         for i in 1..events.len() {
             assert_ne!(events[i].midi, events[i - 1].midi, "repeat at {}", i);
@@ -685,7 +820,11 @@ mod tests {
         // Each ascending block of 3 starts on its grip's lowest note; those starts should rise
         // over the first few blocks (the staircase) rather than stay pinned.
         let starts: Vec<i32> = events.chunks(3).take(3).map(|c| c[0].midi).collect();
-        assert!(starts.len() == 3 && starts[2] > starts[0], "inversion starts did not climb: {:?}", starts);
+        assert!(
+            starts.len() == 3 && starts[2] > starts[0],
+            "inversion starts did not climb: {:?}",
+            starts
+        );
     }
 
     /// `NearestUp` should travel further than `InvertUp` over the same span — it leaps past the
@@ -695,12 +834,21 @@ mod tests {
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Cmaj7 | % | % | % |").unwrap();
         let span = |conn| {
-            let evs = generate_line(&chart, &[], &fb, &PAIRS[0], &connector_config(conn, Direction::Ascending));
+            let evs = generate_line(
+                &chart,
+                &[],
+                &fb,
+                &PAIRS[0],
+                &connector_config(conn, Direction::Ascending),
+            );
             let lo = evs.iter().map(|e| e.midi).min().unwrap();
             let hi = evs.iter().map(|e| e.midi).max().unwrap();
             hi - lo
         };
-        assert!(span(Connector::NearestUp) >= span(Connector::InvertUp), "nearest should cover at least as much range");
+        assert!(
+            span(Connector::NearestUp) >= span(Connector::InvertUp),
+            "nearest should cover at least as much range"
+        );
     }
 
     /// No connector may ever produce a repeated pitch back-to-back (the "connect on a different
@@ -710,13 +858,25 @@ mod tests {
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Dm7 | G7 | Cmaj7 | % |").unwrap();
         for conn in [
-            Connector::NearestUp, Connector::NearestDown, Connector::InvertUp,
-            Connector::InvertDown, Connector::VoiceLead, Connector::Random,
+            Connector::NearestUp,
+            Connector::NearestDown,
+            Connector::InvertUp,
+            Connector::InvertDown,
+            Connector::VoiceLead,
+            Connector::Random,
         ] {
             for dir in [Direction::Ascending, Direction::Descending] {
-                let events = generate_line(&chart, &[], &fb, &PAIRS[0], &connector_config(conn, dir));
+                let events =
+                    generate_line(&chart, &[], &fb, &PAIRS[0], &connector_config(conn, dir));
                 for i in 1..events.len() {
-                    assert_ne!(events[i].midi, events[i - 1].midi, "{:?}/{:?} repeated at {}", conn, dir, i);
+                    assert_ne!(
+                        events[i].midi,
+                        events[i - 1].midi,
+                        "{:?}/{:?} repeated at {}",
+                        conn,
+                        dir,
+                        i
+                    );
                 }
             }
         }
@@ -736,7 +896,10 @@ mod tests {
         };
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
         assert!(!events.is_empty());
-        assert!(events.iter().all(|e| e.fret >= 1), "no open strings allowed");
+        assert!(
+            events.iter().all(|e| e.fret >= 1),
+            "no open strings allowed"
+        );
 
         for triad in [TriadId::T1, TriadId::T2] {
             let positions: std::collections::BTreeSet<(u8, u8)> = events
@@ -744,7 +907,12 @@ mod tests {
                 .filter(|e| e.triad == triad)
                 .map(|e| (e.string, e.fret))
                 .collect();
-            assert!(positions.len() <= 3, "{:?} used {} distinct positions", triad, positions.len());
+            assert!(
+                positions.len() <= 3,
+                "{:?} used {} distinct positions",
+                triad,
+                positions.len()
+            );
             if positions.is_empty() {
                 continue;
             }
@@ -752,7 +920,10 @@ mod tests {
             let span_strings = strings.iter().max().unwrap() - strings.iter().min().unwrap();
             match strings.len() {
                 3 => assert_eq!(span_strings, 2, "1+1+1 must use consecutive strings"),
-                2 => assert_eq!(span_strings, 1, "a two-string grip must use adjacent strings"),
+                2 => assert_eq!(
+                    span_strings, 1,
+                    "a two-string grip must use adjacent strings"
+                ),
                 1 => {} // a partial triad confined to one string is still inside a grip
                 n => panic!("{:?} spread over {} strings", triad, n),
             }
@@ -764,7 +935,9 @@ mod tests {
             let span = frets.iter().max().unwrap() - frets.iter().min().unwrap();
             assert!(
                 span <= crate::theory::triad_shape::MAX_FRET_SPAN,
-                "{:?} span {} too wide", triad, span,
+                "{:?} span {} too wide",
+                triad,
+                span,
             );
         }
     }
@@ -791,7 +964,10 @@ mod tests {
             };
             let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
             assert!(!events.is_empty(), "{name}: no events");
-            assert!(events.iter().all(|e| e.fret >= 1), "{name}: produced an open string");
+            assert!(
+                events.iter().all(|e| e.fret >= 1),
+                "{name}: produced an open string"
+            );
         }
     }
 
@@ -811,7 +987,8 @@ mod tests {
         for e in &events {
             assert!(
                 (1..=6).contains(&e.fret) || (8..=13).contains(&e.fret),
-                "fret {} outside the selected windows", e.fret,
+                "fret {} outside the selected windows",
+                e.fret,
             );
         }
     }
@@ -836,11 +1013,16 @@ mod tests {
             legal.push(a.iter().chain(b.iter()).copied().collect());
         }
         for e in &events {
-            let idx = starts.iter().rposition(|&s| e.beat >= s - 1e-4).unwrap_or(0);
+            let idx = starts
+                .iter()
+                .rposition(|&s| e.beat >= s - 1e-4)
+                .unwrap_or(0);
             assert!(
                 legal[idx].contains(&e.pitch_class),
                 "pc {} at beat {} is not in the sounding chord's pair {:?}",
-                e.pitch_class, e.beat, legal[idx]
+                e.pitch_class,
+                e.beat,
+                legal[idx]
             );
         }
     }
@@ -874,9 +1056,12 @@ mod tests {
             assert!(
                 (1..=max_d).contains(&d),
                 "glue into beat {} moved {} semitones (want 1-{}): {} -> {}",
-                boundary, d, max_d, cross[0].midi, cross[1].midi
+                boundary,
+                d,
+                max_d,
+                cross[0].midi,
+                cross[1].midi
             );
         }
     }
-
 }
