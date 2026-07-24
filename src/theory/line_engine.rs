@@ -154,12 +154,56 @@ fn note_at(grip: &TriadShape, pcs: &[u8; 3], block: &PatternBlock, k: usize) -> 
     }
 }
 
+/// The note a rung would produce at block-position `cell_index` — the prediction both
+/// `glue_rung` and the no-repeat probe need before they commit to a rung.
+///
+/// `cell_index` is the note's position within the whole block (both call sites pass the same
+/// value for `cell_index` and `k`; `k` alone feeds the `note_at` fallback). It must be split into
+/// a resolve-cell index and an intra-cell offset the SAME way the per-note cache in `run_pattern`
+/// does (`cell_start = pos - pos % cell_len`, then `cell.get(pos - cell_start)`) — otherwise this
+/// predicts the cell's position-0 note while the block actually plays a different offset,
+/// picking a rung by a voice that is never sounded.
+fn first_note_of(
+    ladder: &TriadLadder,
+    rung: usize,
+    positions: &PositionSet,
+    fretboard: &Fretboard,
+    block: &PatternBlock,
+    cell_index: usize,
+    k: usize,
+    prev_midi: Option<i32>,
+) -> FretNote {
+    if let Some(contour) = &block.contour {
+        let cell_len = contour.len().max(1);
+        let cell = resolve_cell(
+            &ladder.grips[rung],
+            &ladder.pcs,
+            positions,
+            fretboard,
+            block,
+            cell_index / cell_len,
+            prev_midi,
+        );
+        if let Some(note) = cell.get(cell_index % cell_len) {
+            return *note;
+        }
+    }
+    note_at(&ladder.grips[rung], &ladder.pcs, block, k)
+}
+
 /// At a mid-block chord change, the rung of the NEW chord's ladder whose next note (the k-th
 /// of the block) best glues to the previous pitch: chromatic steps (±1/±2 semitones) first,
 /// then the smallest move; the same pitch only when there is no alternative.
-fn glue_rung(ladder: &TriadLadder, block: &PatternBlock, k: usize, prev: i32) -> usize {
+fn glue_rung(
+    ladder: &TriadLadder,
+    block: &PatternBlock,
+    k: usize,
+    prev: i32,
+    positions: &PositionSet,
+    fretboard: &Fretboard,
+) -> usize {
     let cost = |i: usize| {
-        let midi = note_at(&ladder.grips[i], &ladder.pcs, block, k).midi;
+        let midi = first_note_of(ladder, i, positions, fretboard, block, k, k, Some(prev)).midi;
         match (midi - prev).abs() {
             0 => (2, 0),
             d @ (1 | 2) => (0, d),
@@ -350,7 +394,18 @@ fn run_pattern(
             let mut tries = 0;
             while len > 1
                 && tries < len
-                && note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, 0).midi == prev
+                && first_note_of(
+                    ladder,
+                    cursor[ti],
+                    &config.positions,
+                    fretboard,
+                    block,
+                    0,
+                    0,
+                    last_midi,
+                )
+                .midi
+                    == prev
             {
                 cursor[ti] = (cursor[ti] + 1) % len;
                 tries += 1;
@@ -393,7 +448,9 @@ fn run_pattern(
                     break;
                 }
                 cursor[ti] = match last_midi {
-                    Some(prev) => glue_rung(new_ladder, block, k, prev),
+                    Some(prev) => {
+                        glue_rung(new_ladder, block, k, prev, &config.positions, fretboard)
+                    }
                     None => new_ladder.nearest_rung(None),
                 };
                 active_chord = chord_now;
@@ -1327,7 +1384,47 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known gap, closed by Task 4: glue_rung predicts with note_at, not the resolved cell"]
+    fn contour_blocks_never_repeat_the_previous_pitch() {
+        // The no-repeat probe predicts a rung's first note. Under a contour that prediction has to
+        // come from the resolved cell, or a block can open on the pitch that just sounded.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Cm7 | % |").unwrap();
+        let blocks = vec![
+            PatternBlock {
+                count: 3,
+                direction: Direction::Ascending,
+                triad: TriadId::T1,
+                shape: Shape::Monotonic,
+                anchor: Anchor::Nearest,
+                hold_last: 0,
+                lead_rest: 0,
+                connector: Connector::default(),
+                contour: Some(vec![2, 3, 1]),
+            },
+            PatternBlock {
+                count: 3,
+                direction: Direction::Ascending,
+                triad: TriadId::T2,
+                shape: Shape::Monotonic,
+                anchor: Anchor::Nearest,
+                hold_last: 0,
+                lead_rest: 0,
+                connector: Connector::default(),
+                contour: Some(vec![3, 1, 2]),
+            },
+        ];
+        let config = LineConfig {
+            pattern: Pattern { name: "test", blocks },
+            figure: RhythmicFigure::Eighth,
+            positions: PositionSet::from_base_frets(&[5]),
+        };
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        for pair in events.windows(2) {
+            assert_ne!(pair[0].midi, pair[1].midi, "line repeated a pitch");
+        }
+    }
+
+    #[test]
     fn order_with_contour_survives_a_mid_block_chord_change() {
         // Shape::Order + contour across a mid-block chord change must not panic and
         // must not emit consecutive duplicate pitches.
