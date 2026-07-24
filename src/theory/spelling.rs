@@ -1,4 +1,5 @@
 use crate::theory::chords::ChordQuality;
+use crate::theory::notes::PC_NAMES;
 use crate::theory::scales::Scale;
 
 /// A pitch spelled as notation needs it: letter, accidental, octave.
@@ -133,6 +134,47 @@ fn alter_for(step: u8, pc: u8) -> i8 {
         alter += 12;
     }
     alter as i8
+}
+
+/// Spell one sounding pitch using a table from `spell_scale`.
+///
+/// A pitch class the scale does not contain falls back to the jazz default names in
+/// `PC_NAMES` (flats for Db/Eb/Ab/Bb, sharps for C#/F#). Never panics.
+pub fn spell_midi(table: &[Option<Spelled>; 12], midi: i32) -> Spelled {
+    let pc = midi.rem_euclid(12) as usize;
+    let (step, alter) = match table[pc] {
+        Some(s) => (s.step, s.alter),
+        None => fallback_spelling(pc),
+    };
+    // Subtract the alteration first so the octave follows the LETTER: Cb4 sounds at
+    // MIDI 59 but is a C, and B#3 sounds at MIDI 60 but is a B.
+    let octave = (midi - alter as i32).div_euclid(12) - 1;
+    Spelled {
+        step,
+        alter,
+        octave: octave as i8,
+    }
+}
+
+/// Jazz default spelling for a pitch class the chord-scale does not contain.
+fn fallback_spelling(pc: usize) -> (u8, i8) {
+    let name = PC_NAMES[pc];
+    let mut chars = name.chars();
+    let step = match chars.next() {
+        Some('C') => 0,
+        Some('D') => 1,
+        Some('E') => 2,
+        Some('F') => 3,
+        Some('G') => 4,
+        Some('A') => 5,
+        _ => 6,
+    };
+    let alter = match chars.next() {
+        Some('#') => 1,
+        Some('b') => -1,
+        _ => 0,
+    };
+    (step, alter)
 }
 
 #[cfg(test)]
@@ -350,5 +392,48 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn octave_comes_from_middle_c() {
+        let table = spell_scale("C", quality("maj7"), scale("Ionian"));
+        // MIDI 60 is middle C = C4.
+        let c4 = spell_midi(&table, 60);
+        assert_eq!((c4.step, c4.alter, c4.octave), (0, 0, 4));
+        // MIDI 40 is the guitar's open low E = E2.
+        let e2 = spell_midi(&table, 40);
+        assert_eq!((e2.step, e2.alter, e2.octave), (2, 0, 2));
+    }
+
+    #[test]
+    fn octave_follows_the_letter_not_the_midi_division() {
+        // Cb4 sounds at MIDI 59, which MIDI-divides into octave 3. As a C it is
+        // still octave 4. Build a table that spells pc 11 as Cb.
+        let mut table: [Option<Spelled>; 12] = [None; 12];
+        table[11] = Some(Spelled {
+            step: 0,
+            alter: -1,
+            octave: 0,
+        });
+        let cb = spell_midi(&table, 59);
+        assert_eq!((cb.step, cb.alter, cb.octave), (0, -1, 4));
+
+        // B#3 sounds at MIDI 60, which MIDI-divides into octave 4. As a B it is octave 3.
+        let mut table: [Option<Spelled>; 12] = [None; 12];
+        table[0] = Some(Spelled {
+            step: 6,
+            alter: 1,
+            octave: 0,
+        });
+        let bs = spell_midi(&table, 60);
+        assert_eq!((bs.step, bs.alter, bs.octave), (6, 1, 3));
+    }
+
+    #[test]
+    fn pitch_class_outside_the_scale_falls_back_without_panicking() {
+        let table = spell_scale("C", quality("maj7"), scale("Ionian"));
+        // Ionian on C has no pc 6; PC_NAMES calls it F#.
+        let fs = spell_midi(&table, 66);
+        assert_eq!((fs.step, fs.alter, fs.octave), (3, 1, 4));
     }
 }
