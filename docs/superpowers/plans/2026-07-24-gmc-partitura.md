@@ -24,6 +24,12 @@
   **introduce no new clippy error and no new formatting drift in the files you touch.** Format your
   own files only (`rustfmt src/theory/spelling.rs`), never bare `cargo fmt`, which rewrites 100+
   unrelated files. Fixing the pre-existing lint is explicitly out of scope for this feature.
+- **Check whether the file is already rustfmt-clean before formatting it.** Run
+  `rustfmt --check <file>` first. If it reports diffs, the file was never formatted, and running
+  `rustfmt` on it will bury your change under hundreds of lines of unrelated re-wrapping — Task 4
+  hit exactly this (315 lines of diff for 40 lines of logic). In that case make **two commits**: a
+  pure `estilo(escopo): rustfmt em <file> antes de mexer nele` formatting commit first, then your
+  logical change on top. Match the surrounding style by hand for files you cannot format.
 - **Dead-code lint is expected mid-plan.** Tasks 1-3 build `src/theory/spelling.rs` bottom-up, so its
   items have no production consumer until Task 4 wires them into the line engine. A `dead_code`
   warning on a `pub(crate)` item in Tasks 1-3 is not a defect — do not add `#[allow(dead_code)]` to
