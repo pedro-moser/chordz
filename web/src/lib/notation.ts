@@ -46,3 +46,110 @@ export function ledgerSteps(step: number): number[] {
   }
   return lines;
 }
+
+export type GridKind = 'eighth' | 'sixteenth' | 'triplet';
+
+export interface Grid {
+  kind: GridKind;
+  /** Beats in one grid slot. */
+  step: number;
+}
+
+export const GRIDS: Record<GridKind, Grid> = {
+  eighth: { kind: 'eighth', step: 0.5 },
+  sixteenth: { kind: 'sixteenth', step: 0.25 },
+  triplet: { kind: 'triplet', step: 1 / 3 },
+};
+
+/** One printable note value. `value` is the denominator: 1=whole, 2=half, 4=quarter, 8, 16. */
+export interface Figure {
+  /** Absolute onset in beats. */
+  beat: number;
+  /** Sounding length in beats. */
+  beats: number;
+  value: number;
+  dots: 0 | 1;
+  tiedToNext: boolean;
+}
+
+/**
+ * Slot counts that print as a single figure, largest first. Anything not listed is
+ * split greedily into the largest entry that fits, and the pieces are tied.
+ */
+const FIGURE_TABLE: Record<GridKind, Array<[slots: number, value: number, dots: 0 | 1]>> = {
+  eighth: [
+    [8, 1, 0],
+    [6, 2, 1],
+    [4, 2, 0],
+    [3, 4, 1],
+    [2, 4, 0],
+    [1, 8, 0],
+  ],
+  sixteenth: [
+    [16, 1, 0],
+    [12, 2, 1],
+    [8, 2, 0],
+    [6, 4, 1],
+    [4, 4, 0],
+    [3, 8, 1],
+    [2, 8, 0],
+    [1, 16, 0],
+  ],
+  // Inside a triplet bracket 1 slot is an eighth and 2 slots a quarter; 3 slots fills a
+  // whole beat and prints as a plain quarter, with the bracket omitted by the beamer.
+  triplet: [
+    [12, 1, 0],
+    [9, 2, 1],
+    [6, 2, 0],
+    [3, 4, 0],
+    [2, 4, 0],
+    [1, 8, 0],
+  ],
+};
+
+/** Round to whole slots — `beat`/`duration` are f32 out of Rust and drift slightly. */
+function toSlots(beats: number, grid: Grid): number {
+  return Math.max(0, Math.round(beats / grid.step));
+}
+
+/**
+ * Split a span into printable figures, breaking at barlines and then at beat
+ * boundaries. All figures but the last are tied to their successor.
+ */
+export function splitSpan(
+  startBeat: number,
+  durationBeats: number,
+  grid: Grid,
+  measureStarts: number[],
+): Figure[] {
+  const table = FIGURE_TABLE[grid.kind]; // sorted largest slot count first
+  const pieces: Array<{ beat: number; slots: number }> = [];
+  let beat = startBeat;
+  let remaining = toSlots(durationBeats, grid);
+  // A span needs at most one figure per slot. The guard makes a malformed duration
+  // impossible to hang the render on.
+  let guard = remaining + 1;
+
+  while (remaining > 0 && guard-- > 0) {
+    // A figure may straddle beats — a half note starting on beat 1 is one figure —
+    // but never a barline. That is what ties are for.
+    const nextBar = measureStarts.find((m) => m > beat + 1e-6);
+    const toBar = nextBar === undefined ? remaining : toSlots(nextBar - beat, grid);
+    const room = Math.max(1, Math.min(remaining, toBar));
+    const entry = table.find(([slots]) => slots <= room) ?? table[table.length - 1];
+    pieces.push({ beat, slots: entry[0] });
+    beat += entry[0] * grid.step;
+    remaining -= entry[0];
+  }
+
+  return pieces.map((p, i) => {
+    const entry = table.find(([slots]) => slots === p.slots) ?? table[table.length - 1];
+    return {
+      beat: p.beat,
+      beats: p.slots * grid.step,
+      value: entry[1],
+      dots: entry[2],
+      tiedToNext: i < pieces.length - 1,
+    };
+  });
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { staffStep, ledgerSteps } from './notation';
+import { staffStep, ledgerSteps, splitSpan, GRIDS } from './notation';
 
 describe('staffStep', () => {
   it('puts written E4 on the bottom line', () => {
@@ -41,5 +41,56 @@ describe('ledgerSteps', () => {
 
   it('includes the note own line when it sits exactly on a ledger', () => {
     expect(ledgerSteps(-4)).toEqual([-2, -4]);
+  });
+});
+
+describe('splitSpan', () => {
+  const eighth = GRIDS.eighth;
+  // A 4-bar chart of 4/4: measures start at 0, 4, 8, 12.
+  const bars = [0, 4, 8, 12];
+
+  it('emits one figure for a plain eighth', () => {
+    expect(splitSpan(0, 0.5, eighth, bars)).toEqual([
+      { beat: 0, beats: 0.5, value: 8, dots: 0, tiedToNext: false },
+    ]);
+  });
+
+  it('emits one figure for a dotted quarter', () => {
+    expect(splitSpan(0, 1.5, eighth, bars)).toEqual([
+      { beat: 0, beats: 1.5, value: 4, dots: 1, tiedToNext: false },
+    ]);
+  });
+
+  it('ties a half to an eighth for two and a half beats', () => {
+    const figures = splitSpan(0, 2.5, eighth, bars);
+    expect(figures.map((f) => [f.value, f.dots])).toEqual([
+      [2, 0],
+      [8, 0],
+    ]);
+    expect(figures[0].tiedToNext).toBe(true);
+    expect(figures[1].tiedToNext).toBe(false);
+  });
+
+  it('splits at the barline and ties across it', () => {
+    // Starts on beat 3 of bar 1, lasts two beats -> one beat in each bar.
+    const figures = splitSpan(3, 2, eighth, bars);
+    expect(figures).toHaveLength(2);
+    expect(figures[0].beat).toBe(3);
+    expect(figures[1].beat).toBe(4);
+    expect(figures[0].tiedToNext).toBe(true);
+    expect(figures[1].tiedToNext).toBe(false);
+  });
+
+  it('never returns an empty list for a positive duration', () => {
+    for (const beats of [0.25, 0.5, 1, 1.25, 2, 3, 3.5, 4]) {
+      expect(splitSpan(0, beats, GRIDS.sixteenth, bars).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('conserves total duration', () => {
+    const total = (fs: { beats: number }[]) => fs.reduce((a, f) => a + f.beats, 0);
+    expect(total(splitSpan(0, 2.5, eighth, bars))).toBeCloseTo(2.5);
+    expect(total(splitSpan(3, 2, eighth, bars))).toBeCloseTo(2);
+    expect(total(splitSpan(0, 1 / 3, GRIDS.triplet, bars))).toBeCloseTo(1 / 3);
   });
 });
