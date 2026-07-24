@@ -1048,7 +1048,10 @@ mod tests {
         let config = LineConfig {
             pattern: Pattern {
                 name: "t",
-                blocks: vec![PatternBlock::legacy(8, Direction::Ascending, TriadId::T1)],
+                blocks: vec![
+                    PatternBlock::legacy(4, Direction::Ascending, TriadId::T1),
+                    PatternBlock::legacy(4, Direction::Ascending, TriadId::T2),
+                ],
             },
             figure: RhythmicFigure::Eighth,
             positions: PositionSet::default(),
@@ -1076,17 +1079,21 @@ mod tests {
         }
 
         // The third of G7 must read as B (step 6, natural), never as Cb.
-        if let Some(third) = events.iter().find(|e| e.pitch_class == 11) {
-            assert_eq!((third.step, third.alter), (6, 0), "third of G7 must be B");
-        }
+        let third = events
+            .iter()
+            .find(|e| e.pitch_class == 11)
+            .expect("the fixture must sound the third of G7");
+        assert_eq!((third.step, third.alter), (6, 0), "third of G7 must be B");
         // The #11 must read as C# (step 0, sharp), never as Db.
-        if let Some(sharp11) = events.iter().find(|e| e.pitch_class == 1) {
-            assert_eq!(
-                (sharp11.step, sharp11.alter),
-                (0, 1),
-                "#11 of G7 must be C#"
-            );
-        }
+        let sharp11 = events
+            .iter()
+            .find(|e| e.pitch_class == 1)
+            .expect("the fixture must sound the #11 of G7");
+        assert_eq!(
+            (sharp11.step, sharp11.alter),
+            (0, 1),
+            "#11 of G7 must be C#"
+        );
     }
 
     #[test]
