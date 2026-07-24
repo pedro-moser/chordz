@@ -130,11 +130,10 @@ pub fn resolve_cell(
 /// Which pitch class this cell wants at playing position `j`.
 ///
 /// For `Shape::Order` the identity comes from the triad's roles, cycling over the block exactly
-/// as `note_at` does. For `Shape::Monotonic` it is the grip's own pitch classes, walked either
-/// ascending or reversed — see [`monotonic_reversed`] for which. This is what makes `<1 2 3>`
-/// reproduce today's ascending walk note for note, and `<3 2 1>` reproduce today's descending
-/// walk: `Direction::Descending` is not "the contour `<3 2 1>` applied to an ascending identity",
-/// it is the same walk with the identity reversed.
+/// as `note_at` does. For `Shape::Monotonic` it is the grip's own pitch classes, walked from one
+/// end: `block.direction` says which end, exactly as it does for a contour-less block. This is
+/// what makes `<1 2 3>` reproduce today's ascending walk note for note, and `<3 2 1>` reproduce
+/// today's descending walk.
 fn cell_pitch_class(
     grip: &TriadShape,
     role_pcs: &[u8; 3],
@@ -149,32 +148,11 @@ fn cell_pitch_class(
             role_pcs[(order[k % order.len()] % 3) as usize]
         }
         Shape::Monotonic => {
-            let idx = if monotonic_reversed(block) { 2 - (j % 3) } else { j % 3 };
+            let reversed = block.direction == Direction::Descending;
+            let idx = if reversed { 2 - (j % 3) } else { j % 3 };
             grip.notes[idx].pitch_class
         }
     }
-}
-
-/// Whether a `Shape::Monotonic` identity should walk the grip high-to-low rather than low-to-high.
-///
-/// A contour that is itself the canonical ascending (`<1 2 … n>`) or descending (`<n … 2 1>`)
-/// permutation names its own walk direction outright: `<3 2 1>` *is* "play the grip top to
-/// bottom", independent of whatever `block.direction` happens to carry (a block's `direction`
-/// exists for the contour-less legacy walk; once a contour states the shape, the contour is the
-/// more specific instruction and wins). Any other — scrambled — contour makes no such ascending
-/// or descending claim about itself, so its identity falls back to `block.direction`, matching how
-/// `note_at` walks a plain, contour-less block.
-fn monotonic_reversed(block: &PatternBlock) -> bool {
-    if let Some(contour) = &block.contour {
-        let n = contour.len() as u8;
-        if *contour == (1..=n).collect::<Vec<u8>>() {
-            return false;
-        }
-        if *contour == (1..=n).rev().collect::<Vec<u8>>() {
-            return true;
-        }
-    }
-    block.direction == Direction::Descending
 }
 
 /// The exact fretboard occurrence the legacy walk would have played for playing position `j`:
@@ -494,12 +472,11 @@ mod tests {
         assert_ne!(ranks_of(&cell), vec![3u8, 1, 2]);
     }
 
-    // --- Defect 1: the Monotonic identity must reverse with `block.direction`, for contours that
-    // don't already name their own walk direction. ---
+    // --- The Monotonic identity must reverse iff `block.direction == Descending`, uniformly,
+    // regardless of the contour's own shape. ---
     //
-    // `<2 1 3>` is neither the canonical ascending (`<1 2 3>`) nor descending (`<3 2 1>`)
-    // permutation, so it makes no claim about its own direction and `cell_pitch_class` falls back
-    // to `block.direction` — exactly the branch defect 1 fixes. Every note `resolve_cell` returns
+    // `<2 1 3>` is a representative scrambled contour here; the rule under test does not
+    // distinguish it from any other contour, canonical or not. Every note `resolve_cell` returns
     // is drawn exclusively from occurrences of its position's identity pitch class, so position
     // 0's pitch class in the result is a direct readout of which identity was requested.
     #[test]

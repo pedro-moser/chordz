@@ -1191,13 +1191,23 @@ mod tests {
     }
 
     /// A one-block pattern carrying a contour.
-    fn contour_config(count: u8, shape: Shape, contour: Vec<u8>) -> LineConfig {
+    ///
+    /// `direction` is a real parameter, not a constant: for `Shape::Monotonic` the block's
+    /// direction chooses which end of the grip the identity starts from, exactly as it does for
+    /// a contour-less block. A helper that hardcoded `Ascending` would make the descending
+    /// non-regression test compare two different operations.
+    fn contour_config(
+        count: u8,
+        shape: Shape,
+        contour: Vec<u8>,
+        direction: Direction,
+    ) -> LineConfig {
         LineConfig {
             pattern: Pattern {
                 name: "test",
                 blocks: vec![PatternBlock {
                     count,
-                    direction: Direction::Ascending,
+                    direction,
                     triad: TriadId::T1,
                     shape,
                     anchor: Anchor::Nearest,
@@ -1222,7 +1232,7 @@ mod tests {
         let legacy = shaped_config(3, TriadId::T1, Shape::Monotonic, Anchor::Nearest);
         let want = generate_line(&chart, &[], &fb, &PAIRS[0], &legacy);
 
-        let with_contour = contour_config(3, Shape::Monotonic, vec![1, 2, 3]);
+        let with_contour = contour_config(3, Shape::Monotonic, vec![1, 2, 3], Direction::Ascending);
         let got = generate_line(&chart, &[], &fb, &PAIRS[0], &with_contour);
 
         let key = |e: &NoteEvent| (e.string, e.fret, e.midi, e.beat.to_bits());
@@ -1241,7 +1251,7 @@ mod tests {
         legacy.pattern.blocks[0].direction = Direction::Descending;
         let want = generate_line(&chart, &[], &fb, &PAIRS[0], &legacy);
 
-        let with_contour = contour_config(3, Shape::Monotonic, vec![3, 2, 1]);
+        let with_contour = contour_config(3, Shape::Monotonic, vec![3, 2, 1], Direction::Descending);
         let got = generate_line(&chart, &[], &fb, &PAIRS[0], &with_contour);
 
         let key = |e: &NoteEvent| (e.string, e.fret, e.midi);
@@ -1255,7 +1265,7 @@ mod tests {
     fn a_scrambled_contour_shapes_the_emitted_line() {
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Dm7 |").unwrap();
-        let config = contour_config(3, Shape::Monotonic, vec![3, 1, 2]);
+        let config = contour_config(3, Shape::Monotonic, vec![3, 1, 2], Direction::Ascending);
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
         let midis: Vec<i32> = events.iter().take(3).map(|e| e.midi).collect();
         assert!(midis[0] > midis[2], "first note must be the highest");
@@ -1267,7 +1277,7 @@ mod tests {
         // count=6 with a 3-contour is two identical cells — the same cycling rule Shape::Order uses.
         let fb = Fretboard::standard_tuning();
         let chart = Chart::parse("Test", "| Dm7 |").unwrap();
-        let config = contour_config(6, Shape::Monotonic, vec![2, 3, 1]);
+        let config = contour_config(6, Shape::Monotonic, vec![2, 3, 1], Direction::Ascending);
         let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
         let midis: Vec<i32> = events.iter().take(6).map(|e| e.midi).collect();
         for cell in [&midis[0..3], &midis[3..6]] {
