@@ -297,48 +297,81 @@ export interface MeasureLayout {
 }
 
 /**
- * Everything the staff component needs to draw one measure.
+ * Lay out every measure of a line at once.
  *
- * Horizontal positions come from `tabX`, the same function the tablature uses, which
- * is what keeps a notehead directly above its fret number.
+ * This is deliberately NOT per-measure. A note extended by the engine's `holdLast` can
+ * sustain past a barline — measured on a ii-V-I, five of twelve pattern configurations
+ * produce at least one such note — and standard notation draws it as two tied figures,
+ * one in each measure. A per-measure function cannot do that: the second figure belongs
+ * to a measure that never saw the event, and that measure would draw a rest over sound.
+ * So we walk the whole line, split every span at barlines, and file each resulting figure
+ * under the measure that actually contains it.
+ *
+ * Horizontal positions come from `tabX` — the same function the tablature uses — which is
+ * what keeps a notehead directly above its fret number.
  */
-export function layoutMeasure(
-  measure: MeasureLike & { events: GmcLineEvent[] },
+export function layoutLine(
+  measures: Array<MeasureLike & { events: GmcLineEvent[] }>,
   grid: Grid,
-  measureStarts: number[],
-): MeasureLayout {
-  const events = [...measure.events].sort((a, b) => a.beat - b.beat);
-  const accidentals = accidentalsToPrint(events);
+): MeasureLayout[] {
+  const measureStarts = measures.map((m) => m.startBeat);
+  const out: MeasureLayout[] = measures.map(() => ({ notes: [], rests: [], beams: [] }));
+  if (measures.length === 0) return out;
 
-  const notes: LaidOutNote[] = events.flatMap((e, i) => {
-    const figures = splitSpan(e.beat, e.duration, grid, measureStarts);
-    const step = staffStep(e);
-    return figures.map((f, fi) => ({
-      x: tabX({ beat: f.beat }, measure),
-      staffStep: step,
-      // Only the first figure of a tied chain carries the accidental.
-      accidental: fi === 0 ? accidentals[i] : null,
-      value: f.value,
-      dots: f.dots,
-      tiedToNext: f.tiedToNext,
-      triad: e.triad,
-      ledger: ledgerSteps(step),
-      beats: f.beats,
-      beat: f.beat,
-    }));
+  /** The measure a beat falls in. Beats past the last barline belong to the last measure. */
+  const measureOf = (beat: number): number => {
+    for (let i = measures.length - 1; i >= 0; i--) {
+      if (beat >= measures[i].startBeat - 1e-6) return i;
+    }
+    return 0;
+  };
+
+  // Notes. Accidentals are decided per measure over that measure's OWN events, so a note
+  // tied in from the previous bar does not consume the accidental a later note needs.
+  measures.forEach((m) => {
+    const events = [...m.events].sort((a, b) => a.beat - b.beat);
+    const accidentals = accidentalsToPrint(events);
+    events.forEach((e, i) => {
+      const step = staffStep(e);
+      const ledger = ledgerSteps(step);
+      splitSpan(e.beat, e.duration, grid, measureStarts).forEach((f, fi) => {
+        const target = measureOf(f.beat);
+        out[target].notes.push({
+          x: tabX({ beat: f.beat }, measures[target]),
+          staffStep: step,
+          // Only the head of a tied chain states the accidental; the continuation after a
+          // barline does not restate it.
+          accidental: fi === 0 ? accidentals[i] : null,
+          value: f.value,
+          dots: f.dots,
+          tiedToNext: f.tiedToNext,
+          triad: e.triad,
+          ledger,
+          beats: f.beats,
+          beat: f.beat,
+        });
+      });
+    });
   });
 
-  const rests: LaidOutRest[] = restFigures(
-    events,
-    measure.startBeat,
-    measure.chord.beats,
-    grid,
-    measureStarts,
-  ).map((r) => ({
-    x: tabX({ beat: r.beat }, measure),
-    value: r.value,
-    dots: r.dots,
-  }));
+  // Rests. A measure's silence is whatever no SOUNDING note covers, so this must consider
+  // notes that started earlier and are still ringing, not just the measure's own events.
+  const allEvents = measures.flatMap((m) => m.events);
+  measures.forEach((m, mi) => {
+    const end = m.startBeat + m.chord.beats;
+    const sounding = allEvents
+      .filter((e) => e.beat < end - 1e-6 && e.beat + e.duration > m.startBeat + 1e-6)
+      .sort((a, b) => a.beat - b.beat);
+    out[mi].rests = restFigures(sounding, m.startBeat, m.chord.beats, grid, measureStarts).map(
+      (r) => ({ x: tabX({ beat: r.beat }, m), value: r.value, dots: r.dots }),
+    );
+  });
 
-  return { notes, rests, beams: beamGroups(notes, grid) };
+  // Beams, per measure, over the figures that measure actually prints.
+  out.forEach((layout) => {
+    layout.notes.sort((a, b) => a.beat - b.beat);
+    layout.beams = beamGroups(layout.notes, grid);
+  });
+
+  return out;
 }

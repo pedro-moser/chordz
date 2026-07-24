@@ -251,62 +251,113 @@ describe('accidentalsToPrint', () => {
   });
 });
 
-import { layoutMeasure } from './notation';
+import { layoutLine } from './notation';
 import { tabX } from './tabLayout';
 
-describe('layoutMeasure', () => {
-  const event = (beat: number, step: number, alter: number, octave: number) => ({
+describe('layoutLine', () => {
+  const event = (
+    beat: number,
+    step: number,
+    alter: number,
+    octave: number,
+    duration = 0.5,
+  ) => ({
     beat,
     string: 0,
     fret: 5,
     triad: 'T1' as const,
     pitchClass: 0,
     midi: 60,
-    duration: 0.5,
+    duration,
     step,
     alter,
     octave,
   });
 
-  const measure = {
+  const bar0 = {
     index: 0,
     startBeat: 0,
     chord: { beats: 4 },
     events: [event(0, 6, -1, 3), event(0.5, 6, -1, 3), event(1, 2, 0, 3), event(1.5, 4, 0, 3)],
   };
+  const bar1 = { index: 1, startBeat: 4, chord: { beats: 4 }, events: [] };
 
   it('places each note at the same x the tab uses', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.notes[0].x).toBeCloseTo(tabX({ beat: 0 }, measure));
-    expect(layout.notes[2].x).toBeCloseTo(tabX({ beat: 1 }, measure));
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.notes[0].x).toBeCloseTo(tabX({ beat: 0 }, bar0));
+    expect(m0.notes[2].x).toBeCloseTo(tabX({ beat: 1 }, bar0));
   });
 
   it('prints the accidental once and suppresses the repeat', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.notes[0].accidental).toBe(-1);
-    expect(layout.notes[1].accidental).toBeNull();
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.notes[0].accidental).toBe(-1);
+    expect(m0.notes[1].accidental).toBeNull();
   });
 
   it('beams the eighths two per beat', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.beams).toHaveLength(2);
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.beams).toHaveLength(2);
   });
 
   it('rests out the two beats the events do not cover', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.rests.length).toBeGreaterThan(0);
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.rests.length).toBeGreaterThan(0);
   });
 
   it('carries the triad so the renderer can colour the notehead', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.notes[0].triad).toBe('T1');
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.notes[0].triad).toBe('T1');
   });
 
-  it('handles an empty measure without throwing', () => {
-    const empty = { index: 1, startBeat: 4, chord: { beats: 4 }, events: [] };
-    const layout = layoutMeasure(empty, GRIDS.eighth, [0, 4]);
-    expect(layout.notes).toEqual([]);
-    expect(layout.beams).toEqual([]);
-    expect(layout.rests.length).toBeGreaterThan(0);
+  it('fills an empty measure entirely with rests', () => {
+    const [, m1] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m1.notes).toEqual([]);
+    expect(m1.beams).toEqual([]);
+    expect(m1.rests.length).toBeGreaterThan(0);
+  });
+
+  it('returns an empty array for no measures', () => {
+    expect(layoutLine([], GRIDS.eighth)).toEqual([]);
+  });
+
+  // The regression this function exists for: a holdLast note sustaining past the barline.
+  // The engine really emits these — on a ii-V-I, five of twelve pattern configurations
+  // produce at least one. Measured with a throwaway probe against the real line engine.
+  describe('a note held across the barline', () => {
+    const held = {
+      index: 0,
+      startBeat: 0,
+      chord: { beats: 4 },
+      // Onset on the last eighth of bar 0, sustaining one full beat into bar 1.
+      events: [event(3.5, 6, -1, 3, 1)],
+    };
+    const next = { index: 1, startBeat: 4, chord: { beats: 4 }, events: [] };
+
+    it('draws a figure in each measure, tied', () => {
+      const [m0, m1] = layoutLine([held, next], GRIDS.eighth);
+      expect(m0.notes).toHaveLength(1);
+      expect(m1.notes).toHaveLength(1);
+      expect(m0.notes[0].tiedToNext).toBe(true);
+      expect(m1.notes[0].tiedToNext).toBe(false);
+    });
+
+    it('places the continuation inside the second measure, not past the first', () => {
+      const [, m1] = layoutLine([held, next], GRIDS.eighth);
+      expect(m1.notes[0].x).toBeCloseTo(tabX({ beat: 4 }, next));
+    });
+
+    it('does not restate the accidental after the barline', () => {
+      const [m0, m1] = layoutLine([held, next], GRIDS.eighth);
+      expect(m0.notes[0].accidental).toBe(-1);
+      expect(m1.notes[0].accidental).toBeNull();
+    });
+
+    it('does not rest over the sounding continuation', () => {
+      const [, m1] = layoutLine([held, next], GRIDS.eighth);
+      // Bar 1 is 4 beats; the tie occupies the first, so rests must cover only the last 3.
+      const restBeats = m1.rests.length;
+      expect(restBeats).toBeGreaterThan(0);
+      expect(m1.rests.every((r) => r.x > m1.notes[0].x)).toBe(true);
+    });
   });
 });
