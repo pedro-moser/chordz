@@ -8,7 +8,7 @@
 //! No octave arithmetic is involved: the fretboard already is a quantized register axis, and
 //! restricting candidates to the region gives the position constraint for free.
 
-use crate::theory::line_pattern::{PatternBlock, Shape};
+use crate::theory::line_pattern::{Direction, PatternBlock, Shape};
 use crate::theory::position::{FretNote, PositionSet};
 use crate::theory::triad_shape::TriadShape;
 use crate::voicings::fretboard::Fretboard;
@@ -68,6 +68,27 @@ pub fn resolve_cell(
         return Vec::new();
     }
 
+    // Short-circuit before any scoring: if the cursor grip's own notes already realize the
+    // requested identity and contour, use them directly, no search.
+    //
+    // The search below elects a cell by cost, and grips are not guaranteed three distinct
+    // strings — they legally reuse one (e.g. a 2+1 distribution). A reused string can make the
+    // grip's own notes lose to a displaced alternative on `SAME_STRING` alone, even for the
+    // identity contour `<1 2 3>`. Retuning the weights to keep the grip in that case would just
+    // be a different bet that some other grip breaks later; testing the grip's own notes
+    // directly, before cost ever enters, makes staying in the grip structural instead.
+    let grip_cell: Option<Vec<FretNote>> = (0..n)
+        .map(|j| {
+            let pc = cell_pitch_class(grip, role_pcs, block, cell_index, j, n);
+            grip_note_for(grip, pc).filter(|note| candidates[j].contains(note))
+        })
+        .collect();
+    if let Some(cell) = grip_cell {
+        if realizes_contour(&cell, contour) {
+            return cell;
+        }
+    }
+
     // by_rank[r] is the playing position holding rank r+1, i.e. the r-th lowest note.
     let mut by_rank = vec![0usize; n];
     for (j, &rank) in contour.iter().enumerate() {
@@ -109,8 +130,11 @@ pub fn resolve_cell(
 /// Which pitch class this cell wants at playing position `j`.
 ///
 /// For `Shape::Order` the identity comes from the triad's roles, cycling over the block exactly
-/// as `note_at` does. For `Shape::Monotonic` it is the grip's own pitch classes in ascending
-/// order — which is what makes `<1 2 3>` reproduce today's ascending walk note for note.
+/// as `note_at` does. For `Shape::Monotonic` it is the grip's own pitch classes, walked either
+/// ascending or reversed — see [`monotonic_reversed`] for which. This is what makes `<1 2 3>`
+/// reproduce today's ascending walk note for note, and `<3 2 1>` reproduce today's descending
+/// walk: `Direction::Descending` is not "the contour `<3 2 1>` applied to an ascending identity",
+/// it is the same walk with the identity reversed.
 fn cell_pitch_class(
     grip: &TriadShape,
     role_pcs: &[u8; 3],
@@ -124,8 +148,53 @@ fn cell_pitch_class(
             let k = cell_index * n + j;
             role_pcs[(order[k % order.len()] % 3) as usize]
         }
-        Shape::Monotonic => grip.notes[j % 3].pitch_class,
+        Shape::Monotonic => {
+            let idx = if monotonic_reversed(block) { 2 - (j % 3) } else { j % 3 };
+            grip.notes[idx].pitch_class
+        }
     }
+}
+
+/// Whether a `Shape::Monotonic` identity should walk the grip high-to-low rather than low-to-high.
+///
+/// A contour that is itself the canonical ascending (`<1 2 … n>`) or descending (`<n … 2 1>`)
+/// permutation names its own walk direction outright: `<3 2 1>` *is* "play the grip top to
+/// bottom", independent of whatever `block.direction` happens to carry (a block's `direction`
+/// exists for the contour-less legacy walk; once a contour states the shape, the contour is the
+/// more specific instruction and wins). Any other — scrambled — contour makes no such ascending
+/// or descending claim about itself, so its identity falls back to `block.direction`, matching how
+/// `note_at` walks a plain, contour-less block.
+fn monotonic_reversed(block: &PatternBlock) -> bool {
+    if let Some(contour) = &block.contour {
+        let n = contour.len() as u8;
+        if *contour == (1..=n).collect::<Vec<u8>>() {
+            return false;
+        }
+        if *contour == (1..=n).rev().collect::<Vec<u8>>() {
+            return true;
+        }
+    }
+    block.direction == Direction::Descending
+}
+
+/// The exact fretboard occurrence the legacy walk would have played for playing position `j`:
+/// the grip note whose pitch class is this position's identity. A grip covers its triad's three
+/// pitch classes exactly once (see `triad_shape::push_if_valid`), so this is well-defined
+/// whenever `pc` is genuinely one of the grip's three pitch classes; `None` otherwise (a guard,
+/// not an assumption — `role_pcs` is caller-controlled).
+fn grip_note_for(grip: &TriadShape, pc: u8) -> Option<FretNote> {
+    grip.notes.iter().find(|note| note.pitch_class == pc).copied()
+}
+
+/// Whether `cell[j]`'s ordinal ranking by midi matches `contour[j]`'s ranks, for every pair of
+/// positions. Contours are permutations (`is_valid_contour` guarantees distinct ranks 1..=n), so
+/// two positions can never share a contour rank; if their midis tie, that can never satisfy any
+/// contour, and the pairwise check below correctly reports a mismatch for it.
+fn realizes_contour(cell: &[FretNote], contour: &[u8]) -> bool {
+    let n = cell.len();
+    (0..n).all(|a| {
+        (0..n).all(|b| (contour[a] < contour[b]) == (cell[a].midi < cell[b].midi))
+    })
 }
 
 /// Every in-region occurrence of `pc`, ordered by pitch then string so the search is stable.
@@ -423,5 +492,80 @@ mod tests {
         // The ranking is genuinely not what was asked for — this is a degradation, not a lucky
         // full match.
         assert_ne!(ranks_of(&cell), vec![3u8, 1, 2]);
+    }
+
+    // --- Defect 1: the Monotonic identity must reverse with `block.direction`, for contours that
+    // don't already name their own walk direction. ---
+    //
+    // `<2 1 3>` is neither the canonical ascending (`<1 2 3>`) nor descending (`<3 2 1>`)
+    // permutation, so it makes no claim about its own direction and `cell_pitch_class` falls back
+    // to `block.direction` — exactly the branch defect 1 fixes. Every note `resolve_cell` returns
+    // is drawn exclusively from occurrences of its position's identity pitch class, so position
+    // 0's pitch class in the result is a direct readout of which identity was requested.
+    #[test]
+    fn descending_direction_reverses_the_monotonic_identity_for_a_scrambled_contour() {
+        let (fb, positions, grip, pcs) = fixture();
+
+        let ascending = block_with(vec![2, 1, 3], Shape::Monotonic);
+        let cell_asc = resolve_cell(&grip, &pcs, &positions, &fb, &ascending, 0, None);
+        assert_eq!(cell_asc.len(), 3);
+        assert_eq!(
+            cell_asc[0].pitch_class, grip.notes[0].pitch_class,
+            "Ascending: position 0 must want the grip's lowest identity"
+        );
+        assert_eq!(ranks_of(&cell_asc), vec![2, 1, 3]);
+
+        let mut descending = block_with(vec![2, 1, 3], Shape::Monotonic);
+        descending.direction = Direction::Descending;
+        let cell_desc = resolve_cell(&grip, &pcs, &positions, &fb, &descending, 0, None);
+        assert_eq!(cell_desc.len(), 3);
+        assert_eq!(
+            cell_desc[0].pitch_class, grip.notes[2].pitch_class,
+            "Descending: position 0 must want the grip's highest identity, reversed"
+        );
+        assert_eq!(ranks_of(&cell_desc), vec![2, 1, 3]);
+    }
+
+    /// A grip the engine can legitimately produce, reusing one string: two notes on string 5.
+    /// `[(string 4, fret 5, midi 64), (string 5, fret 5, midi 69), (string 5, fret 8, midi 72)]`.
+    /// Its own arrangement costs `SAME_STRING(24) + span(3) + glue(5) = 32`; a displaced
+    /// alternative can cost `span(1) + OFF_GRIP(6*2) + glue(17) = 30` — cheaper. Without a
+    /// short-circuit, the cost-driven search would leave this grip even for `<1 2 3>`.
+    fn reused_string_grip(fb: &Fretboard) -> (crate::theory::triad_shape::TriadShape, [u8; 3]) {
+        let mk = |string: u8, fret: u8| {
+            let n = fb.get_note(string as usize, fret as usize).expect("in range");
+            FretNote { string, fret, midi: n.midi(), pitch_class: n.pitch_class }
+        };
+        let notes = [mk(4, 5), mk(5, 5), mk(5, 8)];
+        let pcs = [notes[0].pitch_class, notes[1].pitch_class, notes[2].pitch_class];
+        (crate::theory::triad_shape::TriadShape { notes }, pcs)
+    }
+
+    // --- Defect 2: the short-circuit must fire on identity/contour match alone, not on cost. ---
+    #[test]
+    fn grip_short_circuit_fires_even_when_the_grip_reuses_a_string() {
+        let fb = Fretboard::standard_tuning();
+        let positions = PositionSet::from_base_frets(&[5]);
+        let (grip, pcs) = reused_string_grip(&fb);
+        let block = block_with(vec![1, 2, 3], Shape::Monotonic);
+        let cell = resolve_cell(&grip, &pcs, &positions, &fb, &block, 0, None);
+        let got: Vec<i32> = cell.iter().map(|n| n.midi).collect();
+        let want: Vec<i32> = grip.notes.iter().map(|n| n.midi).collect();
+        assert_eq!(got, want, "short-circuit must keep the reused-string grip for <1 2 3>");
+    }
+
+    // The short-circuit must not over-apply: on this same reused-string grip, a genuinely
+    // scrambled contour must still displace, paying the cost the grip's own notes cannot avoid.
+    #[test]
+    fn scrambled_contour_still_displaces_from_a_reused_string_grip() {
+        let fb = Fretboard::standard_tuning();
+        let positions = PositionSet::from_base_frets(&[5]);
+        let (grip, pcs) = reused_string_grip(&fb);
+        let block = block_with(vec![3, 1, 2], Shape::Monotonic);
+        let cell = resolve_cell(&grip, &pcs, &positions, &fb, &block, 0, None);
+        let grip_midis: Vec<i32> = grip.notes.iter().map(|n| n.midi).collect();
+        let cell_midis: Vec<i32> = cell.iter().map(|n| n.midi).collect();
+        assert_ne!(cell_midis, grip_midis, "a scrambled contour must not short-circuit to the grip");
+        assert_eq!(ranks_of(&cell), vec![3, 1, 2]);
     }
 }
