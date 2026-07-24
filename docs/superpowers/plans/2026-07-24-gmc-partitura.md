@@ -2491,7 +2491,7 @@ variable that feeds `generateGmcLine`'s `figureIndex` argument and map it:
 
 ```ts
   const GRID_KINDS: GridKind[] = ['eighth', 'sixteenth', 'triplet'];
-  let staffGrid = $derived(GRIDS[GRID_KINDS[figure] ?? 'eighth']);
+  let staffGrid = $derived(GRIDS[GRID_KINDS[figureIndex] ?? 'eighth']);
 ```
 
 If the state variable is not named `figure`, use whatever name the page passes as
