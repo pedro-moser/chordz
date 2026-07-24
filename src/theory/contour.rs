@@ -27,9 +27,12 @@ const MAX_ASSIGNMENTS: usize = 512;
 
 /// Resolve one cell into fretboard notes, in playing order.
 ///
-/// Returns an empty vector when the block carries no contour. Otherwise always returns exactly
-/// `contour.len()` notes — degrading to the longest correct rank prefix if the region cannot
-/// realize the full shape.
+/// Returns an empty vector when the block carries no contour, when the contour is malformed
+/// (not a permutation of `1..=n`), or when some playing position has no in-region occurrence of
+/// its wanted pitch class — in every such case the caller is expected to fall back to its own
+/// in-region note selection. Otherwise always returns exactly `contour.len()` notes, degrading to
+/// the longest correct rank prefix if the region cannot realize the full shape. Every note this
+/// function returns is guaranteed to lie in `positions`; it never panics.
 pub fn resolve_cell(
     grip: &TriadShape,
     role_pcs: &[u8; 3],
@@ -43,6 +46,11 @@ pub fn resolve_cell(
         Some(c) => c,
         None => return Vec::new(),
     };
+    // A malformed contour (rank 0, a rank above n, or a repeated rank) has no meaning as a
+    // ranking. Bail out rather than let `by_rank`'s construction below panic on it.
+    if !crate::theory::line_pattern::is_valid_contour(contour) {
+        return Vec::new();
+    }
     let n = contour.len();
 
     // One candidate list per playing position: every in-region occurrence of its pitch class.
@@ -52,6 +60,13 @@ pub fn resolve_cell(
             occurrences(positions, fretboard, pc)
         })
         .collect();
+
+    // If any playing position has no in-region occurrence of its wanted pitch class, there is no
+    // legal note for it — neither the search nor the degradation fallback can conjure one without
+    // escaping the region. Bail out; the caller falls back to its own in-region note selection.
+    if candidates.iter().any(|c| c.is_empty()) {
+        return Vec::new();
+    }
 
     // by_rank[r] is the playing position holding rank r+1, i.e. the r-th lowest note.
     let mut by_rank = vec![0usize; n];
@@ -73,14 +88,18 @@ pub fn resolve_cell(
     match search.best.take() {
         Some((_, cell)) => cell,
         // Unrealizable here: keep the ranks we did satisfy, fill the rest with each position's
-        // lowest in-region occurrence. Deterministic, and it degrades gradually.
+        // lowest in-region occurrence. Deterministic, and it degrades gradually. The guard above
+        // guarantees every `candidates[j]` is non-empty, so `first()` always has an in-region note.
         None => {
             let (_, partial) = search.deepest;
             (0..n)
                 .map(|j| {
-                    partial[j]
-                        .or_else(|| candidates[j].first().copied())
-                        .unwrap_or(grip.notes[j % 3])
+                    partial[j].unwrap_or_else(|| {
+                        candidates[j]
+                            .first()
+                            .copied()
+                            .expect("guarded: candidates[j] is never empty here")
+                    })
                 })
                 .collect()
         }
@@ -319,22 +338,90 @@ mod tests {
         assert!(resolve_cell(&grip, &pcs, &positions, &fb, &block, 0, None).is_empty());
     }
 
-    #[test]
-    fn a_region_too_narrow_degrades_instead_of_panicking() {
-        // A single-fret window cannot supply three ranked octaves. The resolver must return a
-        // full-length cell anyway (longest correct prefix, then lowest available), never panic
-        // and never emit an out-of-region note.
-        let fb = Fretboard::standard_tuning();
-        let positions = PositionSet::from_base_frets(&[5]);
-        let pcs = [0u8, 4, 7];
-        let grips = inversion_ladder(&fb, &positions, &pcs);
-        let narrow = PositionSet::from_base_frets(&[1]);
-        let block = block_with(vec![3, 1, 2], Shape::Monotonic);
-        let cell = resolve_cell(&grips[0], &pcs, &narrow, &fb, &block, 0, None);
-        assert_eq!(cell.len(), 3);
-        let legal: Vec<i32> = narrow.find_notes(&fb, &pcs).iter().map(|n| n.midi).collect();
-        for n in &cell {
-            assert!(legal.contains(&n.midi));
+    /// A `TriadShape` built from bare pitch classes — string/fret/midi are unused by the paths
+    /// under test here (the grip's own notes only matter for `Shape::Monotonic`'s pitch-class
+    /// lookup and for grip-affinity scoring, neither of which these tests exercise).
+    fn dummy_grip(pcs: [u8; 3]) -> crate::theory::triad_shape::TriadShape {
+        crate::theory::triad_shape::TriadShape {
+            notes: pcs.map(|pc| FretNote { string: 0, fret: 0, midi: 0, pitch_class: pc }),
         }
+    }
+
+    // --- Finding 1: an empty candidate list must short-circuit, never fall through to a
+    // fabricated note. ---
+    //
+    // `PositionSet::from_base_frets(&[24])` clamps to the top of a 24-fret neck: its stretch
+    // range is nominally (23, 28) but `Fretboard::get_note` returns `None` past fret 24, so only
+    // frets 23-24 actually contribute notes. Measured directly (`occurrences`): pitch classes 0
+    // and 5 have zero occurrences there, e.g. pc 1 -> [73], pc 8 -> [68], pc 0 -> [], pc 5 -> [].
+    #[test]
+    fn empty_candidate_list_returns_empty_vec_not_a_fabricated_note() {
+        let fb = Fretboard::standard_tuning();
+        let top = PositionSet::from_base_frets(&[24]);
+        assert!(
+            occurrences(&top, &fb, 0).is_empty(),
+            "fixture assumption: pc 0 must be absent from this region"
+        );
+        // grip pitch classes [0, 4, 7]; Shape::Monotonic reads pc from grip.notes[j % 3], so
+        // position 0 wants pc 0 — the one this region cannot supply.
+        let grip = dummy_grip([0, 4, 7]);
+        let role_pcs = [0u8, 4, 7];
+        let block = block_with(vec![1, 2, 3], Shape::Monotonic);
+        let cell = resolve_cell(&grip, &role_pcs, &top, &fb, &block, 0, None);
+        assert!(cell.is_empty(), "no legal note exists for position 0; must return empty, not guess");
+    }
+
+    // --- Finding 2: a malformed contour must never reach `by_rank`'s indexing. ---
+    #[test]
+    fn contour_with_rank_zero_returns_empty_vec_not_a_panic() {
+        let (fb, positions, grip, pcs) = fixture();
+        let block = block_with(vec![0, 1, 2], Shape::Monotonic);
+        let cell = resolve_cell(&grip, &pcs, &positions, &fb, &block, 0, None);
+        assert!(cell.is_empty());
+    }
+
+    #[test]
+    fn contour_with_rank_above_len_returns_empty_vec_not_a_panic() {
+        let (fb, positions, grip, pcs) = fixture();
+        // n = 3, but rank 4 has no position — would index out of bounds in `by_rank`.
+        let block = block_with(vec![1, 2, 4], Shape::Monotonic);
+        let cell = resolve_cell(&grip, &pcs, &positions, &fb, &block, 0, None);
+        assert!(cell.is_empty());
+    }
+
+    // --- Finding 3: an unsatisfiable-but-populated cell must degrade, not fail closed or
+    // escape the region. ---
+    //
+    // Every position has non-empty candidates (Finding 1's guard does not fire), but no
+    // strictly-ascending assignment exists: contour `<3 1 2>` assigns position 1 the *lowest*
+    // rank and position 2 the *middle* rank, yet within this near-the-top-of-the-neck region
+    // (frets 23-24 only, same clamped window as above) position 1's only candidate (pc 6 -> 78)
+    // sits strictly above position 2's only candidate (pc 8 -> 68). The search picks position 1's
+    // note first (rank 1 is resolved before rank 2), so no candidate is left for position 2 that
+    // is strictly greater — the DFS dead-ends at depth 1 for every branch, `search.best` stays
+    // `None`, and the longest-correct-prefix fallback must fill the rest from `candidates[j].first()`.
+    #[test]
+    fn unsatisfiable_ranking_degrades_to_longest_correct_prefix_in_region() {
+        let fb = Fretboard::standard_tuning();
+        let top = PositionSet::from_base_frets(&[24]);
+        // Confirm the fixture's premise experimentally rather than assuming it.
+        assert_eq!(occurrences(&top, &fb, 6).iter().map(|n| n.midi).collect::<Vec<_>>(), vec![78]);
+        assert_eq!(occurrences(&top, &fb, 8).iter().map(|n| n.midi).collect::<Vec<_>>(), vec![68]);
+        assert_eq!(occurrences(&top, &fb, 9).iter().map(|n| n.midi).collect::<Vec<_>>(), vec![69]);
+
+        let grip = dummy_grip([9, 6, 8]);
+        let role_pcs = [9u8, 6, 8];
+        // Shape::Order([0,1,2]) is the identity: position j wants role_pcs[j].
+        let block = block_with(vec![3, 1, 2], Shape::Order(vec![0, 1, 2]));
+        let cell = resolve_cell(&grip, &role_pcs, &top, &fb, &block, 0, None);
+
+        assert_eq!(cell.len(), 3, "must still return a full-length cell");
+        let legal: Vec<i32> = top.find_notes(&fb, &[9, 6, 8]).iter().map(|n| n.midi).collect();
+        for n in &cell {
+            assert!(legal.contains(&n.midi), "degraded cell escaped the region: {n:?}");
+        }
+        // The ranking is genuinely not what was asked for — this is a degradation, not a lucky
+        // full match.
+        assert_ne!(ranks_of(&cell), vec![3u8, 1, 2]);
     }
 }
