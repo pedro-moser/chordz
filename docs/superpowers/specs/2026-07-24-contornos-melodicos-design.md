@@ -146,8 +146,23 @@ Hard filter: every note comes from the region. Among the survivors, minimize:
 ```
 cost = SAME_STRING * (adjacent pairs in PLAYING order sharing a string)
      + (max_fret - min_fret)                      // keep the hand compact
+     + OFF_GRIP * (notes not drawn from the cursor grip)
      + |midi(position 0) - prev_midi|             // continuity with the previous block, 0 if none
 ```
+
+`OFF_GRIP = 6` — a per-note toll for leaving the hand shape the connector chose.
+
+**Why the grip-affinity term is required, not decorative.** Inside one grip each pitch class occurs
+at exactly one midi, hence at exactly one rank: the contour is *fully determined* by the identity
+axis, with no freedom left. Two consequences follow.
+
+- A **monotonic** contour is always realizable in-grip (it is what the grip already produces), so it
+  pays `OFF_GRIP = 0` and wins outright. This is what makes `<1 2 3>` reproduce today's ascending
+  walk exactly. Without the term, a realization elsewhere in the region could win on the
+  `|midi - prev_midi|` term alone and silently change existing output — the non-regression guarantee
+  would be false.
+- A **scrambled** contour is *not* realizable in-grip (the ranking cannot match), so it must draw
+  from elsewhere, and the toll makes it depart as little as possible.
 
 `SAME_STRING = 24`, chosen to exceed the fret span of any realistic position window, so inside a
 region a string reuse can never be bought back with compactness. With `positions` empty (no region
