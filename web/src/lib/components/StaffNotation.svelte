@@ -193,11 +193,19 @@
       {#if note.dots === 1}
         <circle cx={note.x + 7} cy={y(note.staffStep) - UNIT} r="1.1" fill={color} />
       {/if}
-      {#if note.tiedToNext && layout.notes[ni + 1]}
+      <!--
+        The tie's partner is usually the next note in this measure, but for a note held
+        across a barline it is the FIRST note of the next measure — that continuation is
+        exactly what layoutLine exists to produce, and looking only within this measure
+        would silently drop the curve on the one case the whole design is about.
+        Measures render into the same coordinate space, so the lookup just crosses arrays.
+      -->
+      {@const tiePartner = layout.notes[ni + 1] ?? layouts[mi + 1]?.notes[0]}
+      {#if note.tiedToNext && tiePartner}
         <path
-          d="M{note.x + 5},{y(note.staffStep) + 5} Q{(note.x + layout.notes[ni + 1].x) / 2},{y(
+          d="M{note.x + 5},{y(note.staffStep) + 5} Q{(note.x + tiePartner.x) / 2},{y(
             note.staffStep,
-          ) + 10} {layout.notes[ni + 1].x - 5},{y(layout.notes[ni + 1].staffStep) + 5}"
+          ) + 10} {tiePartner.x - 5},{y(tiePartner.staffStep) + 5}"
           fill="none"
           stroke={color}
           stroke-width="1"
