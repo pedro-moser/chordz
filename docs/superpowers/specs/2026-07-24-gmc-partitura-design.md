@@ -10,12 +10,13 @@ tablature and sharing its horizontal grid. The rule is unconditional: **where th
 notation** — no toggle, no setting.
 
 The staff is sight-readable, not decorative: real rhythm (stems, beams, rests, ties across barlines),
-real pitch spelling driven by the active scale, treble clef *8vb* per guitar convention.
+functional pitch spelling anchored on the chord, treble clef *8vb* per guitar convention.
 
 Two halves:
 
 1. **Rust** learns to spell. Each `NoteEvent` gains `step`/`alter`/`octave`, derived from the note's
-   degree in the chord's active scale. Spelling is music theory, so it lives in `src/theory/`.
+   function over the chord — so a `G7alt` line reads `G A♭ A♯ B C♯ E♭ F`, with the third on B and the
+   ♯11 on C♯. Spelling is music theory, so it lives in `src/theory/`.
 2. **Web** learns to engrave. A pure layout module turns events into glyph placements; a Svelte
    component paints them into the tab's existing `<svg>`.
 
@@ -44,14 +45,33 @@ Three facts make this tractable, and each was verified in the source rather than
 - **`ChordChange.root` is the root as written in the chart** (`src/theory/chart.rs:44`, doc comment:
   *"Root name as written in the chart, e.g. `Bb`, `F#`"*). A chart that says `C#7` spells with sharps;
   `Db7` spells with flats. No key-detection heuristic needed.
-- **Every scale is exactly seven notes** — `Scale { semitones: [u8; 7] }` (`src/theory/scales.rs:28`),
-  across 28 modes of four parents (major, harmonic minor, melodic minor, harmonic major). Degree → letter
-  is therefore a bijection. No eight-note diminished or six-note whole-tone case to special-case.
+- **`ChordChange.quality` carries the chord's actual intervals** — `ChordQuality { intervals:
+  &'static [Interval] }` (`src/theory/chords.rs:5`). Whether a chord has a minor third, a tritone, a
+  raised fifth or a diminished seventh is a direct query, not a name match.
 - **Every emitted note is a scale tone.** `gmc::resolve_pair` splits the six non-root scale tones into
   two triads; `note_at` only ever returns fretboard positions of those pitch classes. The engine's
   "chromatic glue" (`line_engine.rs:331`) chooses a *rung of the ladder*, not an out-of-scale note.
 
 Consequence: spelling is deterministic, not inference.
+
+### Why scale degree is the wrong anchor
+
+The obvious algorithm — walk the scale's seven degrees, assign the seven letters in order from the
+root letter — is wrong, and it is wrong on the most important chord in the repertoire.
+
+G Altered is `semitones: [0, 1, 3, 4, 6, 8, 10]` (`src/theory/scales.rs:161`). Its real spelling is:
+
+```text
+G   Ab   A#   B   C#   Eb   F
+1   b9   #9   3   #11  b13  b7
+```
+
+Letter **A is used twice** (A♭ and A♯) and letter **D is not used at all**. There is no
+degree-to-letter bijection to find. Pairing degrees to letters in order instead yields
+`G Ab Bb Cb Db Eb F` — which spells the third of G7 as C♭ and the ♯11 as D♭. Nobody reads that.
+
+The anchor is the **chord**, not the mode. The altered scale is a chord-scale: the chord tones fix
+their letters, and everything else is a tension named relative to those.
 
 ### Rhythm is a closed problem
 
@@ -75,28 +95,65 @@ pub struct Spelled {
     pub octave: i8,  // scientific pitch notation; C4 = middle C
 }
 
-/// Spell `midi` as a degree of `scale` rooted on `root_written` (the chart's own spelling).
-pub fn spell(root_written: &str, scale: &Scale, midi: i32) -> Spelled;
+/// Spell every pitch class of `scale` over a chord, as notation reads it.
+/// Returns, for each of the 12 pitch classes, the letter and alteration to use — or `None` for
+/// pitch classes the scale does not contain.
+pub fn spell_scale(root_written: &str, quality: &ChordQuality, scale: &Scale) -> [Option<Spelled>; 12];
+
+/// Spell one sounding pitch using a table from `spell_scale`.
+pub fn spell_midi(table: &[Option<Spelled>; 12], midi: i32) -> Spelled;
 ```
 
-Algorithm:
+The table is built once per chord change, not once per note.
 
-1. Parse `root_written` into `(root_letter, root_alter)` — the letter drives the whole ladder.
-2. Find degree `d` in `0..7` where `(root_pc + scale.semitones[d]) % 12 == midi.rem_euclid(12)`.
-3. `step = (root_letter + d) % 7`.
-4. `alter = midi_pc − natural_pc(step)`, wrapped into `−6..=5` so it lands on the small value
-   (e.g. pc 9 against letter B → `9 − 11 = −2` = B♭♭, not `+10`).
-5. `octave = (midi − alter).div_euclid(12) − 1`. Subtracting the alteration first is what makes
-   B♯3 and C♭4 land in the right octave.
+**Letter assignment is chord-anchored.** For each scale tone, its interval above the root (in
+semitones) picks a letter offset from the root's letter. Where a semitone distance is ambiguous, the
+chord's own `intervals` decide:
 
-**Spelling is strictly theoretical.** Degree always wins: C Altered spells its third as F♭, and
-Superlocrian ♭♭7 spells its seventh as B♭♭. Double accidentals are rendered, not simplified away.
-The rationale is that the degree spelling is the functional information — reading F♭ tells you it is
-the ♭4 of the scale, which reading E does not. Consequence: the glyph set must include 𝄫 and 𝄪.
+| semitones | function | letter offset | condition |
+|---|---|---|---|
+| 1 | ♭9 | +1 | |
+| 2 | 9 | +1 | |
+| 3 | ♭3 | +2 | chord contains a minor third |
+| 3 | ♯9 | +1 | otherwise |
+| 4 | 3 | +2 | |
+| 5 | 11 | +3 | |
+| 6 | ♭5 | +4 | chord contains a tritone (m7♭5, dim7) |
+| 6 | ♯11 | +3 | otherwise |
+| 7 | 5 | +4 | |
+| 8 | ♯5 | +4 | chord contains a minor sixth (dom7♯5) |
+| 8 | ♭13 | +5 | otherwise |
+| 9 | ♭♭7 | +6 | chord is dim7 |
+| 9 | 13 | +5 | otherwise |
+| 10 | ♭7 | +6 | |
+| 11 | 7 | +6 | |
 
-**Fallback.** If step 2 finds no matching degree (currently unreachable, but a future chromatic
-approach-note feature would hit it), fall back to `PC_NAMES` (`src/theory/notes.rs:3`) — the jazz
-default of flats for D♭/E♭/A♭/B♭ and sharps for C♯/F♯. The function must not panic.
+Then: `step = (root_letter + offset) % 7`; `alter = pc − natural_pc(step)` wrapped into `−6..=5` so
+it lands on the small value (pc 9 against letter B → `9 − 11 = −2` = B♭♭, not `+10`);
+`octave = (midi − alter).div_euclid(12) − 1` — subtracting the alteration first is what puts B♯3 and
+C♭4 in the octave their letter implies.
+
+**Letter collisions.** Two scale tones can want the same letter — over C dim7, semitone 3 (E♭, the
+chord's minor third) and semitone 4 both map to letter E. The second one moves to the adjacent letter
+that yields the smaller `|alter|`, tie-breaking upward: semitone 4 becomes F♭, not D𝄪.
+
+**Spelling is strictly theoretical, anchored on the chord.** Double accidentals are rendered, never
+simplified away, because the spelling *is* the functional information. Worked examples:
+
+```text
+G7 + Altered [0,1,3,4,6,8,10]      →  G  Ab  A#  B   C#  Eb  F
+                                      1  b9  #9  3   #11 b13 b7
+
+Cdim7 + Superlocrian bb7 [0,1,3,4,6,8,9]
+                                   →  C  Db  Eb  Fb  Gb  Ab  Bbb
+                                      1  b9  b3  (collision) b5 b13 bb7
+```
+
+Consequence: the glyph set must include 𝄫 and 𝄪.
+
+**Fallback.** A pitch class the scale does not contain (currently unreachable, but the in-flight
+chromatic approach-note work would hit it) falls back to `PC_NAMES` (`src/theory/notes.rs:3`) — the
+jazz default of flats for D♭/E♭/A♭/B♭ and sharps for C♯/F♯. Neither function may panic.
 
 **`NoteEvent` gains three fields** (`src/theory/line_engine.rs:13`):
 
@@ -107,10 +164,10 @@ pub octave: i8,
 ```
 
 To fill them, `generate_line` must retain what it currently discards. Today it resolves each chord's
-scale inside a closure and keeps only the ladders (`line_engine.rs:229`). It will build a parallel
-`Vec<(&str, &Scale)>` of (root-as-written, resolved scale) per chord change. `run_pattern` already
-tracks `active_chord` at the single `events.push` site (`line_engine.rs:355`), so it indexes that vec
-and calls `spell`. One call site, no restructuring.
+scale inside a closure and keeps only the ladders (`line_engine.rs:229`). It will additionally build a
+per-chord `Vec<[Option<Spelled>; 12]>` by calling `spell_scale(&change.root, change.quality, scale)`.
+`run_pattern` already tracks `active_chord` at the single `events.push` site (`line_engine.rs:355`),
+so it indexes that vec and calls `spell_midi`. One call site, no restructuring.
 
 **Transport.** `src/wasm_api.rs` serialises the three new fields in `generate_gmc_line`'s event
 mapping; `GmcLineEvent` in `web/src/lib/wasm.ts` declares them. Pure pass-through.
@@ -166,9 +223,10 @@ further.
 ```text
 chart + pattern
   -> line_engine::generate_line
-       per chord: (root as written, resolved Scale)
+       per chord: spelling::spell_scale(root as written, quality, resolved Scale)
+                  -> [Option<Spelled>; 12]
   -> run_pattern
-       -> spelling::spell(root, scale, midi)
+       -> spelling::spell_midi(table_of[active_chord], midi)
   -> NoteEvent { beat, string, fret, triad, pitch_class, midi, duration, step, alter, octave }
   -> wasm_api::generate_gmc_line  (JSON)
   -> GmcLineEvent (wasm.ts)
@@ -178,8 +236,10 @@ chart + pattern
 
 ## Error Handling
 
-- `spell` never panics: an unmatched pitch class falls back to `PC_NAMES`, and `root_written` that
-  fails to parse falls back to the pitch-class name of `root_pc`.
+- Neither spelling function panics: a pitch class absent from the scale falls back to `PC_NAMES`, and
+  a `root_written` that fails to parse falls back to the pitch-class name of `root_pc`.
+- Letter collisions always resolve: if both adjacent letters are also taken, the pitch keeps its
+  first-choice letter and accepts the larger alteration rather than searching further.
 - A duration that cannot be decomposed into figures (should be unreachable given the grid) degrades to
   the largest representable figure plus a tied remainder, looping until consumed, with a hard iteration
   cap so a malformed duration cannot hang the render.
@@ -191,12 +251,19 @@ chart + pattern
 
 **Rust** (`src/theory/spelling.rs`, `cargo test --lib`):
 
-- C Ionian spells C D E F G A B, no accidentals.
-- C Altered spells its third as F♭ (strict degree spelling, not E).
-- C Superlocrian ♭♭7 spells its seventh as B♭♭ — the double-accidental case.
+- `Cmaj7` + Ionian spells C D E F G A B, no accidentals.
+- **`G7` + Altered spells G A♭ A♯ B C♯ E♭ F** — the case that killed the degree-ladder algorithm.
+  Asserts specifically that the third is B (not C♭) and the ♯11 is C♯ (not D♭), and that letter A
+  carries two different pitches while letter D carries none.
+- `Cdim7` + Superlocrian ♭♭7 spells C D♭ E♭ F♭ G♭ A♭ B𝄫 — exercises both the collision resolver
+  (semitone 4 pushed off letter E onto F♭) and the ♭♭7 rule.
+- `Cm7b5` + Locrian spells semitone 6 as G♭ (chord tone ♭5, letter+4), not F♯.
+- `G7#5` + Lydian Augmented spells semitone 8 as D♯ (chord tone ♯5), not E♭.
 - `C#7` and `Db7` over the same MIDI pitch produce sharp and flat spellings respectively.
 - Octave crossing: B♯3 and C♭4 land in the octave the letter implies, not the one MIDI division implies.
-- An out-of-scale pitch class hits the `PC_NAMES` fallback without panicking.
+- A pitch class absent from the scale hits the `PC_NAMES` fallback without panicking.
+- Every (quality, scale) pair in `ChordQuality::ALL` × `Scale::ALL` spells without panicking and
+  produces `|alter| <= 2` for every scale tone — a cheap exhaustive guard over all 28 × 19 combinations.
 
 **Vitest** (`web/src/lib/notation.test.ts`, `npm run test`):
 
