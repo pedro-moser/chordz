@@ -331,3 +331,47 @@ chart + pattern
 - Key signatures, multi-voice staves, chord-symbol engraving beyond the chord names the tab already prints.
 - Export to MusicXML or MIDI files. The spelling fields are exactly what a future MusicXML export would
   need, but no exporter is built here.
+
+---
+
+## Addendum 2026-07-24 — engraving proportions and stacked systems
+
+Two follow-ups Pedro asked for after seeing the first render: *"poe clave na proporção. tem que
+arrumar a diagramação no geral."*
+
+### Proportions come from SMuFL, not from taste
+
+Every dimension is expressed in **staff spaces** (sp), the distance between two adjacent staff
+lines. Here `STAFF_LINE_GAP = 7px`, so 1 sp = 7px. The numbers come from Bravura's
+`engravingDefaults` and `glyphBBoxes` — the same metadata MuseScore consumes, which is why we can
+take the metrics without touching MuseScore's GPL-3.0 source (this repo is MIT/Apache-2.0; reading
+its engraving *rules* is fine, transplanting its *code* is not).
+
+Key values: `staffLineThickness` 0.13, `stemThickness` 0.12, `beamThickness` 0.50,
+`beamSpacing` 0.25, `legerLineThickness` 0.16, `legerLineExtension` 0.40,
+`tieMidpointThickness` 0.22, noteheadBlack 1.18 × 1.00, accidentalSharp 0.996 wide,
+accidentalFlat 0.904, accidentalNatural 0.672, augmentationDot 0.40 diameter, stem length 3.5
+(the last from Gould's *Behind Bars*, not the font metadata).
+
+The treble clef was the visible offender: measured at 63px against a 28px staff, about 9 staff
+spaces where a real G clef spans ~6.5.
+
+### Stacked systems, not one long strip
+
+**The measurement that forces this:** on the sixteenth grid `tabX` yields 7.25px between notes,
+while a single notehead is 8.26px wide. The notation does not fit, and no amount of glyph
+shrinking fixes it — the first attempt squeezed noteheads to 73% and the accidentals still
+collided. A sixteenth-note measure needs roughly 280px, not 140.
+
+Widening measures inside one horizontal strip would drop a 1240px viewport from ~9 visible
+measures to ~4, and a 32-bar tune would run 9000px wide. So the line **wraps into systems**: each
+system holds as many measures as fit the container, staff above tab, systems stacked vertically.
+Scrolling becomes vertical, which is how a score actually reads.
+
+**The known trap.** `layoutLine` must still be called on the WHOLE line — its docstring says so,
+and a partial slice resurrects the cross-barline bug it exists to prevent. So the split into
+systems happens *after* layout: compute all measures once, then slice the resulting
+`MeasureLayout[]` into systems. A tie whose partner lands in the next system must not draw a curve
+across the break; real engraving ends the tie at the system edge and resumes on the next line.
+The current tie lookup reaches `layouts[mi + 1]` unconditionally and would otherwise stretch a
+curve to a wildly wrong x.
