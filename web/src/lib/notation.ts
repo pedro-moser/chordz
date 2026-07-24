@@ -241,3 +241,25 @@ export function beamGroups<
   flush();
   return groups;
 }
+
+/**
+ * Which accidental each note prints, for one measure's worth of notes in order.
+ *
+ * There is no key signature: the active scale changes per chord, so an armature would
+ * misrepresent the line. Everything is inline, with the usual rules — state an
+ * alteration once per (letter, octave) per measure, and print a natural when a
+ * previously altered letter comes back.
+ *
+ * Call this once per measure; the state must not leak across barlines.
+ */
+export function accidentalsToPrint(notes: Spelled[]): Array<number | null> {
+  const stated = new Map<string, number>();
+  return notes.map((n) => {
+    const key = `${n.step}:${n.octave}`;
+    const previous = stated.get(key);
+    if (previous === n.alter) return null;
+    if (previous === undefined && n.alter === 0) return null;
+    stated.set(key, n.alter);
+    return n.alter;
+  });
+}

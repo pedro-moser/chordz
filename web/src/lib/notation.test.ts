@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { staffStep, ledgerSteps, splitSpan, GRIDS, restFigures } from './notation';
+import { staffStep, ledgerSteps, splitSpan, GRIDS, restFigures, accidentalsToPrint } from './notation';
 
 describe('staffStep', () => {
   it('puts written E4 on the bottom line', () => {
@@ -216,5 +216,37 @@ describe('beamGroups', () => {
     // Step 0 is 4 away from the middle; step 5 is only 1 away. The low note wins.
     const groups = beamGroups([note(0, 0.5, 0), note(0.5, 0.5, 5)], GRIDS.eighth);
     expect(groups[0].stemUp).toBe(true);
+  });
+});
+
+describe('accidentalsToPrint', () => {
+  const n = (step: number, alter: number, octave = 4) => ({ step, alter, octave });
+
+  it('prints nothing for naturals that were never altered', () => {
+    expect(accidentalsToPrint([n(0, 0), n(1, 0), n(2, 0)])).toEqual([null, null, null]);
+  });
+
+  it('prints an accidental the first time an altered note appears', () => {
+    expect(accidentalsToPrint([n(6, -1)])).toEqual([-1]);
+  });
+
+  it('suppresses a repeat of the same altered note in the same measure', () => {
+    expect(accidentalsToPrint([n(6, -1), n(6, -1)])).toEqual([-1, null]);
+  });
+
+  it('does not suppress across octaves', () => {
+    expect(accidentalsToPrint([n(6, -1, 3), n(6, -1, 4)])).toEqual([-1, -1]);
+  });
+
+  it('prints a natural when an altered step returns to natural', () => {
+    expect(accidentalsToPrint([n(6, -1), n(6, 0)])).toEqual([-1, 0]);
+  });
+
+  it('prints again when the alteration changes', () => {
+    expect(accidentalsToPrint([n(5, -1), n(5, 1)])).toEqual([-1, 1]);
+  });
+
+  it('handles double accidentals like any other alteration', () => {
+    expect(accidentalsToPrint([n(6, -2), n(6, -2)])).toEqual([-2, null]);
   });
 });
