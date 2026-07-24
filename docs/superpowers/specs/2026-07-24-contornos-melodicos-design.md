@@ -176,7 +176,8 @@ axis, with no freedom left. Two consequences follow.
 region a string reuse can never be bought back with compactness. With `positions` empty (no region
 restriction, per `LineConfig`) a cell could in principle span more of the neck than that; the
 ordering still behaves, since avoiding a reuse costs at most the extra span while the reuse costs a
-flat 24. Ties break on lowest total midi.
+flat 24. Ties keep the first assignment the search reaches, which is deterministic because
+candidates are enumerated in `(midi, string)` order — not a semantic tie-break, just a stable one.
 
 Adjacency is measured in **playing** order, not rank order — that is what the picking hand actually
 does.
@@ -236,9 +237,15 @@ notes. Predictable, and it avoids inventing a re-ranking rule for truncated cont
 
 ### Mid-block chord changes
 
-A cell may straddle a chord change (`line_engine.rs:372`). A chord change **truncates the current
-cell**: emit what has been resolved, then begin a fresh cell on the new chord's ladder, anchored by
-the glue pitch. Resolving a cell across two harmonies would make its register arrangement meaningless.
+A cell may straddle a chord change. A chord change **invalidates the cached cell**: the remaining
+notes are re-resolved against the new chord's ladder, entered from the glue pitch. Resolving a cell
+across two harmonies would make its register arrangement meaningless.
+
+The re-resolve keeps the cell's **original rank alignment** rather than restarting the contour at
+position 0 — it resolves at the same cell boundary and serves offset `k % cell_len`. So a change
+landing on the third note of a cell yields that cell's third rank, from the new harmony. Restarting
+the contour mid-bar would put a rank-1 note on an off-beat and make the pattern's shape drift out of
+phase with the grid, which is more disruptive than inheriting the alignment.
 
 ### The rung, for contour blocks
 
@@ -316,17 +323,32 @@ as do `<2 1 3>` and `<3 1 2>`. The point heights are exactly the contour vector:
 | `<3 1 2>` | high | low | mid |
 | `<3 2 1>` | high | mid | low |
 
-Plus an "off" state (`contour: None`) which restores the `↑`/`↓` toggle. Cells of other sizes take a
-free-text CSEG vector; the six glyphs are the 3-note affordance, not the whole model.
+Plus an "off" state (`contour: None`) which restores the `↑`/`↓` toggle. Blocks of other sizes show
+no picker at all and keep the `↑`/`↓` toggle: the six glyphs are the 3-note affordance, and the data
+model accepts any-length CSEG even though nothing in the UI yet produces one.
 
-When a block's contour degrades (no realization fits the region), mark the block — the honest signal
-is "this shape does not fit this position", and the fix is a wider region or a different contour.
+**Not built (deliberately deferred, listed here so the spec does not promise them):**
+
+- *A free-text CSEG field for cells of other sizes.* The engine accepts any valid permutation
+  vector, so this is UI-only work. Nobody has asked to practise a 5-note contour yet; the six
+  buttons cover the vocabulary that triad-pair playing actually uses.
+- *Marking a block whose contour degraded.* The engine currently has no channel to report
+  degradation upward — `resolve_cell` returns notes, not a status — so surfacing it means widening
+  the return type through the emission loop and the wasm boundary. Real work, and worth doing only
+  once someone hits the case in practice.
 
 ## Testing
 
 1. **Non-regression:** `Monotonic + <1 2 3>` produces output identical to `Monotonic + Ascending`
-   for every preset, including on inverted grips; likewise `<3 2 1>` and `Descending`. Assert on
-   full event vectors, not spot checks.
+   **for blocks of count ≤ 3**, including on inverted grips; likewise `<3 2 1>` and `Descending`.
+   Assert on full event vectors, not spot checks.
+
+   The bound is real, not caution. Above count 3 the two diverge by design: legacy `Monotonic`
+   **ping-pongs** within the grip (`0,1,2,1,0,…`), while a contour **cycles** its cell
+   (`0,1,2,0,1,2,…`) the way `Shape::Order` does. A 62,208-configuration sweep found 0 differences
+   at counts 1–3 and a difference in every single case at counts 4–6. `patternPresets.ts` ships a
+   `count: 4` block, so a player can reach the divergence — it is documented behaviour, not a
+   regression, but any claim of byte-identity must carry the bound.
 2. **`contour: None` is inert:** every existing line-engine test passes unchanged.
 3. **Ordinal correctness:** for each of the six contours, the emitted cell's midi ranking equals the
    requested contour.
