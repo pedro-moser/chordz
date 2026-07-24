@@ -185,9 +185,7 @@ Expected: PASS — 2 tests.
 
 ```bash
 git add web/src/lib/patternPresets.ts web/src/lib/patternPresets.test.ts
-git commit -m "feat(gmc): pattern-preset lib module with the 6 distilled études
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): pattern-preset lib module with the 6 distilled études"
 ```
 
 ---
@@ -241,9 +239,7 @@ Expected: PASS.
 
 ```bash
 git add web/src/routes/gmc/tune/+page.svelte
-git commit -m "feat(gmc): pattern presets set the figure; source from the lib module
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): pattern presets set the figure; source from the lib module"
 ```
 
 ---

@@ -192,9 +192,7 @@ Expected: PASS — 6 tests.
 
 ```bash
 git add src/theory/shells.rs src/theory/mod.rs
-git commit -m "feat(gmc): shell-pair resolver distilled from Airegin étude
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): shell-pair resolver distilled from Airegin étude"
 ```
 
 ---
@@ -371,9 +369,7 @@ Expected: PASS — same count as Step 1 (refactor changed no behavior).
 
 ```bash
 git add src/theory/line_engine.rs
-git commit -m "refactor(gmc): extract run_pattern from generate_line
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "refactor(gmc): extract run_pattern from generate_line"
 ```
 
 ---
@@ -504,9 +500,7 @@ Expected: PASS — all tests including the two new `shell_line` ones.
 
 ```bash
 git add src/theory/line_engine.rs
-git commit -m "feat(gmc): generate_shell_line — shell étude over any chart
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): generate_shell_line — shell étude over any chart"
 ```
 
 ---
@@ -657,9 +651,7 @@ Expected: build succeeds; `web/pkg/chordz.js` now exports `generate_shell_etude`
 
 ```bash
 git add src/wasm_api.rs web/src/wasm.d.ts web/pkg
-git commit -m "feat(gmc): generate_shell_etude wasm export
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): generate_shell_etude wasm export"
 ```
 
 ---
@@ -699,9 +691,7 @@ Expected: PASS (svelte-check finds the new export typed; 0 errors).
 
 ```bash
 git add web/src/lib/wasm.ts
-git commit -m "feat(gmc): generateShellEtude web wrapper
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): generateShellEtude web wrapper"
 ```
 
 ---
@@ -787,9 +777,7 @@ Run the dev server (`cd web && npm run dev`), open the GMC tune page, select the
 
 ```bash
 git add web/src/routes/gmc/tune/+page.svelte
-git commit -m "feat(gmc): Shell Étude toggle in GMC tune page
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): Shell Étude toggle in GMC tune page"
 ```
 
 ---

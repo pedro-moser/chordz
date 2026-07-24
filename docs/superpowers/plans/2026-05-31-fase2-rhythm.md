@@ -104,9 +104,7 @@ Expected: 0 errors.
 
 ```bash
 git add src/theory/line_pattern.rs src/theory/line_engine.rs src/wasm_api.rs
-git commit -m "feat(gmc): add hold_last/lead_rest fields to PatternBlock
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): add hold_last/lead_rest fields to PatternBlock"
 ```
 
 ---
@@ -355,9 +353,7 @@ Expected: PASS — the existing line_engine tests (legacy invariance: counts/bea
 
 ```bash
 git add src/theory/line_engine.rs
-git commit -m "feat(gmc): NoteEvent.duration + cursor; hold_last/lead_rest rhythm
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): NoteEvent.duration + cursor; hold_last/lead_rest rhythm"
 ```
 
 ---
@@ -398,9 +394,7 @@ Expected: build succeeds. Verify the field is emitted: `grep -c '"duration"' web
 
 ```bash
 git add src/wasm_api.rs web/pkg
-git commit -m "feat(gmc): serialize NoteEvent.duration to the web
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): serialize NoteEvent.duration to the web"
 ```
 (`web/pkg` is gitignored — the add is a no-op; commit the source.)
 
@@ -468,9 +462,7 @@ Expected: 0 svelte-check errors; build succeeds.
 
 ```bash
 git add web/src/lib/wasm.ts web/src/routes/gmc/tune/+page.svelte
-git commit -m "feat(gmc): play notes by their baked duration (held notes sound held)
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): play notes by their baked duration (held notes sound held)"
 ```
 
 ---
@@ -530,9 +522,7 @@ Expected: 0 svelte-check errors; build succeeds.
 
 ```bash
 git add web/src/routes/gmc/tune/+page.svelte
-git commit -m "feat(gmc): per-block Hold/Pickup inputs in the pattern editor
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): per-block Hold/Pickup inputs in the pattern editor"
 ```
 
 ---

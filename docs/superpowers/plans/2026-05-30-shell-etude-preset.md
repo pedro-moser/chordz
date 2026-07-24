@@ -117,9 +117,7 @@ Expected: PASS (the two new tests + the existing default-scale tests).
 
 ```bash
 git add src/theory/scale_defaults.rs
-git commit -m "feat(gmc): etude_scale — characteristic shell scale per chord quality
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): etude_scale — characteristic shell scale per chord quality"
 ```
 
 ---
@@ -199,9 +197,7 @@ Expected: build succeeds. Verify: `grep -c shell_etude_preset web/pkg/chordz.js`
 
 ```bash
 git add src/wasm_api.rs web/src/wasm.d.ts web/pkg
-git commit -m "feat(gmc): shell_etude_preset wasm descriptor (pair + scales + pattern)
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): shell_etude_preset wasm descriptor (pair + scales + pattern)"
 ```
 (`web/pkg` is gitignored — the `git add web/pkg` is a no-op; commit the source.)
 
@@ -244,9 +240,7 @@ Expected: 0 errors.
 
 ```bash
 git add web/src/lib/wasm.ts
-git commit -m "feat(gmc): shellEtudePreset web wrapper
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): shellEtudePreset web wrapper"
 ```
 
 ---
@@ -386,9 +380,7 @@ Expected: 0 svelte-check errors; build succeeds. (Confirm no remaining `etudeMod
 
 ```bash
 git add web/src/routes/gmc/tune/+page.svelte
-git commit -m "feat(gmc): Shell Étude as a transparent preset button
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): Shell Étude as a transparent preset button"
 ```
 
 ---
@@ -450,9 +442,7 @@ Expected: cargo test all green (shell tests gone, count drops by 2); wasm check 
 
 ```bash
 git add -A
-git commit -m "refactor(gmc): delete opaque shell engine, superseded by the preset
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "refactor(gmc): delete opaque shell engine, superseded by the preset"
 ```
 
 ---

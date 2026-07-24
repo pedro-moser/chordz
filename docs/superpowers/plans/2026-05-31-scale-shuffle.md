@@ -120,9 +120,7 @@ Expected: PASS (the 2 new tests + the existing scale_defaults tests).
 
 ```bash
 git add src/theory/scale_defaults.rs
-git commit -m "feat(gmc): valid_scales — guide-tone scale set per chord quality
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): valid_scales — guide-tone scale set per chord quality"
 ```
 
 ---
@@ -184,9 +182,7 @@ Expected: succeeds. Verify: `grep -c valid_scales_for_chart web/pkg/chordz.js` �
 
 ```bash
 git add src/wasm_api.rs web/src/wasm.d.ts web/pkg
-git commit -m "feat(gmc): valid_scales_for_chart wasm export
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): valid_scales_for_chart wasm export"
 ```
 (`web/pkg` is gitignored — `git add web/pkg` is a no-op; commit the source.)
 
@@ -226,9 +222,7 @@ Expected: 0 errors.
 
 ```bash
 git add web/src/lib/wasm.ts
-git commit -m "feat(gmc): validScalesForChart web wrapper
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): validScalesForChart web wrapper"
 ```
 
 ---
@@ -296,9 +290,7 @@ Expected: 0 svelte-check errors; build succeeds.
 
 ```bash
 git add web/src/routes/gmc/tune/+page.svelte
-git commit -m "feat(gmc): 🎲 Cores — shuffle valid scales per chord
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -m "feat(gmc): 🎲 Cores — shuffle valid scales per chord"
 ```
 
 ---

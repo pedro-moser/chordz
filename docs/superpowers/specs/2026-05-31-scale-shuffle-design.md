@@ -2,7 +2,6 @@
 
 **Date:** 2026-05-31
 **Status:** Approved (design), pending implementation plan
-**Author:** Pedro + Claude
 
 ## Summary
 
