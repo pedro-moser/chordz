@@ -1547,4 +1547,34 @@ mod tests {
              if this is gone the trade-off documented above no longer applies"
         );
     }
+
+    #[test]
+    fn a_chord_change_truncates_the_current_cell() {
+        // Two chords per bar with sixteenths gives each chord two beats; a 3-cell straddles the
+        // change. Cells must restart on the new ladder rather than resolve across two harmonies.
+        //
+        // T1 of Dm7 under the default Dorian scale with PAIRS[0] resolves to the role-ordered
+        // pitch classes [E=4, G=7, B=11] — the same fixture the Order tests above rely on. So a
+        // note sounding during the Dm7 that carries any other pitch class can only have come from
+        // a cell resolved against a different chord.
+        let fb = Fretboard::standard_tuning();
+        let chart = Chart::parse("Test", "| Dm7 G7 |").unwrap();
+        let mut config = contour_config(6, Shape::Monotonic, vec![2, 3, 1], Direction::Ascending);
+        config.figure = RhythmicFigure::Sixteenth;
+        let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
+        assert!(!events.is_empty(), "the fixture must produce notes");
+
+        let dm7_beats = chart.changes[0].beats;
+        let during_dm7: Vec<&NoteEvent> = events.iter().filter(|e| e.beat < dm7_beats).collect();
+        assert!(during_dm7.len() >= 4, "expected several notes inside the first chord");
+        for e in &during_dm7 {
+            assert!(
+                [4, 7, 11].contains(&e.pitch_class),
+                "pitch class {} at beat {} does not belong to T1 of Dm7 — a cell leaked across \
+                 the chord change",
+                e.pitch_class,
+                e.beat
+            );
+        }
+    }
 }
