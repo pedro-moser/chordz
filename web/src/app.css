@@ -14,6 +14,26 @@
   font-display: swap;
 }
 
+/*
+ * Bravura, subset to the fifteen SMuFL glyphs the notation staff draws: the 8vb treble
+ * clef, five rests, five accidentals, three noteheads and the augmentation dot. 3.7 KB.
+ *
+ * SIL Open Font License 1.1 — see ./fonts/Bravura-OFL.txt. Reserved Font Name "Bravura",
+ * so the subset keeps the name and is not modified beyond glyph removal.
+ *
+ * SMuFL fonts are drawn so that one em equals four staff spaces. Setting font-size to
+ * 4 × the staff line gap therefore makes every glyph come out at its engraved size with
+ * no per-glyph scaling, which is exactly what two rounds of hand-authored SVG paths
+ * failed to achieve.
+ */
+@font-face {
+  font-family: 'Bravura';
+  src: url('./fonts/BravuraSubset.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   --bg-base: #1a1a1a;
   --bg-surface: #242424;

@@ -1,57 +1,74 @@
 /**
- * SVG path data for the notation glyphs that geometry cannot produce.
+ * The notation glyphs that come from the font rather than from geometry.
  *
- * Coordinates are in staff steps: 1 unit = half the distance between two staff lines,
- * y grows downward, and the origin sits on each glyph's staff anchor — the G line for
- * the clef, the middle line for rests, the notehead's own line for accidentals. The
- * component scales by `STAFF_LINE_GAP / 2`, so nothing here needs pixel values.
+ * Clefs, rests and accidentals are real typographic shapes — two rounds of hand-authored
+ * bezier paths produced a treble clef that was recognisable but wrong, and then one that
+ * was the right SIZE but had lost its spiral entirely. They are drawn instead from a
+ * 3.7 KB subset of Bravura (SIL OFL 1.1, see `../fonts/Bravura-OFL.txt`), the reference
+ * SMuFL font.
  *
- * Noteheads, stems, beams, augmentation dots, ledger lines and ties are drawn from
- * primitives by `StaffNotation.svelte`, not from this file.
+ * Noteheads, stems, beams, ledger lines, augmentation dots and ties stay geometric:
+ * they are ellipses and straight lines, `StaffNotation.svelte` already sizes them from
+ * the same SMuFL metrics, and keeping them as SVG primitives keeps the per-note colouring
+ * straightforward.
+ *
+ * **The sizing rule.** SMuFL fonts are drawn so that one em equals four staff spaces.
+ * Set `font-size` to `4 × STAFF_LINE_GAP` and every glyph lands at its engraved size with
+ * no per-glyph scale factor. Each glyph's origin is its baseline, placed at the staff
+ * position it attaches to — the G line for the clef, the notehead's own line for an
+ * accidental, and the line named in `REST_ANCHOR_STEP` for a rest.
  */
 
-/** Treble clef, anchored so y=0 is the G line (staff step 2). */
-export const TREBLE_CLEF_PATH =
-  'M0.9,6.2 C0.9,7.3 1.8,8.0 2.8,8.0 C4.0,8.0 4.8,7.1 4.8,5.9 ' +
-  'C4.8,4.6 3.9,3.6 2.6,2.4 C1.5,1.4 0.6,0.5 0.6,-0.9 ' +
-  'C0.6,-2.4 1.6,-3.6 2.6,-4.6 C3.4,-5.4 3.9,-6.2 3.9,-7.2 ' +
-  'C3.9,-8.4 3.3,-9.2 2.7,-9.2 C2.0,-9.2 1.6,-8.3 1.6,-7.2 ' +
-  'C1.6,-5.9 2.2,-4.6 2.9,-3.2 C3.9,-1.2 4.9,0.9 4.9,2.9 ' +
-  'C4.9,4.9 3.7,6.3 2.2,6.3 C1.3,6.3 0.9,5.8 0.9,5.2';
+/** Matches the `@font-face` family declared in `app.css`. */
+export const SMUFL_FONT = 'Bravura';
 
-/** The 8 under the clef: guitar sounds an octave below the written pitch. */
-export const CLEF_OCTAVE_TEXT = '8';
+/** U+E052 gClef8vb — treble clef with the 8 already below it. Origin sits on the G line. */
+export const CLEF_8VB = '\uE052';
 
-/** Rests, anchored on the middle staff line, keyed by note value. */
-export const REST_PATHS: Record<number, string> = {
-  // Whole rest: a block hanging UNDER the fourth line, i.e. filling staff steps 5-6.
-  // The anchor is the middle line (step 4) and y grows downward, so that is y -2 to -1.
-  1: 'M-1.0,-2.0 h2.0 v1.0 h-2.0 z',
-  // Half rest: a block sitting ON the middle line, filling staff steps 4-5, i.e. y -1 to 0.
-  2: 'M-1.0,-1.0 h2.0 v1.0 h-2.0 z',
-  // Quarter rest.
-  4: 'M-0.4,-2.0 L0.6,-0.7 L-0.2,0.2 L0.8,1.6 L0.2,1.9 C-0.6,1.0 -1.0,0.4 -0.5,-0.2 L-1.0,-0.9 z',
-  // Eighth rest: one hook.
-  8: 'M0.6,-1.6 C0.6,-1.2 0.2,-0.9 -0.2,-1.0 L0.2,1.8 L-0.2,1.9 L-0.8,-1.2 C-0.4,-0.9 0.1,-1.1 0.2,-1.5 z',
-  // Sixteenth rest: two hooks.
-  16: 'M0.6,-2.4 C0.6,-2.0 0.2,-1.7 -0.2,-1.8 L0.2,1.8 L-0.2,1.9 L-1.0,-2.0 C-0.6,-1.7 -0.1,-1.9 0.0,-2.3 z ' +
-    'M0.3,-0.6 C0.3,-0.2 -0.1,0.1 -0.5,0.0 L-0.7,-0.8 C-0.3,-0.5 0.0,-0.6 0.1,-0.9 z',
+/** Rests by note value: whole, half, quarter, eighth, sixteenth. */
+export const REST_GLYPH: Record<number, string> = {
+  1: '\uE4E3',
+  2: '\uE4E4',
+  4: '\uE4E5',
+  8: '\uE4E6',
+  16: '\uE4E7',
 };
 
-/** Accidentals, anchored on the notehead's own staff position, keyed by alteration. */
-export const ACCIDENTAL_PATHS: Record<number, string> = {
-  // Double flat.
-  [-2]:
-    'M-1.4,-2.6 v4.0 c0.4,-0.7 1.0,-1.0 1.4,-0.7 c0.4,0.3 0.2,1.0 -0.5,1.6 l-0.9,0.8 v-5.7 z ' +
-    'M0.2,-2.6 v4.0 c0.4,-0.7 1.0,-1.0 1.4,-0.7 c0.4,0.3 0.2,1.0 -0.5,1.6 l-0.9,0.8 v-5.7 z',
-  // Flat.
-  [-1]: 'M-0.5,-2.6 v4.0 c0.4,-0.7 1.0,-1.0 1.4,-0.7 c0.4,0.3 0.2,1.0 -0.5,1.6 l-0.9,0.8 v-5.7 z',
-  // Natural.
-  0: 'M-0.5,-2.2 v3.6 l1.2,-0.3 v-3.6 z M-0.5,0.6 l1.2,-0.3 v1.0 l-1.2,0.3 z ' +
-    'M-0.5,-1.4 l1.2,-0.3 v1.0 l-1.2,0.3 z',
-  // Sharp.
-  1: 'M-0.7,-1.6 l0.35,-0.1 v3.4 l-0.35,0.1 z M0.35,-1.9 l0.35,-0.1 v3.4 l-0.35,0.1 z ' +
-    'M-0.9,-0.5 l1.8,-0.45 v0.6 l-1.8,0.45 z M-0.9,1.0 l1.8,-0.45 v0.6 l-1.8,0.45 z',
-  // Double sharp.
-  2: 'M-0.6,-0.6 h1.2 v1.2 h-1.2 z',
+/**
+ * Which staff step each rest's baseline sits on.
+ *
+ * A whole rest hangs UNDER the fourth line and a half rest sits ON the middle line — they
+ * are a space apart and not interchangeable. Bravura encodes that in the glyphs themselves
+ * (restWhole is drawn below its origin, restHalf above it), so the whole rest anchors to
+ * the fourth line and everything else to the middle line.
+ */
+export const REST_ANCHOR_STEP: Record<number, number> = {
+  1: 6,
+  2: 4,
+  4: 4,
+  8: 4,
+  16: 4,
+};
+
+/** Accidentals by alteration: 𝄫 ♭ ♮ ♯ 𝄪. */
+export const ACCIDENTAL_GLYPH: Record<number, string> = {
+  [-2]: '\uE264',
+  [-1]: '\uE260',
+  0: '\uE261',
+  1: '\uE262',
+  2: '\uE263',
+};
+
+/**
+ * Advance width of each accidental in staff spaces, from Bravura's `glyphBBoxes`. The
+ * renderer needs these to hang an accidental to the LEFT of its notehead: one shared
+ * offset cannot work when a natural is two thirds the width of a sharp and a double flat
+ * is nearly twice it.
+ */
+export const ACCIDENTAL_WIDTH_SP: Record<number, number> = {
+  [-2]: 1.644,
+  [-1]: 0.904,
+  0: 0.672,
+  1: 0.996,
+  2: 0.988,
 };
