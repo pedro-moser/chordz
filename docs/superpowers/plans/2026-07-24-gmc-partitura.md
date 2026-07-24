@@ -1158,7 +1158,7 @@ Turn a sounding span into printable note values. A span that does not match one 
 - Consumes: nothing from Task 7
 - Produces:
   - `export type GridKind = 'eighth' | 'sixteenth' | 'triplet'`
-  - `export interface Grid { kind: GridKind; step: number; slotsPerBeat: number }`
+  - `export interface Grid { kind: GridKind; step: number }`
   - `export const GRIDS: Record<GridKind, Grid>`
   - `export interface Figure { beat: number; beats: number; value: number; dots: 0 | 1; tiedToNext: boolean }`
   - `export function splitSpan(startBeat: number, durationBeats: number, grid: Grid, measureStarts: number[]): Figure[]`
@@ -1241,14 +1241,12 @@ export interface Grid {
   kind: GridKind;
   /** Beats in one grid slot. */
   step: number;
-  /** Slots in one beat — also the size of a beam group. */
-  slotsPerBeat: number;
 }
 
 export const GRIDS: Record<GridKind, Grid> = {
-  eighth: { kind: 'eighth', step: 0.5, slotsPerBeat: 2 },
-  sixteenth: { kind: 'sixteenth', step: 0.25, slotsPerBeat: 4 },
-  triplet: { kind: 'triplet', step: 1 / 3, slotsPerBeat: 3 },
+  eighth: { kind: 'eighth', step: 0.5 },
+  sixteenth: { kind: 'sixteenth', step: 0.25 },
+  triplet: { kind: 'triplet', step: 1 / 3 },
 };
 
 /** One printable note value. `value` is the denominator: 1=whole, 2=half, 4=quarter, 8, 16. */
@@ -1312,36 +1310,33 @@ export function splitSpan(
   grid: Grid,
   measureStarts: number[],
 ): Figure[] {
+  const table = FIGURE_TABLE[grid.kind]; // sorted largest slot count first
   const pieces: Array<{ beat: number; slots: number }> = [];
   let beat = startBeat;
   let remaining = toSlots(durationBeats, grid);
+  // A span needs at most one figure per slot. The guard makes a malformed duration
+  // impossible to hang the render on.
+  let guard = remaining + 1;
 
-  while (remaining > 0) {
-    // Slots left before the next barline, and before the next beat.
+  while (remaining > 0 && guard-- > 0) {
+    // A figure may straddle beats — a half note starting on beat 1 is one figure —
+    // but never a barline. That is what ties are for.
     const nextBar = measureStarts.find((m) => m > beat + 1e-6);
     const toBar = nextBar === undefined ? remaining : toSlots(nextBar - beat, grid);
-    const toBeat = grid.slotsPerBeat - (Math.round(beat / grid.step) % grid.slotsPerBeat || 0);
-    let take = Math.min(remaining, toBar > 0 ? toBar : remaining);
-
-    // Inside the bar, prefer a figure that does not straddle a beat unless it is a
-    // clean value in its own right.
-    if (take > toBeat && !FIGURE_TABLE[grid.kind].some(([s]) => s === take)) {
-      take = Math.max(toBeat, 1);
-    }
-    const entry = FIGURE_TABLE[grid.kind].find(([s]) => s <= take);
-    const slots = entry ? entry[0] : 1;
-    pieces.push({ beat, slots });
-    beat += slots * grid.step;
-    remaining -= slots;
+    const room = Math.max(1, Math.min(remaining, toBar));
+    const entry = table.find(([slots]) => slots <= room) ?? table[table.length - 1];
+    pieces.push({ beat, slots: entry[0] });
+    beat += entry[0] * grid.step;
+    remaining -= entry[0];
   }
 
   return pieces.map((p, i) => {
-    const entry = FIGURE_TABLE[grid.kind].find(([s]) => s === p.slots) ?? [p.slots, 8, 0 as const];
+    const entry = table.find(([slots]) => slots === p.slots) ?? table[table.length - 1];
     return {
       beat: p.beat,
       beats: p.slots * grid.step,
       value: entry[1],
-      dots: entry[2] as 0 | 1,
+      dots: entry[2],
       tiedToNext: i < pieces.length - 1,
     };
   });
@@ -2428,22 +2423,27 @@ cd web && npm run check && npm run test
 
 Expected: all PASS.
 
-- [ ] **Step 7: Look at it**
+- [ ] **Step 7: Capture a screenshot for visual review**
 
-```bash
-cd web && npm run dev
-```
+Do NOT judge whether the notation looks good — that is the controller's and Pedro's
+call, and it is the one gate no test covers. Your job is to produce the evidence.
 
-Open the GMC tune page, load a preset, and check by eye:
+Write a throwaway Playwright script (Playwright is already a devDependency, and
+`tools/capture/probe-rects.mjs` is a working example of the pattern) that starts the
+dev server, opens the GMC tune page, applies the Shell Étude preset, and saves a PNG
+of the tab container to the scratchpad directory named in your dispatch. Capture at
+`deviceScaleFactor: 2` so the glyphs are legible.
 
-- Noteheads sit directly above their fret numbers, at every measure and every zoom.
-- The clef reads as a treble clef. **If it looks amateurish, stop and report** — the
-  spec's fallback is to bundle a subsetted Bravura (SIL OFL 1.1) with only clef, rests
-  and accidentals, which is a design decision, not an implementation one.
-- Accidentals do not collide with noteheads or ledger lines.
+Then verify the interactions that the staff could have broken, and report what you
+observed for each:
+
 - Clicking a measure still selects it, and the highlight covers staff and tab together.
-- Arrow-key navigation and scroll-to-measure still work.
-- The fretboard panel below is still reachable without the layout breaking.
+- Arrow-key navigation still moves the selection, and the view scrolls to it.
+- The fretboard panel below is still reachable and the page does not scroll horizontally
+  outside the tab container.
+
+Report the screenshot path and the interaction results. Do not delete the script — the
+controller may re-run it.
 
 - [ ] **Step 8: Commit**
 
