@@ -1,5 +1,6 @@
 pub mod chart;
 pub mod chords;
+pub mod contour;
 pub mod gmc;
 pub mod intervals;
 pub mod line_engine;
