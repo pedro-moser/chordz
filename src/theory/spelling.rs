@@ -1,4 +1,5 @@
 use crate::theory::chords::ChordQuality;
+use crate::theory::scales::Scale;
 
 /// A pitch spelled as notation needs it: letter, accidental, octave.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -93,12 +94,84 @@ pub(crate) fn letter_offset(semitones: u8, quality: &ChordQuality) -> u8 {
     }
 }
 
+/// Spell every pitch class of `scale` over a chord, as notation reads it.
+///
+/// Indexed by pitch class; `None` for pitch classes the scale does not contain.
+/// The `octave` field is a placeholder here — `spell_midi` fills it from a real pitch.
+pub fn spell_scale(
+    root_written: &str,
+    quality: &ChordQuality,
+    scale: &Scale,
+) -> [Option<Spelled>; 12] {
+    let (root_step, root_alter) = parse_root(root_written);
+    let root_pc = (NATURAL_PC[root_step as usize] as i16 + root_alter as i16).rem_euclid(12) as u8;
+
+    let mut table: [Option<Spelled>; 12] = [None; 12];
+
+    for &semi in &scale.semitones {
+        let pc = (root_pc + semi) % 12;
+        if table[pc as usize].is_some() {
+            continue; // a scale listing the same pitch class twice needs only one spelling
+        }
+        let step = (root_step + letter_offset(semi, quality)) % 7;
+        table[pc as usize] = Some(Spelled {
+            step,
+            alter: alter_for(step, pc),
+            octave: 0,
+        });
+    }
+    table
+}
+
+/// The alteration that turns `step`'s natural pitch class into `pc`, on the short side
+/// of the octave: pc 9 against letter B is -2 (Bbb), not +10.
+fn alter_for(step: u8, pc: u8) -> i8 {
+    let mut alter = pc as i16 - NATURAL_PC[step as usize] as i16;
+    if alter > 5 {
+        alter -= 12;
+    } else if alter < -6 {
+        alter += 12;
+    }
+    alter as i8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn quality(name: &str) -> &'static ChordQuality {
         ChordQuality::ALL.iter().find(|q| q.name == name).unwrap()
+    }
+
+    fn scale(name: &str) -> &'static Scale {
+        Scale::ALL.iter().find(|s| s.name == name).unwrap()
+    }
+
+    /// Render a spelled table as ascending note names from the root, for readable asserts.
+    fn spell_names(root: &str, quality_name: &str, scale_name: &str) -> Vec<String> {
+        const LETTERS: [char; 7] = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+        let q = quality(quality_name);
+        let s = scale(scale_name);
+        let table = spell_scale(root, q, s);
+        let (root_step, root_alter) = parse_root(root);
+        let root_pc =
+            (NATURAL_PC[root_step as usize] as i16 + root_alter as i16).rem_euclid(12) as u8;
+        s.semitones
+            .iter()
+            .map(|&semi| {
+                let pc = (root_pc + semi) % 12;
+                let sp = table[pc as usize].expect("scale tone must be spelled");
+                let acc = match sp.alter {
+                    -2 => "bb",
+                    -1 => "b",
+                    0 => "",
+                    1 => "#",
+                    2 => "##",
+                    _ => "?",
+                };
+                format!("{}{}", LETTERS[sp.step as usize], acc)
+            })
+            .collect()
     }
 
     #[test]
@@ -177,5 +250,105 @@ mod tests {
         assert_eq!(letter_offset(6, dom7), 3); // #11, not b5
         assert_eq!(letter_offset(8, dom7), 5); // b13, not #5
         assert_eq!(letter_offset(10, dom7), 6); // b7
+    }
+
+    #[test]
+    fn ionian_over_maj7_has_no_accidentals() {
+        assert_eq!(
+            spell_names("C", "maj7", "Ionian"),
+            ["C", "D", "E", "F", "G", "A", "B"]
+        );
+    }
+
+    #[test]
+    fn altered_over_g7_reads_functionally() {
+        // The case that killed the scale-degree algorithm: letter A is used twice
+        // (Ab and A#) and letter D is not used at all. Third on B, #11 on C#.
+        assert_eq!(
+            spell_names("G", "dom7", "Altered"),
+            ["G", "Ab", "A#", "B", "C#", "Eb", "F"]
+        );
+    }
+
+    #[test]
+    fn altered_reuses_a_letter_rather_than_forcing_a_bijection() {
+        // The regression guard for the bug this design exists to avoid: a letter may
+        // carry two pitches, and forcing seven notes onto seven distinct letters would
+        // push the #9 onto B and spell it Bb.
+        let names = spell_names("G", "dom7", "Altered");
+        assert_eq!(
+            names.iter().filter(|n| n.starts_with('A')).count(),
+            2,
+            "{:?}",
+            names
+        );
+        assert!(!names.iter().any(|n| n.starts_with('D')), "{:?}", names);
+        assert!(
+            !names.contains(&"Bb".to_string()),
+            "the #9 must be A#, got {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn dim7_keeps_its_double_flat_seventh() {
+        // The chord's b3 already speaks for the third, so semitone 4 is the mode's
+        // natural fourth: Fb. And the bb7 survives as a genuine double flat.
+        assert_eq!(
+            spell_names("C", "dim7", "Locrian \u{266D}\u{266D}7"),
+            ["C", "Db", "Eb", "Fb", "Gb", "Ab", "Bbb"]
+        );
+    }
+
+    #[test]
+    fn chart_root_spelling_decides_sharps_versus_flats() {
+        assert_eq!(spell_names("C#", "dom7", "Mixolydian")[0], "C#");
+        assert_eq!(spell_names("Db", "dom7", "Mixolydian")[0], "Db");
+    }
+
+    #[test]
+    fn m7b5_spells_its_flat_five_on_the_fifth_letter() {
+        // Cm7b5 + Locrian: semitone 6 is the chord's b5 -> Gb, never F#.
+        let names = spell_names("C", "m7b5", "Locrian");
+        assert!(names.contains(&"Gb".to_string()), "got {:?}", names);
+        assert!(!names.contains(&"F#".to_string()), "got {:?}", names);
+    }
+
+    #[test]
+    fn dom7_sharp5_spells_its_raised_fifth_on_the_fifth_letter() {
+        // G7#5 + Altered: semitone 8 is the chord's #5 -> D#, not Eb.
+        let names = spell_names("G", "dom7#5", "Altered");
+        assert!(names.contains(&"D#".to_string()), "got {:?}", names);
+    }
+
+    #[test]
+    fn every_quality_and_scale_pair_spells_without_panicking() {
+        for quality in ChordQuality::ALL {
+            for scale in Scale::ALL {
+                for root in ["C", "F#", "Bb", "Eb", "A"] {
+                    let table = spell_scale(root, quality, scale);
+                    let (rs, ra) = parse_root(root);
+                    let root_pc = (NATURAL_PC[rs as usize] as i16 + ra as i16).rem_euclid(12) as u8;
+                    for &semi in &scale.semitones {
+                        let pc = (root_pc + semi) % 12;
+                        let sp = table[pc as usize].unwrap_or_else(|| {
+                            panic!(
+                                "{} {} {} left pc {} unspelled",
+                                root, quality.name, scale.name, pc
+                            )
+                        });
+                        assert!(
+                            sp.alter.abs() <= 2,
+                            "{} {} {} spelled pc {} with alter {}",
+                            root,
+                            quality.name,
+                            scale.name,
+                            pc,
+                            sp.alter
+                        );
+                    }
+                }
+            }
+        }
     }
 }
