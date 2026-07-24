@@ -250,3 +250,63 @@ describe('accidentalsToPrint', () => {
     expect(accidentalsToPrint([n(6, -2), n(6, -2)])).toEqual([-2, null]);
   });
 });
+
+import { layoutMeasure } from './notation';
+import { tabX } from './tabLayout';
+
+describe('layoutMeasure', () => {
+  const event = (beat: number, step: number, alter: number, octave: number) => ({
+    beat,
+    string: 0,
+    fret: 5,
+    triad: 'T1' as const,
+    pitchClass: 0,
+    midi: 60,
+    duration: 0.5,
+    step,
+    alter,
+    octave,
+  });
+
+  const measure = {
+    index: 0,
+    startBeat: 0,
+    chord: { beats: 4 },
+    events: [event(0, 6, -1, 3), event(0.5, 6, -1, 3), event(1, 2, 0, 3), event(1.5, 4, 0, 3)],
+  };
+
+  it('places each note at the same x the tab uses', () => {
+    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
+    expect(layout.notes[0].x).toBeCloseTo(tabX({ beat: 0 }, measure));
+    expect(layout.notes[2].x).toBeCloseTo(tabX({ beat: 1 }, measure));
+  });
+
+  it('prints the accidental once and suppresses the repeat', () => {
+    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
+    expect(layout.notes[0].accidental).toBe(-1);
+    expect(layout.notes[1].accidental).toBeNull();
+  });
+
+  it('beams the eighths two per beat', () => {
+    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
+    expect(layout.beams).toHaveLength(2);
+  });
+
+  it('rests out the two beats the events do not cover', () => {
+    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
+    expect(layout.rests.length).toBeGreaterThan(0);
+  });
+
+  it('carries the triad so the renderer can colour the notehead', () => {
+    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
+    expect(layout.notes[0].triad).toBe('T1');
+  });
+
+  it('handles an empty measure without throwing', () => {
+    const empty = { index: 1, startBeat: 4, chord: { beats: 4 }, events: [] };
+    const layout = layoutMeasure(empty, GRIDS.eighth, [0, 4]);
+    expect(layout.notes).toEqual([]);
+    expect(layout.beams).toEqual([]);
+    expect(layout.rests.length).toBeGreaterThan(0);
+  });
+});
