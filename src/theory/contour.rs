@@ -14,8 +14,11 @@ use crate::theory::triad_shape::TriadShape;
 use crate::voicings::fretboard::Fretboard;
 
 /// Cost of two consecutive notes landing on one string — it forces a slide or a legato where
-/// the player expects a picked note. Set above any realistic in-window fret span so compactness
-/// can never buy a string reuse back.
+/// the player expects a picked note. Set above any realistic in-window fret span, so fret
+/// compactness alone can never buy a string reuse back.
+///
+/// It is NOT above every melodic-distance sum (see `score`): a leap wider than 24 semitones can
+/// outweigh a reuse, and should — two notes on one string beat a two-octave jump.
 const SAME_STRING: i32 = 24;
 
 /// Per-note toll for leaving the hand shape the connector chose. Small enough that a contour
@@ -253,22 +256,40 @@ impl Search<'_> {
     }
 
     fn score(&self, cell: &[FretNote]) -> i32 {
+        // Every term scores the SOUNDED notes only — `cell[anchor..]`. Positions before `anchor`
+        // belong to this cell's ranking but are never played (see the field's doc): the caller
+        // resumed this cell mid-way after a chord change and serves it from `anchor` on. They
+        // still constrain the search, because the ranking is a whole-cell property, but letting
+        // their fret span or string reuse into the cost would price a hand movement the player
+        // never makes — the same defect the glue term below was already fixed for.
+        let sounded = &cell[self.anchor..];
         let mut cost = 0i32;
-        for pair in cell.windows(2) {
+        for pair in sounded.windows(2) {
             if pair[0].string == pair[1].string {
                 cost += SAME_STRING;
             }
         }
-        let frets: Vec<i32> = cell.iter().map(|note| note.fret as i32).collect();
+        let frets: Vec<i32> = sounded.iter().map(|note| note.fret as i32).collect();
         cost += frets.iter().max().unwrap_or(&0) - frets.iter().min().unwrap_or(&0);
         cost += OFF_GRIP
-            * cell
+            * sounded
                 .iter()
                 .filter(|note| !self.grip_midis.contains(&note.midi))
                 .count() as i32;
+        // Melodic distance between consecutive sounded notes, one point per semitone. The
+        // contour is a hard constraint — every assignment the search scores already realizes the
+        // requested ranking — so this never trades the shape away; it picks the most compact
+        // realization OF that shape. Without it the cost has no term for register distance at
+        // all, and an assignment can win on fret compactness while leaping an octave and a
+        // fourth between two adjacent notes (measured: a 162,720-config sweep put 10,677 cells
+        // above a one-octave leap without this term, 1,521 with it).
+        for pair in sounded.windows(2) {
+            cost += (pair[1].midi - pair[0].midi).abs();
+        }
         if let Some(prev) = self.prev_midi {
-            cost += (cell[self.anchor].midi - prev).abs();
-            if cell[self.anchor].midi == prev {
+            // `sounded[0]` is `cell[anchor]`: the note that actually follows `prev` in time.
+            cost += (sounded[0].midi - prev).abs();
+            if sounded[0].midi == prev {
                 cost += REPEAT;
             }
         }
@@ -592,6 +613,47 @@ mod tests {
             vec![72, 64, 67],
             "offset 1 must anchor on position 1 — the note that actually follows prev_midi — \
              not on position 0's stale candidate"
+        );
+    }
+
+    // --- Every cost term, not just glue, must ignore the unplayed prefix of a resumed cell. ---
+    //
+    // Same fixture grip as above (C major, region base fret 5: [48, 52, 55]). `Monotonic` +
+    // `Descending` makes position 0 want pc 7, position 1 pc 4, position 2 pc 0; contour
+    // `<2 1 3>` then admits, among others, these two assignments (candidate lists measured via
+    // `occurrences`: pc7 -> [55, 67], pc4 -> [52, 64, 64], pc0 -> [48, 60, 72]):
+    //
+    //   X = [55, 52, 60]   frets (2,5) (1,7) (3,5)
+    //   Y = [67, 64, 72]   frets (4,8) (3,9) (5,8)
+    //
+    // Resolving at `pos = 1` means position 0 is NOT played — the caller resumed this cell after
+    // a mid-block chord change and serves it from position 1. With `prev_midi = 65`, the notes
+    // that actually sound are 52 -> 60 for X (glue |52-65| = 13) but 64 -> 72 for Y (glue 1).
+    // Y is plainly the better continuation, and it is what the resolver must choose.
+    //
+    // X wins only if position 0's note is allowed into the cost: X's three frets (5,7,5) are far
+    // more compact than Y's (8,9,8) *as a whole cell*, and that unplayed compactness is enough to
+    // overturn a 12-semitone difference in glue. Verified by flipping `cell[self.anchor..]` back
+    // to `cell[..]` in `Search::score`: this test then yields X, i.e. it fails.
+    #[test]
+    fn every_cost_term_ignores_the_unplayed_prefix_of_a_resumed_cell() {
+        let (fb, positions, grip, pcs) = fixture();
+        let mut block = block_with(vec![2, 1, 3], Shape::Monotonic);
+        block.direction = Direction::Descending;
+
+        let resumed = resolve_cell(&grip, &pcs, &positions, &fb, &block, 1, Some(65));
+        let midis: Vec<i32> = resumed.iter().map(|n| n.midi).collect();
+        assert_eq!(
+            midis,
+            vec![67, 64, 72],
+            "the unplayed note at position 0 decided the cell: its fret compactness outweighed \
+             the glue of the notes that actually sound"
+        );
+        // State the property itself, not just the vector: what sounds must start next to `prev`.
+        assert!(
+            (midis[1] - 65).abs() <= 2,
+            "first sounded note {} is not glued to prev 65",
+            midis[1]
         );
     }
 

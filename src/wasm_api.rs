@@ -629,8 +629,18 @@ fn parse_pattern_blocks(pattern_js: JsValue) -> Vec<crate::theory::line_pattern:
                     .collect();
                 // A short `ranks` means some entry was not a number at all: reject, don't
                 // silently resolve a shorter contour than the payload asked for.
-                if ranks.len() == arr.len() && crate::theory::line_pattern::is_valid_contour(&ranks)
-                {
+                if ranks.len() != arr.len() {
+                    return None;
+                }
+                // A contour longer than the block is the same silent-substitution hazard from the
+                // other side. `is_valid_contour` allows up to MAX_CONTOUR_LEN (8) while `count` is
+                // clamped to 6 just above, so `<1 2 3 4 5 6 7>` would validate, resolve as a
+                // 7-rank shape, and then only its first 6 notes would ever sound — a truncated
+                // shape nobody asked for, with no signal. Reject instead.
+                if ranks.len() > count as usize {
+                    return None;
+                }
+                if crate::theory::line_pattern::is_valid_contour(&ranks) {
                     Some(ranks)
                 } else {
                     None

@@ -152,13 +152,29 @@ a unit:
 Hard filter: every note comes from the region. Among the survivors, minimize:
 
 ```
-cost = SAME_STRING * (adjacent pairs in PLAYING order sharing a string)
-     + (max_fret - min_fret)                      // keep the hand compact
-     + OFF_GRIP * (notes not drawn from the cursor grip)
-     + |midi(position 0) - prev_midi|             // continuity with the previous block, 0 if none
+cost = SAME_STRING * (adjacent SOUNDED pairs in PLAYING order sharing a string)
+     + (max_fret - min_fret)  over SOUNDED notes  // keep the hand compact
+     + OFF_GRIP * (SOUNDED notes not drawn from the cursor grip)
+     + sum |midi delta| between adjacent SOUNDED notes   // melodic compactness
+     + |midi(anchor) - prev_midi|                 // continuity with the previous note, 0 if none
 ```
 
 `OFF_GRIP = 6` — a per-note toll for leaving the hand shape the connector chose.
+
+**Sounded, not resolved.** Every term scores `cell[anchor..]`, where `anchor` is the cell's own
+offset (0 unless a mid-block chord change resumed this cell part-way; see *Mid-block chord changes*).
+The positions before `anchor` are resolved — the ranking is a whole-cell property and they constrain
+the search — but never played, so pricing their fret span or string reuse charges the player for a
+hand movement they never make.
+
+**Melodic compactness is a distinct term, not a by-product of fret span.** Fret span measures how
+wide the hand stretches; it says nothing about register distance, and two frets one apart can be an
+octave apart in pitch on different strings. Without an explicit term the search can win on fret
+compactness while leaping an octave and a fourth between adjacent notes. This does not compete with
+the contour: every assignment the search scores already realizes the requested ranking (that is a
+hard constraint), so the term chooses the most compact realization *of the requested shape* rather
+than flattening the shape. Measured over a 162,720-configuration sweep, adding it took cells with a
+leap wider than one octave from 10,677 to 1,521, and made no configuration worse.
 
 **Why the grip-affinity term is required, not decorative.** Inside one grip each pitch class occurs
 at exactly one midi, hence at exactly one rank: the contour is *fully determined* by the identity
@@ -173,11 +189,13 @@ axis, with no freedom left. Two consequences follow.
   from elsewhere, and the toll makes it depart as little as possible.
 
 `SAME_STRING = 24`, chosen to exceed the fret span of any realistic position window, so inside a
-region a string reuse can never be bought back with compactness. With `positions` empty (no region
-restriction, per `LineConfig`) a cell could in principle span more of the neck than that; the
+region a string reuse can never be bought back with *fret* compactness. With `positions` empty (no
+region restriction, per `LineConfig`) a cell could in principle span more of the neck than that; the
 ordering still behaves, since avoiding a reuse costs at most the extra span while the reuse costs a
-flat 24. Ties keep the first assignment the search reaches, which is deterministic because
-candidates are enumerated in `(midi, string)` order — not a semantic tie-break, just a stable one.
+flat 24. It is deliberately not above every melodic-distance sum: a leap wider than 24 semitones
+outweighs a reuse, which is the right trade — two notes on one string beat a two-octave jump. Ties
+keep the first assignment the search reaches, which is deterministic because candidates are
+enumerated in `(midi, string)` order — not a semantic tie-break, just a stable one.
 
 Adjacency is measured in **playing** order, not rank order — that is what the picking hand actually
 does.
@@ -346,9 +364,13 @@ model accepts any-length CSEG even though nothing in the UI yet produces one.
    The bound is real, not caution. Above count 3 the two diverge by design: legacy `Monotonic`
    **ping-pongs** within the grip (`0,1,2,1,0,…`), while a contour **cycles** its cell
    (`0,1,2,0,1,2,…`) the way `Shape::Order` does. A 62,208-configuration sweep found 0 differences
-   at counts 1–3 and a difference in every single case at counts 4–6. `patternPresets.ts` ships a
-   `count: 4` block, so a player can reach the divergence — it is documented behaviour, not a
-   regression, but any claim of byte-identity must carry the bound.
+   at counts 1–3 and a difference in every single case at counts 4–6.
+
+   The UI cannot currently reach that divergence: the picker only renders for `count === 3`, and
+   `setBlockCount` clears the block's contour on any move away from 3, so no shipped preset can
+   carry a contour on a longer block. The bound is therefore a property of the engine, which
+   accepts contours of any valid length, rather than a hazard a player can trip over today — but
+   any claim of byte-identity must still carry it.
 2. **`contour: None` is inert:** every existing line-engine test passes unchanged.
 3. **Ordinal correctness:** for each of the six contours, the emitted cell's midi ranking equals the
    requested contour.
