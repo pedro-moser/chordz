@@ -201,7 +201,9 @@ export interface BeamGroup<T> {
  * carries a flagless value and ends its group. Stem direction is decided per group by
  * the note furthest from the middle line, so the whole beam points the same way.
  */
-export function beamGroups<T extends { beat: number; beats: number; staffStep: number }>(
+export function beamGroups<
+  T extends { beat: number; beats: number; staffStep: number; value: number },
+>(
   notes: T[],
   grid: Grid,
 ): BeamGroup<T>[] {
@@ -224,7 +226,11 @@ export function beamGroups<T extends { beat: number; beats: number; staffStep: n
 
   for (const n of notes) {
     const beatIndex = Math.floor(n.beat + 1e-6);
-    const beamable = n.beats < 1 - 1e-6 && n.beats <= grid.step + 1e-6;
+    // Only figures that carry flags can be beamed: eighths and shorter, i.e. value >= 8.
+    // Judging by the printed value rather than by sounding length is what lets an eighth
+    // beam with the sixteenths beside it on a sixteenth grid, while still keeping a
+    // triplet quarter (two slots long, but value 4) out of the beam.
+    const beamable = n.value >= 8;
     if (beatIndex !== currentBeat || !beamable) {
       flush();
       currentBeat = beatIndex;

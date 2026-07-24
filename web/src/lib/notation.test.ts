@@ -142,7 +142,12 @@ describe('restFigures', () => {
 import { beamGroups } from './notation';
 
 describe('beamGroups', () => {
-  const note = (beat: number, beats: number, staffStep: number) => ({ beat, beats, staffStep });
+  const note = (beat: number, beats: number, staffStep: number, value = 8) => ({
+    beat,
+    beats,
+    staffStep,
+    value,
+  });
 
   it('beams two eighths per beat', () => {
     const groups = beamGroups(
@@ -155,7 +160,7 @@ describe('beamGroups', () => {
   });
 
   it('beams four sixteenths per beat', () => {
-    const notes = [0, 0.25, 0.5, 0.75].map((b) => note(b, 0.25, 0));
+    const notes = [0, 0.25, 0.5, 0.75].map((b) => note(b, 0.25, 0, 16));
     const groups = beamGroups(notes, GRIDS.sixteenth);
     expect(groups).toHaveLength(1);
     expect(groups[0].notes).toHaveLength(4);
@@ -169,14 +174,31 @@ describe('beamGroups', () => {
   });
 
   it('does not bracket a note that fills a whole beat', () => {
-    const groups = beamGroups([note(0, 1, 0)], GRIDS.triplet);
+    // Three triplet slots make a plain quarter (value 4) — no flag, so no beam, no bracket.
+    const groups = beamGroups([note(0, 1, 0, 4)], GRIDS.triplet);
     expect(groups[0].bracket).toBe(false);
   });
 
-  it('breaks the group at a note longer than one slot', () => {
-    // A hold_last note occupying a whole beat cannot be beamed to its neighbour.
-    const groups = beamGroups([note(0, 0.5, 0), note(0.5, 1.5, 0)], GRIDS.eighth);
+  it('breaks the group at a flagless note', () => {
+    // A hold_last landing note prints as a dotted quarter (value 4): no flag, no beam.
+    const groups = beamGroups([note(0, 0.5, 0), note(0.5, 1.5, 0, 4)], GRIDS.eighth);
     expect(groups).toHaveLength(2);
+  });
+
+  it('beams an eighth together with the sixteenths beside it', () => {
+    // A holdLast note on a sixteenth grid prints as an eighth. Standard engraving puts it
+    // under the same primary beam as the sixteenths sharing its beat; judging beamability
+    // by sounding length instead of printed value would strand it alone.
+    const groups = beamGroups(
+      [note(0, 0.25, 0, 16), note(0.25, 0.25, 1, 16), note(0.5, 0.5, 2, 8)],
+      GRIDS.sixteenth,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].notes).toHaveLength(3);
+  });
+
+  it('returns nothing for no notes', () => {
+    expect(beamGroups([], GRIDS.eighth)).toEqual([]);
   });
 
   it('stems down when the group sits above the middle line', () => {
