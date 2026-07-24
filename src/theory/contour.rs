@@ -556,26 +556,4 @@ mod tests {
         assert_eq!(ranks_of(&cell), vec![3, 1, 2]);
     }
 
-    #[test]
-    fn zzz_debug_widened_region_occurrences() {
-        let fb = Fretboard::standard_tuning();
-        let narrow = PositionSet::from_base_frets(&[5]);
-        let wide = PositionSet::from_base_frets(&[5, 9]);
-        for pc in [9u8, 0, 4] {
-            eprintln!(
-                "G7 T1 pc={} narrow={:?} wide={:?}",
-                pc,
-                occurrences(&narrow, &fb, pc).iter().map(|n| n.midi).collect::<Vec<_>>(),
-                occurrences(&wide, &fb, pc).iter().map(|n| n.midi).collect::<Vec<_>>()
-            );
-        }
-        for pc in [4u8, 7, 11] {
-            eprintln!(
-                "Dm7 T1 pc={} narrow={:?} wide={:?}",
-                pc,
-                occurrences(&narrow, &fb, pc).iter().map(|n| n.midi).collect::<Vec<_>>(),
-                occurrences(&wide, &fb, pc).iter().map(|n| n.midi).collect::<Vec<_>>()
-            );
-        }
-    }
 }
