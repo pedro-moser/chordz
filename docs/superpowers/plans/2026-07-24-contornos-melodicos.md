@@ -892,22 +892,31 @@ A cell whose notes straddle two harmonies has a meaningless register arrangement
 ```rust
 #[test]
 fn a_chord_change_truncates_the_current_cell() {
-    // One beat per chord with sixteenths: a 3-cell cannot fit inside one chord, so cells must
-    // restart at the change rather than resolve across two harmonies.
+    // Two chords per bar with sixteenths gives each chord two beats; a 3-cell straddles the
+    // change. Cells must restart on the new ladder rather than resolve across two harmonies.
+    //
+    // T1 of Dm7 under the default Dorian scale with PAIRS[0] resolves to the role-ordered
+    // pitch classes [E=4, G=7, B=11] — the same fixture the Order tests above rely on. So a
+    // note sounding during the Dm7 that carries any other pitch class can only have come from
+    // a cell resolved against a different chord.
     let fb = Fretboard::standard_tuning();
-    let chart = Chart::parse("Test", "| Dm7 G7 | Cmaj7 A7 |").unwrap();
+    let chart = Chart::parse("Test", "| Dm7 G7 |").unwrap();
     let mut config = contour_config(6, Shape::Monotonic, vec![2, 3, 1]);
     config.figure = RhythmicFigure::Sixteenth;
     let events = generate_line(&chart, &[], &fb, &PAIRS[0], &config);
-    assert!(!events.is_empty());
-    // Every emitted note belongs to the chord sounding at its beat — no note is carried over
-    // from a cell resolved against the previous harmony.
-    for e in &events {
-        assert!(e.midi > 0, "no placeholder pitches");
-    }
-    // And the line still never repeats a pitch across the boundary.
-    for pair in events.windows(2) {
-        assert_ne!(pair[0].midi, pair[1].midi);
+    assert!(!events.is_empty(), "the fixture must produce notes");
+
+    let dm7_beats = chart.changes[0].beats;
+    let during_dm7: Vec<&NoteEvent> = events.iter().filter(|e| e.beat < dm7_beats).collect();
+    assert!(during_dm7.len() >= 4, "expected several notes inside the first chord");
+    for e in &during_dm7 {
+        assert!(
+            [4, 7, 11].contains(&e.pitch_class),
+            "pitch class {} at beat {} does not belong to T1 of Dm7 — a cell leaked across \
+             the chord change",
+            e.pitch_class,
+            e.beat
+        );
     }
 }
 ```
@@ -928,27 +937,15 @@ Inside the `if chord_now != active_chord {` branch, after `cursor_chord[ti] = ch
                 cell_start = k;
 ```
 
-And make the cache check honour a mid-cell restart by using `cell_start` as the origin — replace the condition written in Task 3:
+Then replace the whole refill block written in Task 3 with this final form. The condition is
+unchanged; what changes is that `cell_start` becomes the note index where the current cell
+actually began — normally a multiple of `cell_len`, but the note where a new harmony started
+when a chord change interrupted the cell:
 
 ```rust
                 if cell.is_empty() || k >= cell_start + cell_len {
-```
-
-with:
-
-```rust
-                if cell.is_empty() || k >= cell_start + cell_len {
-                    // `cell_start` is the origin of the current cell: normally a multiple of
-                    // cell_len, but a chord change resets it to the note where the new
-                    // harmony began.
-```
-
-(the condition itself is already correct; add the comment and drop the `cell_start = (k / cell_len) * cell_len;` line, since `cell_start` is now maintained by the caller — set it to `k` when the cache is refilled.)
-
-The refill becomes:
-
-```rust
-                if cell.is_empty() || k >= cell_start + cell_len {
+                    // `cell_start` is the origin of the CURRENT cell, not a fixed grid: a
+                    // chord change resets it mid-block so the new harmony starts a fresh cell.
                     cell_start = k;
                     cell = resolve_cell(
                         &ladder.grips[cursor[ti]],
