@@ -116,7 +116,8 @@ chord's own `intervals` decide:
 | 2 | 9 | +1 | |
 | 3 | ♭3 | +2 | chord contains a minor third |
 | 3 | ♯9 | +1 | otherwise |
-| 4 | 3 | +2 | |
+| 4 | 4 | +3 | chord contains a minor third — the ♭3 already speaks for the third |
+| 4 | 3 | +2 | otherwise |
 | 5 | 11 | +3 | |
 | 6 | ♭5 | +4 | chord contains a tritone (m7♭5, dim7) |
 | 6 | ♯11 | +3 | otherwise |
@@ -133,9 +134,20 @@ it lands on the small value (pc 9 against letter B → `9 − 11 = −2` = B♭�
 `octave = (midi − alter).div_euclid(12) − 1` — subtracting the alteration first is what puts B♯3 and
 C♭4 in the octave their letter implies.
 
-**Letter collisions.** Two scale tones can want the same letter — over C dim7, semitone 3 (E♭, the
-chord's minor third) and semitone 4 both map to letter E. The second one moves to the adjacent letter
-that yields the smaller `|alter|`, tie-breaking upward: semitone 4 becomes F♭, not D𝄪.
+**A letter may carry two pitches, and that is not an error.** G Altered puts A♭ and A♯ on letter A
+and uses no D at all. Any attempt to force seven notes onto seven distinct letters pushes the ♯9 onto
+B and spells it B♭ — the original bug. The table above therefore assigns letters independently, with
+no uniqueness constraint.
+
+The one case that looks like a collision is not one. Over C dim7, semitone 3 is the chord's E♭ and
+semitone 4 also seems to want letter E. It does not: over a chord that already owns a minor third,
+semitone 4 is the mode's natural fourth, not its third — hence the `+3` row above, giving F♭. The
+rule is functional, not a tie-break.
+
+**Alteration bound.** With chart roots limited to the seventeen forms `root_to_pc` accepts
+(`src/theory/chords.rs:195`), no combination should exceed a double accidental. An exhaustive test
+over `ChordQuality::ALL` × `Scale::ALL` asserts this rather than assuming it; if some exotic pairing
+does exceed it, that is a finding to report, not something to clamp silently.
 
 **Spelling is strictly theoretical, anchored on the chord.** Double accidentals are rendered, never
 simplified away, because the spelling *is* the functional information. Worked examples:
@@ -143,11 +155,15 @@ simplified away, because the spelling *is* the functional information. Worked ex
 ```text
 G7 + Altered [0,1,3,4,6,8,10]      →  G  Ab  A#  B   C#  Eb  F
                                       1  b9  #9  3   #11 b13 b7
+                                         ^^^^^^  letter A twice; letter D never
 
-Cdim7 + Superlocrian bb7 [0,1,3,4,6,8,9]
+Cdim7 + Locrian bb7 [0,1,3,4,6,8,9]
                                    →  C  Db  Eb  Fb  Gb  Ab  Bbb
-                                      1  b9  b3  (collision) b5 b13 bb7
+                                      1  b9  b3  4   b5  b13 bb7
 ```
+
+`Locrian ♭♭7` is what `scale_defaults::default_scale` actually pairs with `dim7`
+(`src/theory/scale_defaults.rs`); `Superlocrian ♭♭7` has identical semitones and spells the same.
 
 Consequence: the glyph set must include 𝄫 and 𝄪.
 
@@ -181,11 +197,13 @@ the tab cannot drift apart. The page imports them back.
 **New file `web/src/lib/notation.ts`** — pure, no DOM, fully unit-testable. It exports one entry point
 that turns a measure's events into everything the renderer needs to place glyphs:
 
-- **Vertical position.** `staffPosition({step, octave})` → a diatonic index, then a y offset.
-  The staff is treble clef *8vb*: written pitch = sounding pitch + 12. With that clef the open low E
-  (MIDI 40) lands exactly on the bottom line and the 12th-fret high E needs only three ledger lines,
-  so the whole guitar range fits in roughly 90px of vertical space. Ledger lines are emitted for every
-  line position beyond the staff.
+- **Vertical position.** `staffStep({step, octave})` → offset in staff steps above the bottom line
+  (E4 written), then a y offset. The staff is treble clef *8vb*: the guitar sounds an octave below
+  what is written, so written pitch = sounding pitch + 12. That convention is what keeps the range
+  readable — the open low E (sounding MIDI 40) writes as E3, three ledger lines below the staff,
+  where notating it at sounding pitch would need seven. The 12th-fret high E (sounding MIDI 76)
+  writes as E6, three ledger lines above. Symmetric, and the whole guitar range fits in roughly 90px.
+  Ledger lines are emitted at every even staff step beyond the staff's 0–8 range.
 - **Duration → figures.** Slot counts map to `(value, dots)`. A span that does not match a single
   figure is split — first at barlines, then at beat divisions — into tied figures. In an eighth grid,
   2.5 beats becomes a half tied to an eighth. Ties across barlines are explicit output, so the renderer
@@ -238,8 +256,8 @@ chart + pattern
 
 - Neither spelling function panics: a pitch class absent from the scale falls back to `PC_NAMES`, and
   a `root_written` that fails to parse falls back to the pitch-class name of `root_pc`.
-- Letter collisions always resolve: if both adjacent letters are also taken, the pitch keeps its
-  first-choice letter and accepts the larger alteration rather than searching further.
+- Letter assignment has no failure mode: every semitone distance has a row in the table, so no scale
+  tone can be left unassigned and no search can fail to terminate.
 - A duration that cannot be decomposed into figures (should be unreachable given the grid) degrades to
   the largest representable figure plus a tied remainder, looping until consumed, with a hard iteration
   cap so a malformed duration cannot hang the render.
@@ -255,10 +273,13 @@ chart + pattern
 - **`G7` + Altered spells G A♭ A♯ B C♯ E♭ F** — the case that killed the degree-ladder algorithm.
   Asserts specifically that the third is B (not C♭) and the ♯11 is C♯ (not D♭), and that letter A
   carries two different pitches while letter D carries none.
-- `Cdim7` + Superlocrian ♭♭7 spells C D♭ E♭ F♭ G♭ A♭ B𝄫 — exercises both the collision resolver
-  (semitone 4 pushed off letter E onto F♭) and the ♭♭7 rule.
+- `Cdim7` + Locrian ♭♭7 spells C D♭ E♭ F♭ G♭ A♭ B𝄫 — exercises both the minor-third rule for
+  semitone 4 (F♭, not a second E) and the ♭♭7 rule.
 - `Cm7b5` + Locrian spells semitone 6 as G♭ (chord tone ♭5, letter+4), not F♯.
-- `G7#5` + Lydian Augmented spells semitone 8 as D♯ (chord tone ♯5), not E♭.
+- `G7#5` + Altered spells semitone 8 as D♯ (chord tone ♯5), not E♭.
+- The compound-interval trap: `dom7#9` must spell semitone 3 as a ♯9 on the ninth's letter. Because
+  `Interval::SHARP9.semitones == 15` and `15 % 12 == 3`, a modulo comparison would report a minor
+  third and produce B♭. Same for `SHARP11` (18) and `m13` (20).
 - `C#7` and `Db7` over the same MIDI pitch produce sharp and flat spellings respectively.
 - Octave crossing: B♯3 and C♭4 land in the octave the letter implies, not the one MIDI division implies.
 - A pitch class absent from the scale hits the `PC_NAMES` fallback without panicking.
@@ -272,7 +293,8 @@ chart + pattern
 - Beam grouping: 2 per beat for eighths, 4 for sixteenths, 3 for triplets; a `hold_last` note breaks
   the group.
 - `lead_rest` produces the correct rest figures at the head of the measure.
-- Staff position: sounding open low E (MIDI 40) sits on the bottom line under the 8vb clef.
+- Staff position: sounding open low E (MIDI 40) sits 7 staff steps below the bottom line (three
+  ledger lines) under the 8vb clef; sounding MIDI 76 sits 6 steps above the top line.
 - Accidental suppression: a repeated altered note within a measure prints one accidental; the same step
   returning to natural prints a ♮.
 
