@@ -167,6 +167,12 @@ export interface GmcLineEvent {
   pitchClass: number;
   midi: number;
   duration: number;
+  /** Notation spelling: 0=C … 6=B. */
+  step: number;
+  /** Notation spelling: -2=𝄫 … +2=𝄪. */
+  alter: number;
+  /** Notation spelling: sounding octave, middle C is C4. */
+  octave: number;
 }
 
 export interface GmcChordInfo {

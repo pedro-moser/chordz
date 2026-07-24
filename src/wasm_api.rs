@@ -647,6 +647,9 @@ fn line_events_json(
                 "pitchClass": e.pitch_class,
                 "midi": e.midi,
                 "duration": e.duration,
+                "step": e.step,
+                "alter": e.alter,
+                "octave": e.octave,
             })
         })
         .collect()
