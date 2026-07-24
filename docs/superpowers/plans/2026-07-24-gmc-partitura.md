@@ -1794,7 +1794,7 @@ git commit -m "web(partitura): acidentes inline, sem armadura, com supressao por
 
 ---
 
-### Task 12: Assemble a measure's layout
+### Task 12: Assemble the whole line's layout
 
 The single entry point the component calls. Everything above composes here.
 
@@ -1808,71 +1808,123 @@ The single entry point the component calls. Everything above composes here.
   - `export interface LaidOutNote { x: number; staffStep: number; accidental: number | null; value: number; dots: 0 | 1; tiedToNext: boolean; triad: 'T1' | 'T2'; ledger: number[] }`
   - `export interface LaidOutRest { x: number; value: number; dots: 0 | 1 }`
   - `export interface MeasureLayout { notes: LaidOutNote[]; rests: LaidOutRest[]; beams: BeamGroup<LaidOutNote>[] }`
-  - `export function layoutMeasure(measure: MeasureLike & { events: GmcLineEvent[] }, grid: Grid, measureStarts: number[]): MeasureLayout`
+  - `export function layoutLine(measures: Array<MeasureLike & { events: GmcLineEvent[] }>, grid: Grid): MeasureLayout[]` — one entry per measure, index-aligned with the input
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `web/src/lib/notation.test.ts`:
 
 ```ts
-import { layoutMeasure } from './notation';
+import { layoutLine } from './notation';
 import { tabX } from './tabLayout';
 
-describe('layoutMeasure', () => {
-  const event = (beat: number, step: number, alter: number, octave: number) => ({
+describe('layoutLine', () => {
+  const event = (
+    beat: number,
+    step: number,
+    alter: number,
+    octave: number,
+    duration = 0.5,
+  ) => ({
     beat,
     string: 0,
     fret: 5,
     triad: 'T1' as const,
     pitchClass: 0,
     midi: 60,
-    duration: 0.5,
+    duration,
     step,
     alter,
     octave,
   });
 
-  const measure = {
+  const bar0 = {
     index: 0,
     startBeat: 0,
     chord: { beats: 4 },
     events: [event(0, 6, -1, 3), event(0.5, 6, -1, 3), event(1, 2, 0, 3), event(1.5, 4, 0, 3)],
   };
+  const bar1 = { index: 1, startBeat: 4, chord: { beats: 4 }, events: [] };
 
   it('places each note at the same x the tab uses', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.notes[0].x).toBeCloseTo(tabX({ beat: 0 }, measure));
-    expect(layout.notes[2].x).toBeCloseTo(tabX({ beat: 1 }, measure));
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.notes[0].x).toBeCloseTo(tabX({ beat: 0 }, bar0));
+    expect(m0.notes[2].x).toBeCloseTo(tabX({ beat: 1 }, bar0));
   });
 
   it('prints the accidental once and suppresses the repeat', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.notes[0].accidental).toBe(-1);
-    expect(layout.notes[1].accidental).toBeNull();
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.notes[0].accidental).toBe(-1);
+    expect(m0.notes[1].accidental).toBeNull();
   });
 
   it('beams the eighths two per beat', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.beams).toHaveLength(2);
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.beams).toHaveLength(2);
   });
 
   it('rests out the two beats the events do not cover', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.rests.length).toBeGreaterThan(0);
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.rests.length).toBeGreaterThan(0);
   });
 
   it('carries the triad so the renderer can colour the notehead', () => {
-    const layout = layoutMeasure(measure, GRIDS.eighth, [0, 4]);
-    expect(layout.notes[0].triad).toBe('T1');
+    const [m0] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m0.notes[0].triad).toBe('T1');
   });
 
-  it('handles an empty measure without throwing', () => {
-    const empty = { index: 1, startBeat: 4, chord: { beats: 4 }, events: [] };
-    const layout = layoutMeasure(empty, GRIDS.eighth, [0, 4]);
-    expect(layout.notes).toEqual([]);
-    expect(layout.beams).toEqual([]);
-    expect(layout.rests.length).toBeGreaterThan(0);
+  it('fills an empty measure entirely with rests', () => {
+    const [, m1] = layoutLine([bar0, bar1], GRIDS.eighth);
+    expect(m1.notes).toEqual([]);
+    expect(m1.beams).toEqual([]);
+    expect(m1.rests.length).toBeGreaterThan(0);
   });
+
+  it('returns an empty array for no measures', () => {
+    expect(layoutLine([], GRIDS.eighth)).toEqual([]);
+  });
+
+  // The regression this function exists for: a holdLast note sustaining past the barline.
+  // The engine really emits these — on a ii-V-I, five of twelve pattern configurations
+  // produce at least one. Measured with a throwaway probe against the real line engine.
+  describe('a note held across the barline', () => {
+    const held = {
+      index: 0,
+      startBeat: 0,
+      chord: { beats: 4 },
+      // Onset on the last eighth of bar 0, sustaining one full beat into bar 1.
+      events: [event(3.5, 6, -1, 3, 1)],
+    };
+    const next = { index: 1, startBeat: 4, chord: { beats: 4 }, events: [] };
+
+    it('draws a figure in each measure, tied', () => {
+      const [m0, m1] = layoutLine([held, next], GRIDS.eighth);
+      expect(m0.notes).toHaveLength(1);
+      expect(m1.notes).toHaveLength(1);
+      expect(m0.notes[0].tiedToNext).toBe(true);
+      expect(m1.notes[0].tiedToNext).toBe(false);
+    });
+
+    it('places the continuation inside the second measure, not past the first', () => {
+      const [, m1] = layoutLine([held, next], GRIDS.eighth);
+      expect(m1.notes[0].x).toBeCloseTo(tabX({ beat: 4 }, next));
+    });
+
+    it('does not restate the accidental after the barline', () => {
+      const [m0, m1] = layoutLine([held, next], GRIDS.eighth);
+      expect(m0.notes[0].accidental).toBe(-1);
+      expect(m1.notes[0].accidental).toBeNull();
+    });
+
+    it('does not rest over the sounding continuation', () => {
+      const [, m1] = layoutLine([held, next], GRIDS.eighth);
+      // Bar 1 is 4 beats; the tie occupies the first, so rests must cover only the last 3.
+      const restBeats = m1.rests.length;
+      expect(restBeats).toBeGreaterThan(0);
+      expect(m1.rests.every((r) => r.x > m1.notes[0].x)).toBe(true);
+    });
+  });
+});
 });
 ```
 
@@ -1882,7 +1934,7 @@ describe('layoutMeasure', () => {
 cd web && npm run test -- notation
 ```
 
-Expected: FAIL — `layoutMeasure is not a function`.
+Expected: FAIL — `layoutLine is not a function`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1931,45 +1983,84 @@ export interface MeasureLayout {
  * Horizontal positions come from `tabX`, the same function the tablature uses, which
  * is what keeps a notehead directly above its fret number.
  */
-export function layoutMeasure(
-  measure: MeasureLike & { events: GmcLineEvent[] },
+/**
+ * Lay out every measure of a line at once.
+ *
+ * This is deliberately NOT per-measure. A note extended by the engine's `holdLast` can
+ * sustain past a barline — measured on a ii-V-I, five of twelve pattern configurations
+ * produce at least one such note — and standard notation draws it as two tied figures,
+ * one in each measure. A per-measure function cannot do that: the second figure belongs
+ * to a measure that never saw the event, and that measure would draw a rest over sound.
+ * So we walk the whole line, split every span at barlines, and file each resulting figure
+ * under the measure that actually contains it.
+ *
+ * Horizontal positions come from `tabX` — the same function the tablature uses — which is
+ * what keeps a notehead directly above its fret number.
+ */
+export function layoutLine(
+  measures: Array<MeasureLike & { events: GmcLineEvent[] }>,
   grid: Grid,
-  measureStarts: number[],
-): MeasureLayout {
-  const events = [...measure.events].sort((a, b) => a.beat - b.beat);
-  const accidentals = accidentalsToPrint(events);
+): MeasureLayout[] {
+  const measureStarts = measures.map((m) => m.startBeat);
+  const out: MeasureLayout[] = measures.map(() => ({ notes: [], rests: [], beams: [] }));
+  if (measures.length === 0) return out;
 
-  const notes: LaidOutNote[] = events.flatMap((e, i) => {
-    const figures = splitSpan(e.beat, e.duration, grid, measureStarts);
-    const step = staffStep(e);
-    return figures.map((f, fi) => ({
-      x: tabX({ beat: f.beat }, measure),
-      staffStep: step,
-      // Only the first figure of a tied chain carries the accidental.
-      accidental: fi === 0 ? accidentals[i] : null,
-      value: f.value,
-      dots: f.dots,
-      tiedToNext: f.tiedToNext,
-      triad: e.triad,
-      ledger: ledgerSteps(step),
-      beats: f.beats,
-      beat: f.beat,
-    }));
+  /** The measure a beat falls in. Beats past the last barline belong to the last measure. */
+  const measureOf = (beat: number): number => {
+    for (let i = measures.length - 1; i >= 0; i--) {
+      if (beat >= measures[i].startBeat - 1e-6) return i;
+    }
+    return 0;
+  };
+
+  // Notes. Accidentals are decided per measure over that measure's OWN events, so a note
+  // tied in from the previous bar does not consume the accidental a later note needs.
+  measures.forEach((m) => {
+    const events = [...m.events].sort((a, b) => a.beat - b.beat);
+    const accidentals = accidentalsToPrint(events);
+    events.forEach((e, i) => {
+      const step = staffStep(e);
+      const ledger = ledgerSteps(step);
+      splitSpan(e.beat, e.duration, grid, measureStarts).forEach((f, fi) => {
+        const target = measureOf(f.beat);
+        out[target].notes.push({
+          x: tabX({ beat: f.beat }, measures[target]),
+          staffStep: step,
+          // Only the head of a tied chain states the accidental; the continuation after a
+          // barline does not restate it.
+          accidental: fi === 0 ? accidentals[i] : null,
+          value: f.value,
+          dots: f.dots,
+          tiedToNext: f.tiedToNext,
+          triad: e.triad,
+          ledger,
+          beats: f.beats,
+          beat: f.beat,
+        });
+      });
+    });
   });
 
-  const rests: LaidOutRest[] = restFigures(
-    events,
-    measure.startBeat,
-    measure.chord.beats,
-    grid,
-    measureStarts,
-  ).map((r) => ({
-    x: tabX({ beat: r.beat }, measure),
-    value: r.value,
-    dots: r.dots,
-  }));
+  // Rests. A measure's silence is whatever no SOUNDING note covers, so this must consider
+  // notes that started earlier and are still ringing, not just the measure's own events.
+  const allEvents = measures.flatMap((m) => m.events);
+  measures.forEach((m, mi) => {
+    const end = m.startBeat + m.chord.beats;
+    const sounding = allEvents
+      .filter((e) => e.beat < end - 1e-6 && e.beat + e.duration > m.startBeat + 1e-6)
+      .sort((a, b) => a.beat - b.beat);
+    out[mi].rests = restFigures(sounding, m.startBeat, m.chord.beats, grid, measureStarts).map(
+      (r) => ({ x: tabX({ beat: r.beat }, m), value: r.value, dots: r.dots }),
+    );
+  });
 
-  return { notes, rests, beams: beamGroups(notes, grid) };
+  // Beams, per measure, over the figures that measure actually prints.
+  out.forEach((layout) => {
+    layout.notes.sort((a, b) => a.beat - b.beat);
+    layout.beams = beamGroups(layout.notes, grid);
+  });
+
+  return out;
 }
 ```
 
@@ -2096,9 +2187,9 @@ Renders an SVG `<g>` — not a standalone `<svg>` — so it can be mounted insid
 - Create: `web/src/lib/components/StaffNotation.svelte`
 
 **Interfaces:**
-- Consumes: `layoutMeasure`, `staffStep`, `STAFF_LINE_GAP`, `GRIDS`, types (Task 12); glyphs (Task 13); `measureX`, `TAB_MEASURE_WIDTH`, `TAB_MARGIN_LEFT` (Task 6)
+- Consumes: `layoutLine`, `STAFF_LINE_GAP`, `Grid`, `MeasureLayout` (Task 12); glyphs (Task 13); `measureX`, `TAB_MEASURE_WIDTH`, `TAB_MARGIN_LEFT`, `MeasureLike` (Task 6)
 - Produces: a Svelte component with props
-  `{ measures: Array<MeasureLike & { events: GmcLineEvent[] }>, grid: Grid, measureStarts: number[], top: number, t1Color: string, t2Color: string }`,
+  `{ measures: Array<MeasureLike & { events: GmcLineEvent[] }>, grid: Grid, top: number, t1Color: string, t2Color: string }`,
   plus `export const STAFF_BLOCK_HEIGHT = 96` from the same file for the page to size its SVG.
 
 - [ ] **Step 1: Create the component**
@@ -2113,7 +2204,7 @@ Create `web/src/lib/components/StaffNotation.svelte`:
 
 <script lang="ts">
   import {
-    layoutMeasure,
+    layoutLine,
     STAFF_LINE_GAP,
     type Grid,
     type MeasureLayout,
@@ -2130,14 +2221,13 @@ Create `web/src/lib/components/StaffNotation.svelte`:
   interface Props {
     measures: Array<MeasureLike & { events: GmcLineEvent[] }>;
     grid: Grid;
-    measureStarts: number[];
     /** Y of the staff's top line within the parent SVG. */
     top: number;
     t1Color: string;
     t2Color: string;
   }
 
-  let { measures, grid, measureStarts, top, t1Color, t2Color }: Props = $props();
+  let { measures, grid, top, t1Color, t2Color }: Props = $props();
 
   /** Half a staff step in pixels — the unit the glyph paths are authored in. */
   const UNIT = STAFF_LINE_GAP / 2;
@@ -2148,9 +2238,9 @@ Create `web/src/lib/components/StaffNotation.svelte`:
     return bottomY - step * UNIT;
   }
 
-  let layouts = $derived(
-    measures.map((m) => layoutMeasure(m, grid, measureStarts)) as MeasureLayout[],
-  );
+  // One call for the whole line: a note held across a barline has to be filed into two
+  // measures at once, which a per-measure call cannot do.
+  let layouts = $derived(layoutLine(measures, grid) as MeasureLayout[]);
 
   let staffWidth = $derived(TAB_MARGIN_LEFT + measures.length * TAB_MEASURE_WIDTH);
 
@@ -2375,7 +2465,6 @@ variable that feeds `generateGmcLine`'s `figureIndex` argument and map it:
 ```ts
   const GRID_KINDS: GridKind[] = ['eighth', 'sixteenth', 'triplet'];
   let staffGrid = $derived(GRIDS[GRID_KINDS[figure] ?? 'eighth']);
-  let measureStarts = $derived(measures.map((m) => m.startBeat));
 ```
 
 If the state variable is not named `figure`, use whatever name the page passes as
@@ -2400,7 +2489,6 @@ class="tab-svg">`, add the staff and open the translate group:
           <StaffNotation
             measures={measures}
             grid={staffGrid}
-            measureStarts={measureStarts}
             top={12}
             t1Color={T1_COLOR}
             t2Color={T2_COLOR}
