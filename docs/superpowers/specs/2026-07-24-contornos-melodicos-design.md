@@ -107,7 +107,7 @@ The identity axis supplies the sequence of pitch classes; the contour axis suppl
 | `shape` | `contour` | Identity sequence for the cell |
 |---|---|---|
 | `Monotonic` | `None` | today's directional walk + `pingpong` |
-| `Monotonic` | `Some(c)` | **the current grip's 3 pitch classes in ascending-pitch order**; `direction` is ignored |
+| `Monotonic` | `Some(c)` | **the current grip's 3 pitch classes in the block's `direction` order** — ascending for `Ascending`, reversed for `Descending` |
 | `Order(o)` | `None` | today's role cycle, contour uncontrolled |
 | `Order(o)` | `Some(c)` | roles per `o`, register per `c` |
 
@@ -115,6 +115,14 @@ The `Monotonic + Some(c)` row is deliberate and load-bearing. Defining it as "th
 pitch order" (rather than as `Order([0,1,2])`) is what makes `<1 2 3>` reproduce today's ascending
 walk **byte for byte**, including on inverted grips — that equivalence is the non-regression test.
 Defining it via roles would force root-position spelling and silently change existing output.
+
+`direction` must be honoured, not ignored. An earlier draft of this spec said the opposite and was
+wrong: `Direction::Descending` is not "the contour `<3 2 1>` over an ascending identity", it is the
+same walk with the **identity reversed**. Legacy descending plays `notes[2], notes[1], notes[0]`. If
+the identity stayed ascending, `<3 2 1>` would instead ask the grip's *lowest* pitch class to sound
+as the cell's *highest* note — a different operation, requiring displacement, and not a
+reproduction of anything. With the identity reversed, the grip's own notes realize `<3 2 1>`
+directly and the non-regression property holds on both monotonic contours.
 
 ### Cell resolution
 
@@ -173,11 +181,22 @@ flat 24. Ties break on lowest total midi.
 Adjacency is measured in **playing** order, not rank order — that is what the picking hand actually
 does.
 
-**Why the old invariant survives as emergent behaviour.** A single grip is, by construction, three
-notes on three distinct strings within the window span. Any realization drawn from one grip scores
-`0 × SAME_STRING + small span`; any realization reusing a string pays at least 24. So single-grip
-realizations win automatically whenever the contour is satisfiable inside a grip — which is always
-true for `<1 2 3>` and `<3 2 1>`. The engine leaves the grip only when the contour demands it.
+**The grip short-circuit — a rule, not a weighting.** Before scoring anything, check whether the
+cursor grip's own three notes already realize the requested identity and contour. If they do, return
+them and run no search at all.
+
+An earlier draft tried to obtain this from the cost function alone, reasoning that a single grip is
+"by construction three notes on three distinct strings" and therefore always cheapest. **That
+premise is false.** Real grips reuse strings: `[(str4,fret5,midi64), (str5,fret5,midi69),
+(str5,fret8,midi72)]` is a grip the engine actually produces, and it pays `SAME_STRING` itself. In
+that case a displaced alternative scored 30 against the grip's 32 and won — correctly, by the stated
+cost function, even for `<1 2 3>`. A guarantee that depends on weights ordering the way you hoped is
+not a guarantee.
+
+With the short-circuit, the non-regression property is structural: `<1 2 3>` and `<3 2 1>` are
+exactly what the grip already plays, so they always take this path and never reach the search. The
+cost function then governs only the cases the grip genuinely cannot express — which is where
+displacement is the point.
 
 **The anchor — an improvement on the Lisp.** Julio's version starts every cell at `(oct 0)`, the
 base octave, so cells are pinned to a register floor and register never becomes expressive. Here the
