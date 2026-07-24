@@ -692,7 +692,10 @@ Inside `run_pattern`, immediately before `for k in 0..count {`, add the cell cac
         // per-note path untouched.
         let cell_len = block.contour.as_ref().map(|c| c.len()).unwrap_or(0);
         let mut cell: Vec<FretNote> = Vec::new();
-        let mut cell_start = 0usize;
+        // `usize::MAX` means "no cell resolved yet". Emptiness cannot carry that meaning:
+        // `resolve_cell` legitimately returns an empty vector when the contour is not
+        // expressible in this region, and that answer must not trigger a re-resolve per note.
+        let mut cell_start = usize::MAX;
 ```
 
 Then replace the single note lookup at `:387`:
@@ -705,19 +708,24 @@ with:
 
 ```rust
             let note = if cell_len > 0 {
-                if cell.is_empty() || k >= cell_start + cell_len {
-                    cell_start = (k / cell_len) * cell_len;
+                if cell_start == usize::MAX || k >= cell_start + cell_len {
+                    cell_start = k;
                     cell = resolve_cell(
                         &ladder.grips[cursor[ti]],
                         &ladder.pcs,
                         &config.positions,
                         fretboard,
                         block,
-                        cell_start / cell_len,
+                        k / cell_len,
                         last_midi,
                     );
                 }
-                cell[k - cell_start]
+                // An empty cell means the contour is not expressible in this region — the
+                // resolver refuses rather than inventing an out-of-region note. Fall back to
+                // the legacy per-note walk, which always yields a note from the current grip.
+                cell.get(k - cell_start)
+                    .copied()
+                    .unwrap_or_else(|| note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, k))
             } else {
                 note_at(&ladder.grips[cursor[ti]], &ladder.pcs, block, k)
             };
@@ -932,32 +940,17 @@ Inside the `if chord_now != active_chord {` branch, after `cursor_chord[ti] = ch
 
 ```rust
                 // A cell resolved against the old harmony is meaningless now — force a fresh
-                // one on the new ladder, entered from the glue pitch.
-                cell.clear();
-                cell_start = k;
+                // one on the new ladder, entered from the glue pitch. Reset to the "nothing
+                // resolved yet" sentinel rather than clearing `cell`, since an empty `cell` is
+                // a legitimate resolved answer and must not be confused with an absent one.
+                cell_start = usize::MAX;
 ```
 
-Then replace the whole refill block written in Task 3 with this final form. The condition is
-unchanged; what changes is that `cell_start` becomes the note index where the current cell
-actually began — normally a multiple of `cell_len`, but the note where a new harmony started
-when a chord change interrupted the cell:
-
-```rust
-                if cell.is_empty() || k >= cell_start + cell_len {
-                    // `cell_start` is the origin of the CURRENT cell, not a fixed grid: a
-                    // chord change resets it mid-block so the new harmony starts a fresh cell.
-                    cell_start = k;
-                    cell = resolve_cell(
-                        &ladder.grips[cursor[ti]],
-                        &ladder.pcs,
-                        &config.positions,
-                        fretboard,
-                        block,
-                        k / cell_len,
-                        last_midi,
-                    );
-                }
-```
+No other change is needed: the refill block from Task 3 already keys off the `usize::MAX`
+sentinel, so resetting `cell_start` is enough to force a fresh resolution on the new ladder at
+the next note. `cell_start` is the index where the CURRENT cell actually began — normally a
+multiple of `cell_len`, but the note where the new harmony started when a chord change
+interrupted the cell.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
