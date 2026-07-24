@@ -70,6 +70,12 @@
   let chartInput = $state('Em7b5 | A7b9 | Cm7 | F7 | Fm7 | Bb7 | Ebmaj7 | Ab7#11 | Bbmaj7 | Em7b5 A7b9 | Dm7 | Bbm7 Eb7 | Fmaj7 | Em7b5 | Ebmaj7 | D7b9 | G7b13 | % | Cm7 | % | Ab7#11 | % | Bbmaj7 | % | Em7b5 | A7b9 | Dm7b5 | G7b9 | Cm7b5 | F7b9 | Bbmaj7 | %');
   let pairIndex = $state(0);
   let figureIndex = $state(0);
+  // The figure a line was actually GENERATED with. `figureIndex` is a live control that can
+  // change while a line is on screen (button clicks, preset selection) without regenerating —
+  // the staff must keep rendering under the grid it was built for, not whatever is selected
+  // now, or it silently misreads the existing events under the wrong grid. Set only on the
+  // success path of generate()/regenerate(), never on error.
+  let renderedFigureIndex = $state(0);
   // Selected neck positions (base frets 1-12). Empty = no restriction: the line may use the
   // whole neck. Defaults to a single position (V) to match the previous behavior.
   let selectedPositions = $state<number[]>([5]);
@@ -122,7 +128,10 @@
   let selectedMeasureData = $derived(measures[selectedMeasure] ?? null);
 
   const GRID_KINDS: GridKind[] = ['eighth', 'sixteenth', 'triplet'];
-  let staffGrid = $derived(GRIDS[GRID_KINDS[figureIndex] ?? 'eighth']);
+  // Derived from renderedFigureIndex, not the live figureIndex control — the staff must draw
+  // the grid the on-screen line was generated with, even if the Figure buttons have since been
+  // clicked to something else without regenerating.
+  let staffGrid = $derived(GRIDS[GRID_KINDS[renderedFigureIndex] ?? 'eighth']);
 
   const NUM_FRETS = 24;
 
@@ -210,6 +219,7 @@
     } else {
       error = null;
       result = res;
+      renderedFigureIndex = figureIndex;
       // (Re)initialize scale overrides (all null = use defaults) whenever the chart text
       // changed or the change count differs — keeps positional overrides from leaking
       // across edits to a same-length but different progression.
@@ -226,6 +236,7 @@
     const res = generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, selectedPositions, pattern);
     if (!res.error) {
       result = res;
+      renderedFigureIndex = figureIndex;
     }
   }
 
@@ -636,16 +647,18 @@
           class="tab-svg"
         >
           <!--
-            The staff's top line sits 26px down inside its 96px block, not at the very top.
+            The staff's top line sits 34px down inside its 104px block, not at the very top.
             Stems reach about an octave (24.5px) beyond their notehead and beams sit at the
-            stem tip, so a staff pinned near y=0 pushes the beams of high stem-up groups to
-            negative y, where the SVG clips them. 26 leaves headroom above and still clears
-            the lowest notehead (the open low E lands ~52px under the top line) below.
+            stem tip, so a staff pinned near y=0 pushes the beams of high stem-up groups (and,
+            on the sixteenth/triplet grids, flats and triplet brackets sitting above the beam)
+            to negative y, where the SVG clips them. Measured across all three rhythmic grids,
+            34 is the smallest offset that keeps every glyph at y >= 0; it still clears the
+            lowest notehead (the open low E lands ~52px under the top line) below.
           -->
           <StaffNotation
             measures={measures}
             grid={staffGrid}
-            top={26}
+            top={34}
             t1Color={T1_COLOR}
             t2Color={T2_COLOR}
           />

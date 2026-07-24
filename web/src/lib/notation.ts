@@ -116,8 +116,14 @@ function toSlots(beats: number, grid: Grid): number {
 }
 
 /**
- * Split a span into printable figures, breaking at barlines and then at beat
- * boundaries. All figures but the last are tied to their successor.
+ * Split a span into printable figures, breaking only at barlines: each figure is the
+ * largest printable value (from `FIGURE_TABLE`) that fits between its start and the next
+ * barline, so a figure may straddle a beat boundary but never a barline. All figures but
+ * the last are tied to their successor.
+ *
+ * Caller contract: `measureStarts` must contain every bar start in the line. Past the
+ * last entry this function has no more barlines to stop at, so a truncated list lets a
+ * figure run through a barline it should have been split at.
  */
 export function splitSpan(
   startBeat: number,
@@ -306,6 +312,11 @@ export interface MeasureLayout {
  * to a measure that never saw the event, and that measure would draw a rest over sound.
  * So we walk the whole line, split every span at barlines, and file each resulting figure
  * under the measure that actually contains it.
+ *
+ * Callers must pass the WHOLE line, not a slice of it: `measureOf` resolves any beat past
+ * the last measure supplied into that last measure, so a partial slice collapses a
+ * continuation into the wrong measure and resurrects the cross-barline bug this function
+ * exists to prevent.
  *
  * Horizontal positions come from `tabX` — the same function the tablature uses — which is
  * what keeps a notehead directly above its fret number.

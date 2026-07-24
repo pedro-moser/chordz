@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** Vertical space the staff block occupies, including ledger-line headroom. */
-  export const STAFF_BLOCK_HEIGHT = 96;
+  export const STAFF_BLOCK_HEIGHT = 104;
 </script>
 
 <script lang="ts">
@@ -121,9 +121,9 @@
       {#each group.notes as note}
         {#if note.value >= 2}
           <line
-            x1={note.x + (up ? 4 : -4)}
+            x1={note.x + (up ? 3 : -3)}
             y1={y(note.staffStep)}
-            x2={note.x + (up ? 4 : -4)}
+            x2={note.x + (up ? 3 : -3)}
             y2={tipY}
             stroke="var(--text)"
             stroke-width="1.1"
@@ -133,9 +133,9 @@
       {#if group.notes.length > 1}
         <!-- Primary beam spans the whole group: every note in a group carries a flag. -->
         <line
-          x1={first.x + (up ? 4 : -4)}
+          x1={first.x + (up ? 3 : -3)}
           y1={tipY}
-          x2={last.x + (up ? 4 : -4)}
+          x2={last.x + (up ? 3 : -3)}
           y2={tipY}
           stroke="var(--text)"
           stroke-width="2.4"
@@ -148,9 +148,9 @@
         {#each group.notes.slice(0, -1) as n, bi}
           {#if n.value >= 16 && group.notes[bi + 1].value >= 16}
             <line
-              x1={n.x + (up ? 4 : -4)}
+              x1={n.x + (up ? 3 : -3)}
               y1={tipY + (up ? 4 : -4)}
-              x2={group.notes[bi + 1].x + (up ? 4 : -4)}
+              x2={group.notes[bi + 1].x + (up ? 3 : -3)}
               y2={tipY + (up ? 4 : -4)}
               stroke="var(--text)"
               stroke-width="2.4"
@@ -160,7 +160,7 @@
       {:else if first.value >= 8}
         <!-- Lone eighth or shorter: a flag, drawn as a short hook off the stem. -->
         <path
-          d="M{first.x + (up ? 4 : -4)},{tipY} q4,2 3,6"
+          d="M{first.x + (up ? 3 : -3)},{tipY} q4,2 3,6"
           fill="none"
           stroke="var(--text)"
           stroke-width="1.4"
@@ -184,15 +184,15 @@
       {#if note.accidental !== null}
         <path
           d={ACCIDENTAL_PATHS[note.accidental] ?? ACCIDENTAL_PATHS[0]}
-          transform="translate({note.x - 8}, {y(note.staffStep)}) scale({UNIT})"
+          transform="translate({note.x - 6}, {y(note.staffStep)}) scale({UNIT})"
           fill={color}
         />
       {/if}
       <ellipse
         cx={note.x}
         cy={y(note.staffStep)}
-        rx="4"
-        ry="2.8"
+        rx="3"
+        ry="2.2"
         transform="rotate(-20 {note.x} {y(note.staffStep)})"
         fill={note.value <= 2 ? 'none' : color}
         stroke={color}
@@ -205,7 +205,7 @@
           would put the dot of a space-note straight onto the line above.
         -->
         <circle
-          cx={note.x + 7}
+          cx={note.x + 5}
           cy={y(note.staffStep % 2 === 0 ? note.staffStep + 1 : note.staffStep)}
           r="1.1"
           fill={color}
