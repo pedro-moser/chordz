@@ -19,6 +19,8 @@
     tabY,
     measureX,
   } from '$lib/tabLayout';
+  import StaffNotation, { STAFF_BLOCK_HEIGHT } from '$lib/components/StaffNotation.svelte';
+  import { GRIDS, type GridKind } from '$lib/notation';
 
   const gmcTabs = [
     { label: 'Browse', href: `${base}/gmc/browse` },
@@ -118,6 +120,9 @@
   })());
 
   let selectedMeasureData = $derived(measures[selectedMeasure] ?? null);
+
+  const GRID_KINDS: GridKind[] = ['eighth', 'sixteenth', 'triplet'];
+  let staffGrid = $derived(GRIDS[GRID_KINDS[figureIndex] ?? 'eighth']);
 
   const NUM_FRETS = 24;
 
@@ -405,7 +410,9 @@
 
   // --- TAB SVG constants ---
   let tabSvgWidth = $derived(TAB_MARGIN_LEFT + measures.length * TAB_MEASURE_WIDTH + 20);
-  let tabSvgHeight = $derived(TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET + 14);
+  let tabSvgHeight = $derived(
+    STAFF_BLOCK_HEIGHT + TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET + 14,
+  );
 
   // --- FRETBOARD SVG constants ---
   const FB_STRING_GAP = 28;
@@ -628,6 +635,16 @@
           height={tabSvgHeight}
           class="tab-svg"
         >
+          <StaffNotation
+            measures={measures}
+            grid={staffGrid}
+            top={12}
+            t1Color={T1_COLOR}
+            t2Color={T2_COLOR}
+          />
+
+          <g transform="translate(0, {STAFF_BLOCK_HEIGHT})">
+
           <!-- String lines -->
           {#each STRING_LABELS as label, si}
             <line
@@ -655,9 +672,9 @@
             {#if mi === selectedMeasure}
               <rect
                 x={mx}
-                y={TAB_CHORD_Y - 4}
+                y={TAB_CHORD_Y - 4 - STAFF_BLOCK_HEIGHT}
                 width={TAB_MEASURE_WIDTH}
-                height={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET + 8 - TAB_CHORD_Y + 4}
+                height={TAB_MARGIN_TOP + 5 * TAB_STRING_GAP + TAB_SCALE_Y_OFFSET + 8 - TAB_CHORD_Y + 4 + STAFF_BLOCK_HEIGHT}
                 fill="var(--primary-muted)"
                 opacity="0.25"
                 rx="3"
@@ -668,7 +685,7 @@
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
             <rect
               x={mx}
-              y={0}
+              y={-STAFF_BLOCK_HEIGHT}
               width={TAB_MEASURE_WIDTH}
               height={tabSvgHeight}
               fill="transparent"
@@ -747,6 +764,7 @@
               stroke-width="2"
             />
           {/if}
+          </g>
         </svg>
       </div>
 
