@@ -75,7 +75,8 @@ await page.waitForSelector('button.action-btn:has-text("Play")');
 await page.waitForTimeout(600);
 
 out.gmc = {
-  fretboard: await rect('.fb-container', 8),
+  // `.fb-container` rola: o desenho real é o svg dentro dele.
+  fretboard: await rect('.fb-container svg', 8),
   header: await rect('.fb-header', 6),
   blocks: await rect('.pattern-blocks', 6),
   chart: await rect('.chart-grid', 6)

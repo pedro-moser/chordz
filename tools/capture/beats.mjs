@@ -93,6 +93,51 @@ async function settle() {
 }
 
 const beats = {
+  // Cause and effect, which the reel had nowhere: the chart goes in as text,
+  // the solver runs, the grid fills with voicings, the music starts.
+  //
+  // Every other beat shows a RESULT. Without this one the viewer sees chords
+  // lighting up and never learns that something built them.
+  async b0() {
+    await openTune('/chords/tune/', 'Stella by Starlight');
+    // Deixa o texto da grade legível no input antes de qualquer coisa acontecer.
+    await wait(2600);
+    await page.click('button.solve-btn');
+    await page.waitForSelector('button.action-btn:has-text("Play all")');
+    await wait(1800);
+    await page.fill('#bpm-input', TEMPOS['Stella by Starlight']);
+    await enableBass();
+    await settle();
+    await page.click('button.action-btn:has-text("Play all")');
+    await wait(7000);
+  },
+
+  // Stella inteira numa tomada só: a grade entra como texto, o solver roda, a
+  // grade nasce e a música toca oito compassos sem corte.
+  //
+  // Substitui os dois trechos separados (paste e knob). Dois pedaços da mesma
+  // música com um corte entre eles liam como quebra, não como demonstração.
+  async b6() {
+    await openTune('/chords/tune/', 'Stella by Starlight');
+    await wait(2600);                       // a grade fica legível como texto
+    await page.click('button.solve-btn');
+    await page.waitForSelector('button.action-btn:has-text("Play all")');
+    await wait(1600);                       // a grade resolvida nasce
+    await page.fill('#bpm-input', TEMPOS['Stella by Starlight']);
+    await enableBass();
+    const toggle = page.locator('button.toggle-btn:has-text("Constraints")');
+    if ((await toggle.innerText()).includes('▸')) await toggle.click();
+    await page
+      .locator('.constraint-row', { hasText: 'Movement' })
+      .locator('button.filter-btn:has-text("Tight")')
+      .first()
+      .click();
+    await page.click('button.solve-btn');
+    await settle();
+    await page.click('button.action-btn:has-text("Play all")');
+    await wait(16_000);                     // oito compassos a 140 mais cauda
+  },
+
   // Giant Steps, the whole chart, with walking bass.
   async b1() {
     await openTune('/chords/tune/', 'Giant Steps');
