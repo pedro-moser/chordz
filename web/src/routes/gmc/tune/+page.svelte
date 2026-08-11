@@ -3,7 +3,7 @@
   import { base } from '$app/paths';
   import SubTabs from '$lib/components/SubTabs.svelte';
   import { generateGmcLine, shellEtudePreset, validScalesForChart, getPresets, getPairs, getAllScales } from '$lib/wasm';
-  import { scheduleNotes, scheduleBassLine, stopScheduled, getAudioTime, setAmbience } from '$lib/audio';
+  import { scheduleNotes, scheduleBassLine, stopScheduled, getAudioTime, setAmbience, getBassVolume, setBassVolume } from '$lib/audio';
   import { generateWalkingBass } from '$lib/wasm';
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
   import { PATTERN_PRESETS } from '$lib/patternPresets';
@@ -100,7 +100,7 @@
   let playing = $state(false);
   let controlsOpen = $state(true);
   let scaleModalOpen = $state(false);
-  let fbLabelMode = $state<'order' | 'notes' | 'intervals'>('order');
+  let fbLabelMode = $state<'notes' | 'intervals'>('notes');
 
   const PC_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
   const INTERVAL_NAMES = ['1', 'b2', '2', 'b3', '3', '4', 'b5', '5', 'b6', '6', 'b7', '7'];
@@ -216,7 +216,12 @@
   }
 
   function generate() {
-    const res = generateGmcLine(chartInput, titleInput, pairIndex, scaleOverrides, figureIndex, selectedPositions, pattern);
+    // Overrides are positional. If the chart changed, never generate once with the previous
+    // chart's scales before the reset below; that can put a perfectly legal pair note in the
+    // wrong harmonic context and was especially visible when two charts had equal length.
+    const chartChanged = chartInput !== overridesFor;
+    const generationOverrides = chartChanged ? [] : scaleOverrides;
+    const res = generateGmcLine(chartInput, titleInput, pairIndex, generationOverrides, figureIndex, selectedPositions, pattern);
     if (res.error) {
       error = res.error;
       result = null;
@@ -358,12 +363,17 @@
       const p = PATTERN_PRESETS[idx];
       pattern = [...p.blocks];
       if (p.figureIndex !== undefined) figureIndex = p.figureIndex;
+      if (p.pairIndex !== undefined) pairIndex = p.pairIndex;
+      if (p.resetScales) {
+        scaleOverrides = [];
+        overridesFor = chartInput;
+      }
     }
   }
 
   // Playback
   let bpm = $state(120);
-  let bassEnabled = $state(false);
+  let bassEnabled = $state(true);
   let ambient = $state(true);
   $effect(() => { setAmbience(ambient ? 0.35 : 0.0); });
   let rafId: number | null = null;
@@ -600,15 +610,18 @@
             </select>
             {#if block.count === 3}
               <div class="contour-row">
+                <span class="contour-label">Contour</span>
                 <button
                   class="filter-btn"
                   class:active={!block.contour}
-                  title="No contour — the ↑/↓ walk"
+                  aria-label="No contour — use the direction walk"
+                  title="No contour — use the direction walk"
                   onclick={() => setBlockContour(i, undefined)}>—</button>
                 {#each CONTOURS as c}
                   <button
                     class="filter-btn contour-btn"
                     class:active={block.contour?.join() === c.ranks.join()}
+                    aria-label={`Contour ${c.ranks.join(' ')}`}
                     title={c.title}
                     onclick={() => setBlockContour(i, [...c.ranks])}>
                     <svg viewBox="0 0 30 20" width="30" height="20" aria-hidden="true">
@@ -680,6 +693,21 @@
         <label class="toggle-label">
           <input type="checkbox" bind:checked={bassEnabled} /> Bass
         </label>
+        {#if bassEnabled}
+          <label class="bass-volume-control" for="gmc-bass-volume">Bass volume</label>
+          <input
+            id="gmc-bass-volume"
+            type="range"
+            min="0"
+            max="1"
+            step="0.1"
+            value={getBassVolume()}
+            oninput={(e) => setBassVolume(Number((e.target as HTMLInputElement).value))}
+            class="bass-vol"
+            aria-label="Bass volume"
+            title="Bass volume"
+          />
+        {/if}
         <label class="toggle-label">
           <input type="checkbox" bind:checked={ambient} /> Ambient
         </label>
@@ -847,10 +875,14 @@
             <span class="fb-scale" class:override={selectedMeasureData.chord.isOverride}>{selectedMeasureData.chord.activeScale}</span>
             <span class="fb-position">{selectedPositions.length ? 'Position ' + [...selectedPositions].sort((a, b) => a - b).map(p => POSITION_LABELS[p - 1]).join(', ') : 'Free'}</span>
             <div class="fb-label-toggle">
-              <button class="fb-toggle-btn" class:active={fbLabelMode === 'order'} onclick={() => fbLabelMode = 'order'}>#</button>
-              <button class="fb-toggle-btn" class:active={fbLabelMode === 'notes'} onclick={() => fbLabelMode = 'notes'}>Notes</button>
-              <button class="fb-toggle-btn" class:active={fbLabelMode === 'intervals'} onclick={() => fbLabelMode = 'intervals'}>Intervals</button>
+              <button class="fb-toggle-btn" class:active={fbLabelMode === 'notes'} onclick={() => fbLabelMode = 'notes'} title="Nome da nota">Notes</button>
+              <button class="fb-toggle-btn" class:active={fbLabelMode === 'intervals'} onclick={() => fbLabelMode = 'intervals'} title="Intervalo em relação à tônica do acorde">Intervals</button>
             </div>
+          </div>
+          <div class="fb-help">
+            <span><b class="legend-t1">T1</b>/<b class="legend-t2">T2</b> = triades do par</span>
+            <span>rótulo do ponto = <b>nota</b> ou intervalo</span>
+            <span>número acima = <b>casa</b></span>
           </div>
           <div class="fb-container">
             <svg
@@ -921,11 +953,11 @@
               {/each}
 
               <!-- Notes for selected measure -->
-              {#each selectedMeasureData.events as event, ei}
+              {#each selectedMeasureData.events as event}
                 {@const x = fbNoteX(event.fret)}
                 {@const y = fbStringY(event.string)}
                 {@const color = event.triad === 'T1' ? T1_COLOR : T2_COLOR}
-                {@const label = fbLabelMode === 'order' ? String(ei + 1) : noteLabel(event, selectedMeasureData.chord.rootPc)}
+                {@const label = noteLabel(event, selectedMeasureData.chord.rootPc)}
                 <circle
                   cx={x}
                   cy={y}
@@ -939,7 +971,7 @@
                   text-anchor="middle"
                   dominant-baseline="central"
                   fill="var(--bg-base)"
-                  font-size={fbLabelMode === 'order' ? '10' : '8'}
+                  font-size="8"
                   font-weight="700"
                   font-family="var(--font)"
                 >{label}</text>
@@ -1002,7 +1034,7 @@
 
   /* --- Left panel --- */
   .tune-left {
-    width: 280px;
+    width: 440px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -1154,6 +1186,7 @@
 
   .pattern-block {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 4px;
   }
@@ -1401,6 +1434,16 @@
     accent-color: var(--primary);
   }
 
+  .bass-volume-control {
+    font-size: 10px;
+    color: var(--text-disabled);
+  }
+
+  .bass-vol {
+    width: 60px;
+    accent-color: var(--primary);
+  }
+
   .action-btn {
     background: var(--bg-raised);
     border: 1px solid var(--border);
@@ -1528,7 +1571,15 @@
   /* Contour picker (3-note cells only) */
   .contour-row {
     display: flex;
+    flex: 1 0 100%;
+    align-items: center;
     gap: 2px;
+  }
+
+  .contour-label {
+    margin-right: 2px;
+    color: var(--text-disabled);
+    font-size: 10px;
   }
 
   .contour-btn {
@@ -1542,5 +1593,39 @@
 
   .contour-btn svg {
     display: block;
+  }
+
+  .fb-help {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 2px 4px 5px;
+    color: var(--text-disabled);
+    font-size: 10px;
+  }
+
+  .legend-t1 {
+    color: #64a0ff;
+  }
+
+  .legend-t2 {
+    color: #ff8c32;
+  }
+
+  @media (max-width: 900px) {
+    .tune-layout {
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .tune-left {
+      width: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tune-center {
+      min-height: 0;
+    }
   }
 </style>

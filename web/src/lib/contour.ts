@@ -1,11 +1,11 @@
 /** The six ordinal shapes a 3-note cell can take. `ranks[i]` is the rank of the i-th note. */
 export const CONTOURS: { ranks: number[]; title: string }[] = [
-  { ranks: [1, 2, 3], title: 'low → mid → high (ascending)' },
-  { ranks: [1, 3, 2], title: 'low → high → mid' },
-  { ranks: [2, 1, 3], title: 'mid → low → high' },
-  { ranks: [2, 3, 1], title: 'mid → high → low' },
-  { ranks: [3, 1, 2], title: 'high → low → mid' },
-  { ranks: [3, 2, 1], title: 'high → mid → low (descending)' }
+  { ranks: [1, 2, 3], title: '<1 2 3> · low → mid → high (ascending)' },
+  { ranks: [1, 3, 2], title: '<1 3 2> · low → high → mid' },
+  { ranks: [2, 1, 3], title: '<2 1 3> · mid → low → high' },
+  { ranks: [2, 3, 1], title: '<2 3 1> · mid → high → low' },
+  { ranks: [3, 1, 2], title: '<3 1 2> · high → low → mid' },
+  { ranks: [3, 2, 1], title: '<3 2 1> · high → mid → low (descending)' }
 ];
 
 /**
