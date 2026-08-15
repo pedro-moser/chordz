@@ -43,3 +43,13 @@ jobs:
         run: npm run check
       - name: Unit tests
         run: npm test
+
+  pages:
+    name: Deploy verified main to GitHub Pages
+    needs: [rust, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
