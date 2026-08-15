@@ -1,4 +1,5 @@
 use crate::theory::chords::ChordQuality;
+use crate::theory::intervals::Interval;
 
 pub type StabilityTable = [u8; 12];
 
@@ -102,8 +103,8 @@ pub fn apply_abstraction(table: &mut StabilityTable, quality: &ChordQuality, abs
         .collect();
 
     let third_semitones: &[u8] = match () {
-        _ if explicit.contains(&4) => &[4],    // M3
-        _ if explicit.contains(&3) => &[3],    // m3
+        _ if quality.intervals.contains(&Interval::M3) => &[4],
+        _ if quality.intervals.contains(&Interval::m3) => &[3],
         _ => &[],
     };
 
@@ -154,11 +155,26 @@ pub fn degree_class(semitone: u8, quality: &ChordQuality) -> u8 {
         0 => 1,
         1 | 2 => 2,
         3 => {
-            // #9 (2nd class) if the chord has M3; b3 (3rd class) otherwise
-            let has_major_third = quality.intervals.iter().any(|iv| iv.semitones % 12 == 4);
-            if has_major_third { 2 } else { 3 }
+            // #9 (2nd class) only when the quality owns a literal major third;
+            // m9b11 also contains pitch class 4, but spells it as b11.
+            let has_major_third = quality.intervals.contains(&Interval::M3);
+            if has_major_third {
+                2
+            } else {
+                3
+            }
         }
-        4 => 3,
+        4 => {
+            // In m9b11 the quality already owns b3, so pitch class 4 is
+            // functionally b11 (fourth class), not a duplicate major third.
+            if quality.intervals.contains(&Interval::m3)
+                && quality.intervals.contains(&Interval::m11)
+            {
+                4
+            } else {
+                3
+            }
+        }
         5 => 4,
         6 => {
             // b5 (5th class) if quality uses it as a 5th; #4 (4th class) otherwise
@@ -215,6 +231,20 @@ pub fn subset_stability(table: &StabilityTable, semitones: &[u8]) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn m9b11_abstraction_reduces_the_minor_third_not_the_flat_eleventh() {
+        let quality = ChordQuality::ALL
+            .iter()
+            .find(|quality| quality.name == "m9b11")
+            .unwrap();
+        let mut table = get_stability_table(quality, None);
+
+        apply_abstraction(&mut table, quality, 1.0);
+
+        assert_eq!(table[3], 0, "b3 is the quality's actual third");
+        assert_eq!(table[4], 20, "b11 is a color tone, not a major third");
+    }
 
     #[test]
     fn major_core_tones_max_stability() {

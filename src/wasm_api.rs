@@ -9,7 +9,7 @@ use crate::theory::notes::PC_NAMES;
 use crate::theory::scales::Scale;
 use crate::voicings::fretboard::Fretboard;
 use crate::voicings::generate::{map_voice_set, Fingering};
-use crate::voicings::procedural::generate_all_voice_sets;
+use crate::voicings::procedural::generate_literal_voice_sets;
 use crate::voicings::ranking::rank_fingerings_with_options;
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
@@ -165,7 +165,7 @@ pub fn generate_voicings(
         };
         let chord_label = chords::chord_name(root_name, quality);
 
-        let voice_sets = generate_all_voice_sets(root_pc, quality, note_count, None, min_stability);
+        let voice_sets = generate_literal_voice_sets(root_pc, quality, note_count, min_stability);
 
         for (voice_set, _stability, label) in &voice_sets {
             let mut fingerings = map_voice_set(voice_set, &fb, &rules);

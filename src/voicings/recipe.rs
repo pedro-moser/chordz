@@ -454,7 +454,7 @@ impl VoicingRecipe {
         for color in [
             Interval::m9,
             Interval::SHARP9,
-            Interval::m6,
+            Interval::SHARP5,
             Interval::M13,
             Interval::m13,
             Interval::SHARP11,
@@ -574,6 +574,63 @@ pub fn guide_tones(quality: &ChordQuality) -> Option<(Interval, Interval)> {
     }
 }
 
+/// Intervals that a grounded reduced voicing must retain for its chord label
+/// to remain literal. Root and natural fifth are normally expendable; guide
+/// tones, altered fifths, and the color named by an extended quality are not.
+///
+/// Explicit abstraction is handled by the procedural generator and may opt out
+/// of this contract to imply rather than spell out the harmony.
+pub(crate) fn required_intervals_for_reduction(quality: &ChordQuality) -> Vec<Interval> {
+    let mut required = Vec::new();
+
+    if let Some((third, seventh)) = guide_tones(quality) {
+        required.extend([third, seventh]);
+    } else if quality.name == "dim7" {
+        required.extend([Interval::m3, Interval::dim7]);
+    }
+
+    let characteristic: &[Interval] = match quality.name {
+        "maj7" | "m7" | "dom7" => &[],
+        "maj9" | "m9" | "dom9" => &[Interval::M9],
+        "maj13" | "m13" | "dom13" => &[Interval::M13],
+        "m11" => &[Interval::M11],
+        "maj7#11" | "dom7#11" => &[Interval::SHARP11],
+        "m7b5" => &[Interval::tritone],
+        // Preserve every degree written in the symbol at the default four-
+        // string limit; the b5 from the full half-diminished formula is the
+        // first optional tone in a reduction.
+        "m9b11" => &[Interval::m9, Interval::m11],
+        "dom7#5" => &[Interval::SHARP5],
+        "dom7b9" => &[Interval::m9],
+        "dom7#9" => &[Interval::SHARP9],
+        // b13 and #5 share pitch class 8. Retaining the natural fifth makes
+        // dom7b13 distinct from dom7#5 as a reduced pitch set.
+        "dom7b13" => &[Interval::P5, Interval::m13],
+        "dim7" => &[Interval::tritone],
+        _ => {
+            // ChordQuality is public, so external callers may define formulas
+            // beyond ALL. Preserve every non-root/non-perfect-fifth interval
+            // rather than panicking or guessing which custom color is optional.
+            for interval in quality.intervals {
+                if *interval != Interval::UNISON
+                    && *interval != Interval::P5
+                    && !required.contains(interval)
+                {
+                    required.push(*interval);
+                }
+            }
+            return required;
+        }
+    };
+
+    for interval in characteristic {
+        if !required.contains(interval) {
+            required.push(*interval);
+        }
+    }
+    required
+}
+
 fn rootless_color_tones(quality: &ChordQuality, third: Interval) -> Vec<Interval> {
     let candidates: &[Interval] = if third == Interval::m3 {
         &[
@@ -591,7 +648,7 @@ fn rootless_color_tones(quality: &ChordQuality, third: Interval) -> Vec<Interval
             Interval::SHARP11,
             Interval::m9,
             Interval::SHARP9,
-            Interval::m6,
+            Interval::SHARP5,
         ]
     } else {
         &[Interval::M9, Interval::M13, Interval::SHARP11]
@@ -639,8 +696,8 @@ fn four_note_cores(quality: &ChordQuality) -> Vec<[Interval; 4]> {
         Some(Interval::P5)
     } else if quality.intervals.contains(&Interval::tritone) {
         Some(Interval::tritone)
-    } else if quality.intervals.contains(&Interval::m6) {
-        Some(Interval::m6)
+    } else if quality.intervals.contains(&Interval::SHARP5) {
+        Some(Interval::SHARP5)
     } else {
         None
     };
@@ -783,6 +840,50 @@ fn ascending_offsets(intervals: &[Interval]) -> Vec<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dom7_sharp5_recipe_paths_preserve_the_augmented_fifth() {
+        let quality = ChordQuality::ALL
+            .iter()
+            .find(|quality| quality.name == "dom7#5")
+            .unwrap();
+
+        for recipe in [
+            VoicingRecipe::RootlessA,
+            VoicingRecipe::RootlessB,
+            VoicingRecipe::Drop2,
+            VoicingRecipe::Drop3,
+            VoicingRecipe::UpperStructureTriad,
+        ] {
+            let sets = recipe.generate_voice_sets(0, quality);
+            assert!(
+                sets.iter()
+                    .any(|voice_set| voice_set.intervals.contains(&Interval::SHARP5)),
+                "{} lost #5",
+                recipe.name()
+            );
+        }
+    }
+
+    #[test]
+    fn custom_quality_reduction_is_conservative_without_panicking() {
+        let quality = ChordQuality {
+            name: "custom11",
+            intervals: &[
+                Interval::UNISON,
+                Interval::M3,
+                Interval::P5,
+                Interval::m7,
+                Interval::M9,
+                Interval::M11,
+            ],
+        };
+
+        assert_eq!(
+            required_intervals_for_reduction(&quality),
+            vec![Interval::M3, Interval::m7, Interval::M9, Interval::M11]
+        );
+    }
 
     #[test]
     fn test_recipe_names() {

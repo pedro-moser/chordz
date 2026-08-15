@@ -131,7 +131,12 @@ impl ChordQuality {
         },
         Self {
             name: "dom7#5",
-            intervals: &[Interval::UNISON, Interval::M3, Interval::m6, Interval::m7],
+            intervals: &[
+                Interval::UNISON,
+                Interval::M3,
+                Interval::SHARP5,
+                Interval::m7,
+            ],
         },
         Self {
             name: "dom7b9",

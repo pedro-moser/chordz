@@ -1,7 +1,7 @@
 use crate::theory::chords::ChordQuality;
 use crate::theory::intervals::Interval;
 
-use super::recipe::VoicingRecipe;
+use super::recipe::{required_intervals_for_reduction, VoicingRecipe};
 use super::stability::{self, get_stability_table, has_duplicate_degree, subset_stability};
 use super::voice_set::VoiceSet;
 
@@ -18,6 +18,20 @@ const INTERVAL_DIM7: Interval = Interval {
 /// Map a semitone (0-11) to the correct Interval for the given quality.
 fn semitone_to_interval(semitone: u8, quality: &ChordQuality) -> Interval {
     let s = semitone % 12;
+
+    // Preserve the function declared by the quality instead of collapsing
+    // extensions to their simple enharmonic interval (9 -> 2, b13 -> b6).
+    if let Some(interval) = quality
+        .intervals
+        .iter()
+        .find(|interval| interval.semitones >= 12 && interval.semitones % 12 == s)
+    {
+        return *interval;
+    }
+    if s == 8 && quality.intervals.contains(&Interval::SHARP5) {
+        return Interval::SHARP5;
+    }
+
     match s {
         0 => Interval::UNISON,
         1 => Interval::m2,
@@ -26,7 +40,15 @@ fn semitone_to_interval(semitone: u8, quality: &ChordQuality) -> Interval {
             let class = stability::degree_class(s, quality);
             if class == 2 { Interval::SHARP9 } else { Interval::m3 }
         }
-        4 => Interval::M3,
+        4 => {
+            if quality.intervals.contains(&Interval::m3)
+                && quality.intervals.contains(&Interval::m11)
+            {
+                Interval::m11
+            } else {
+                Interval::M3
+            }
+        }
         5 => Interval::P4,
         6 => {
             let class = stability::degree_class(s, quality);
@@ -203,6 +225,35 @@ pub fn generate_all_voice_sets(
     )
 }
 
+/// Generate grounded voice sets for a standalone chord browser.
+///
+/// Unlike the progression solver, a browser has no harmonic context that can
+/// justify adding color tones from outside the displayed quality. Keeping the
+/// vocabulary literal prevents two quality labels from publishing the same
+/// pitch set while the contextual generator remains free to add tensions.
+pub fn generate_literal_voice_sets(
+    root_pc: u8,
+    quality: &'static ChordQuality,
+    note_count: usize,
+    min_total_stability: u8,
+) -> Vec<(VoiceSet, u16, &'static str)> {
+    let declared_pitch_classes: Vec<u8> = quality
+        .intervals
+        .iter()
+        .map(|interval| interval.semitones % 12)
+        .collect();
+
+    generate_all_voice_sets(root_pc, quality, note_count, None, min_total_stability)
+        .into_iter()
+        .filter(|(voice_set, _, _)| {
+            voice_set
+                .intervals
+                .iter()
+                .all(|interval| declared_pitch_classes.contains(&(interval.semitones % 12)))
+        })
+        .collect()
+}
+
 pub fn generate_all_voice_sets_with_abstraction(
     root_pc: u8,
     quality: &'static ChordQuality,
@@ -214,6 +265,21 @@ pub fn generate_all_voice_sets_with_abstraction(
     let mut table = get_stability_table(quality, next_quality);
     stability::apply_abstraction(&mut table, quality, abstraction);
     let min_total_stability = stability::adjusted_threshold(min_total_stability, abstraction);
+
+    // Grounded voicings promise that the displayed quality is literally present.
+    // Explicit abstraction is the intentional opt-out: it may imply the harmony.
+    let required_pitch_classes: Vec<u8> = if abstraction < 0.05 {
+        required_intervals_for_reduction(quality)
+            .iter()
+            .map(|interval| interval.semitones % 12)
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    if required_pitch_classes.len() > note_count {
+        return Vec::new();
+    }
 
     // Collect available semitones (stability > 0).
     let available: Vec<u8> = (0u8..12)
@@ -239,6 +305,12 @@ pub fn generate_all_voice_sets_with_abstraction(
     let mut results: Vec<(VoiceSet, u16, &'static str)> = Vec::new();
 
     combinations(&available, note_count, &mut |subset| {
+        if !required_pitch_classes
+            .iter()
+            .all(|required| subset.contains(required))
+        {
+            return;
+        }
         if has_duplicate_degree(subset, quality) {
             return;
         }
@@ -375,6 +447,29 @@ mod tests {
     }
 
     #[test]
+    fn explicit_quality_extensions_keep_their_functional_names() {
+        let cases = [
+            ("dom9", 2, "9"),
+            ("dom7b9", 1, "b9"),
+            ("dom7#9", 3, "#9"),
+            ("m11", 5, "11"),
+            ("dom7#11", 6, "#11"),
+            ("dom13", 9, "13"),
+            ("dom7#5", 8, "#5"),
+            ("dom7b13", 8, "b13"),
+        ];
+
+        for (quality_name, pitch_class, expected_name) in cases {
+            let quality = find_quality(quality_name);
+            assert_eq!(
+                semitone_to_interval(pitch_class, quality).name,
+                expected_name,
+                "wrong functional spelling for {quality_name}"
+            );
+        }
+    }
+
+    #[test]
     fn dominant_altered_has_b9() {
         let dom = find_quality("dom7");
         let minor = find_quality("m7");
@@ -383,5 +478,174 @@ mod tests {
             .iter()
             .any(|s| s.0.intervals.iter().any(|iv| iv.semitones == 1));
         assert!(has_b9);
+    }
+
+    #[test]
+    fn literal_browse_sets_are_unique_across_chord_qualities() {
+        use std::collections::{HashMap, HashSet};
+
+        for note_count in 2..=6 {
+            let mut owners: HashMap<u16, &str> = HashMap::new();
+            for quality in ChordQuality::ALL {
+                let declared = quality.intervals.iter().fold(0u16, |mask, interval| {
+                    mask | (1 << (interval.semitones % 12))
+                });
+                let mut own_masks = HashSet::new();
+
+                for (voice_set, _, _) in generate_literal_voice_sets(0, quality, note_count, 0) {
+                    let mask = voice_set.intervals.iter().fold(0u16, |mask, interval| {
+                        mask | (1 << (interval.semitones % 12))
+                    });
+                    assert_eq!(
+                        mask & !declared,
+                        0,
+                        "{} published a tone outside its literal formula",
+                        quality.name
+                    );
+                    if !own_masks.insert(mask) {
+                        continue;
+                    }
+                    if let Some(previous) = owners.insert(mask, quality.name) {
+                        assert_eq!(
+                            previous, quality.name,
+                            "{previous} and {} published pitch-set mask {mask:#05x} at {note_count} notes",
+                            quality.name
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn grounded_reductions_keep_every_qualitys_defining_pitch_classes() {
+        let defining = |quality_name: &str| -> &'static [u8] {
+            match quality_name {
+                "maj7" => &[4, 11],
+                "maj9" => &[2, 4, 11],
+                "maj13" => &[4, 9, 11],
+                "maj7#11" => &[4, 6, 11],
+                "m7" => &[3, 10],
+                "m9" => &[2, 3, 10],
+                "m11" => &[3, 5, 10],
+                "m13" => &[3, 9, 10],
+                "m7b5" => &[3, 6, 10],
+                "m9b11" => &[1, 3, 4, 10],
+                "dom7" => &[4, 10],
+                "dom9" => &[2, 4, 10],
+                "dom13" => &[4, 9, 10],
+                "dom7#5" => &[4, 8, 10],
+                "dom7b9" => &[1, 4, 10],
+                "dom7#9" => &[3, 4, 10],
+                "dom7#11" => &[4, 6, 10],
+                // b13 is enharmonic to #5, so the natural fifth distinguishes
+                // dom7b13 from dom7#5 as a pitch set.
+                "dom7b13" => &[4, 7, 8, 10],
+                "dim7" => &[3, 6, 9],
+                other => panic!("missing defining-tone contract for {other}"),
+            }
+        };
+
+        for quality in ChordQuality::ALL {
+            let required = defining(quality.name);
+            for note_count in 2..=6 {
+                let sets = generate_all_voice_sets(0, quality, note_count, None, 0);
+                if note_count < required.len() {
+                    assert!(
+                        sets.is_empty(),
+                        "{} should not be representable with {note_count} notes",
+                        quality.name
+                    );
+                    continue;
+                }
+
+                assert!(
+                    !sets.is_empty(),
+                    "{} should be representable with {note_count} notes",
+                    quality.name
+                );
+                for (voice_set, _, _) in sets {
+                    let pitch_classes: Vec<u8> = voice_set
+                        .intervals
+                        .iter()
+                        .map(|interval| interval.semitones % 12)
+                        .collect();
+                    assert!(
+                        required.iter().all(|pc| pitch_classes.contains(pc)),
+                        "{} at {note_count} notes omitted a defining tone: {:?}",
+                        quality.name,
+                        voice_set.intervals
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn grounded_dominant_reductions_keep_guide_tones_and_named_color() {
+        let cases: [(&str, &[Interval]); 6] = [
+            ("dom9", &[Interval::M3, Interval::m7, Interval::M9]),
+            ("dom13", &[Interval::M3, Interval::m7, Interval::M13]),
+            ("dom7b9", &[Interval::M3, Interval::m7, Interval::m9]),
+            ("dom7#9", &[Interval::M3, Interval::m7, Interval::SHARP9]),
+            ("dom7#11", &[Interval::M3, Interval::m7, Interval::SHARP11]),
+            (
+                "dom7b13",
+                &[Interval::M3, Interval::P5, Interval::m7, Interval::m13],
+            ),
+        ];
+
+        for (quality_name, required) in cases {
+            let quality = find_quality(quality_name);
+            for note_count in required.len()..=quality.intervals.len() {
+                let sets = generate_all_voice_sets(0, quality, note_count, None, 0);
+                assert!(!sets.is_empty(), "{quality_name} at {note_count} notes");
+                for (voice_set, _, _) in sets {
+                    let pitch_classes: Vec<u8> = voice_set
+                        .intervals
+                        .iter()
+                        .map(|interval| interval.semitones % 12)
+                        .collect();
+                    assert!(
+                        required
+                            .iter()
+                            .all(|interval| pitch_classes.contains(&(interval.semitones % 12))),
+                        "{quality_name} at {note_count} notes omitted a defining tone: {:?}",
+                        voice_set.intervals
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m9b11_reduction_keeps_and_spells_its_flat_eleventh() {
+        let quality = find_quality("m9b11");
+        let sets = generate_all_voice_sets(0, quality, 4, None, 0);
+        assert!(!sets.is_empty());
+
+        for (voice_set, _, _) in sets {
+            let pitch_classes: Vec<u8> = voice_set
+                .intervals
+                .iter()
+                .map(|interval| interval.semitones % 12)
+                .collect();
+            assert!([1, 3, 4, 10].iter().all(|pc| pitch_classes.contains(pc)));
+            assert!(voice_set
+                .intervals
+                .iter()
+                .any(|interval| interval.name == "b11"));
+        }
+    }
+
+    #[test]
+    fn explicit_abstraction_can_still_omit_defining_tones() {
+        let quality = find_quality("maj7");
+        let sets = generate_all_voice_sets_with_abstraction(0, quality, 2, None, 0, 1.0);
+        assert!(!sets.is_empty());
+        assert!(sets.iter().any(|(voice_set, _, _)| {
+            !voice_set.intervals.contains(&Interval::M3)
+                || !voice_set.intervals.contains(&Interval::M7)
+        }));
     }
 }
