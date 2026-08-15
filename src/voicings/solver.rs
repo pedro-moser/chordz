@@ -800,6 +800,18 @@ mod tests {
     }
 
     #[test]
+    fn m9b11_has_candidates_with_the_default_four_string_limit() {
+        let fb = Fretboard::standard_tuning();
+        let quality = ChordQuality::ALL
+            .iter()
+            .find(|quality| quality.name == "m9b11")
+            .unwrap();
+        let candidates = generate_candidates(0, quality, None, &fb, &SolverConfig::default());
+
+        assert!(!candidates.is_empty());
+    }
+
+    #[test]
     fn procedural_generates_extensions_for_basic_qualities() {
         let fb = Fretboard::standard_tuning();
         let quality = ChordQuality::ALL.iter().find(|q| q.name == "maj7").unwrap();

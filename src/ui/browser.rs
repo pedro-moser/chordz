@@ -11,7 +11,7 @@ use super::fretboard::{compact_interval_name, paint_fretboard};
 use crate::theory::chords;
 use crate::theory::chords::ChordFamily;
 use crate::voicings::generate::{map_voice_set, Fingering};
-use crate::voicings::procedural::generate_all_voice_sets;
+use crate::voicings::procedural::generate_literal_voice_sets;
 use crate::voicings::ranking::rank_fingerings_with_options;
 use crate::voicings::recipe::VoicingRecipe;
 use crate::voicings::rules::VoicingRules;
@@ -57,7 +57,7 @@ impl ChordzApp {
         for quality_name in self.family().quality_names() {
             let quality = find_quality(quality_name);
             let voice_sets =
-                generate_all_voice_sets(root_pc, quality, note_count, None, min_stability);
+                generate_literal_voice_sets(root_pc, quality, note_count, min_stability);
 
             for (voice_set, _stability, _label) in &voice_sets {
                 let mut fingerings = map_voice_set(voice_set, &self.fretboard, &rules);

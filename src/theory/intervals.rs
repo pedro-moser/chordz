@@ -44,6 +44,10 @@ impl Interval {
         semitones: 8,
         name: "b6",
     };
+    pub const SHARP5: Self = Self {
+        semitones: 8,
+        name: "#5",
+    };
     pub const M6: Self = Self {
         semitones: 9,
         name: "6",
