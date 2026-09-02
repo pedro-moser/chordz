@@ -23,7 +23,9 @@ One Rust core, two frontends:
 - **GMC** — triad pairs from Tim Miller and Mick Goodrick's *Generic Modality
   Compression*: a panoramic fretboard browser for every pair across the neck,
   and a pattern-based étude generator with rhythm blocks and position
-  selection (`src/theory/gmc.rs`, `line_engine.rs`, `line_pattern.rs`).
+  selection (`src/theory/gmc.rs`, `line_engine.rs`, `line_pattern.rs`). The web
+  Tune view saves named harmony, per-chord scale-selection, and custom pattern
+  presets in browser-local storage.
 - **Audio** — on the web, a hand-rolled Web Audio sampler pitch-shifts real
   guitar samples through algorithmic amp/reverb effects; the native app uses
   synthesized playback via `kira`.

@@ -8,6 +8,15 @@
   import type { GmcLineResult, GmcLineEvent, GmcChordInfo, GmcPatternBlock, Preset, PairInfo, ScaleInfo } from '$lib/wasm';
   import { PATTERN_PRESETS } from '$lib/patternPresets';
   import {
+    deleteGmcUserPreset,
+    loadGmcUserPresets,
+    resolvePatternPresetPairIndex,
+    resolveScalePresetOverrides,
+    saveGmcUserPreset,
+    type GmcUserPresetLibrary,
+    type GmcUserPresetKind,
+  } from '$lib/gmcUserPresets';
+  import {
     TAB_STRING_GAP,
     TAB_MEASURE_WIDTH,
     TAB_MARGIN_LEFT,
@@ -68,6 +77,16 @@
   let presets = $state<Preset[]>([]);
   let pairs = $state<PairInfo[]>([]);
   let scales = $state<ScaleInfo[]>([]);
+  let userPresets = $state<GmcUserPresetLibrary>({
+    version: 1,
+    harmonies: [],
+    scales: [],
+    patterns: [],
+  });
+  let selectedHarmonyPresetId = $state('');
+  let selectedScalePresetId = $state('');
+  let selectedPatternPresetId = $state('');
+  let presetStatus = $state<{ text: string; error: boolean } | null>(null);
 
   // Input state
   let titleInput = $state('Stella by Starlight');
@@ -176,6 +195,7 @@
     presets = getPresets();
     pairs = getPairs();
     scales = getAllScales();
+    userPresets = loadGmcUserPresets(window.localStorage);
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
@@ -255,6 +275,8 @@
       error = p.error;
       return;
     }
+    selectedPatternPresetId = '';
+    selectedScalePresetId = '';
     if (p.pairIndex != null) pairIndex = p.pairIndex;
     if (p.pattern) pattern = p.pattern;
     if (p.scaleOverrides) {
@@ -272,6 +294,7 @@
       if (r.error) error = r.error;
       return;
     }
+    selectedScalePresetId = '';
     // Pick one valid scale at random per chord (empty list → leave default).
     scaleOverrides = r.validScales.map((list) =>
       list.length ? list[Math.floor(Math.random() * list.length)] : null,
@@ -287,10 +310,222 @@
     chartInput = presets[idx].chart;
     result = null;
     scaleOverrides = [];
+    overridesFor = '';
+    selectedHarmonyPresetId = '';
+    selectedScalePresetId = '';
     error = null;
   }
 
+  function clonePatternBlocks(blocks: GmcPatternBlock[]): GmcPatternBlock[] {
+    return blocks.map((block) => ({
+      ...block,
+      shape: block.shape ? [...block.shape] : undefined,
+      contour: block.contour ? [...block.contour] : undefined,
+    }));
+  }
+
+  function askPresetName(message: string, suggestion: string): string | null {
+    const entered = window.prompt(message, suggestion);
+    if (entered === null) return null;
+    const name = entered.trim();
+    if (!name) {
+      presetStatus = { text: 'Preset name cannot be empty.', error: true };
+      return null;
+    }
+    return name;
+  }
+
+  function confirmPresetOverwrite(presets: readonly { name: string }[], name: string): boolean {
+    const exists = presets.some((preset) => preset.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+    return !exists || window.confirm(`Replace the existing preset “${name}”?`);
+  }
+
+  function saveHarmonyUserPreset() {
+    const name = askPresetName('Name this harmony preset', titleInput.trim() || 'Untitled harmony');
+    if (!name || !confirmPresetOverwrite(userPresets.harmonies, name)) return;
+    try {
+      userPresets = saveGmcUserPreset(window.localStorage, 'harmony', {
+        name,
+        title: titleInput,
+        chart: chartInput,
+      });
+      selectedHarmonyPresetId = userPresets.harmonies.find(
+        (preset) => preset.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )?.id ?? '';
+      presetStatus = { text: `Harmony “${name}” saved.`, error: false };
+    } catch (saveError) {
+      presetStatus = { text: saveError instanceof Error ? saveError.message : 'Could not save harmony.', error: true };
+    }
+  }
+
+  function saveScaleUserPreset() {
+    if (!result?.changes || overridesFor !== chartInput || scaleOverrides.length !== result.changes.length) {
+      presetStatus = { text: 'Generate the current harmony before saving its scale selection.', error: true };
+      return;
+    }
+    const scaleRefs: ({ parent: string; degree: number } | null)[] = [];
+    for (const index of scaleOverrides) {
+      if (index === null) {
+        scaleRefs.push(null);
+        continue;
+      }
+      const scale = scales[index];
+      if (!scale) {
+        presetStatus = { text: 'One selected scale is no longer available.', error: true };
+        return;
+      }
+      scaleRefs.push({ parent: scale.parent, degree: scale.degree });
+    }
+    const name = askPresetName('Name this scale-selection preset', `${titleInput.trim() || 'Untitled'} scales`);
+    if (!name || !confirmPresetOverwrite(userPresets.scales, name)) return;
+    try {
+      userPresets = saveGmcUserPreset(window.localStorage, 'scales', {
+        name,
+        title: titleInput,
+        chart: chartInput,
+        chordSymbols: result.changes.map((change) => change.chord),
+        scaleRefs,
+      });
+      selectedScalePresetId = userPresets.scales.find(
+        (preset) => preset.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )?.id ?? '';
+      presetStatus = { text: `Scale selection “${name}” saved with its harmony.`, error: false };
+    } catch (saveError) {
+      presetStatus = { text: saveError instanceof Error ? saveError.message : 'Could not save scales.', error: true };
+    }
+  }
+
+  function savePatternUserPreset() {
+    const pair = pairs[pairIndex];
+    if (!pair) {
+      presetStatus = { text: 'The selected triad pair is no longer available.', error: true };
+      return;
+    }
+    const summary = pattern.map((block) => block.count).join('+');
+    const name = askPresetName('Name this pattern preset', `Pattern ${summary}`);
+    if (!name || !confirmPresetOverwrite(userPresets.patterns, name)) return;
+    try {
+      userPresets = saveGmcUserPreset(window.localStorage, 'pattern', {
+        name,
+        pairLabel: pair.label,
+        figureIndex,
+        blocks: clonePatternBlocks(pattern),
+      });
+      selectedPatternPresetId = userPresets.patterns.find(
+        (preset) => preset.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )?.id ?? '';
+      presetStatus = { text: `Pattern “${name}” saved with its pair and figure.`, error: false };
+    } catch (saveError) {
+      presetStatus = { text: saveError instanceof Error ? saveError.message : 'Could not save pattern.', error: true };
+    }
+  }
+
+  function loadHarmonyUserPreset(id: string) {
+    selectedHarmonyPresetId = id;
+    const preset = userPresets.harmonies.find((candidate) => candidate.id === id);
+    if (!preset) return;
+    titleInput = preset.title;
+    chartInput = preset.chart;
+    result = null;
+    scaleOverrides = [];
+    overridesFor = '';
+    selectedScalePresetId = '';
+    error = null;
+    presetStatus = { text: `Harmony “${preset.name}” loaded.`, error: false };
+  }
+
+  function loadScaleUserPreset(id: string) {
+    const preset = userPresets.scales.find((candidate) => candidate.id === id);
+    if (!preset) {
+      selectedScalePresetId = '';
+      return;
+    }
+
+    // Scale choices are positional. Parse the saved harmony once with defaults, then verify the
+    // exact normalized chord sequence before applying any override. This prevents even one stale
+    // render if the parser/catalog changes in a later app version.
+    const parsed = generateGmcLine(
+      preset.chart,
+      preset.title,
+      pairIndex,
+      [],
+      figureIndex,
+      selectedPositions,
+      pattern,
+    );
+    if (parsed.error || !parsed.changes) {
+      selectedScalePresetId = '';
+      presetStatus = { text: parsed.error ?? 'The saved harmony could not be parsed.', error: true };
+      return;
+    }
+    const resolution = resolveScalePresetOverrides(
+      preset,
+      scales,
+      parsed.changes.map((change) => change.chord),
+    );
+    if (!resolution.ok) {
+      selectedScalePresetId = '';
+      presetStatus = {
+        text: resolution.reason === 'harmony-mismatch'
+          ? 'The saved scale selection no longer matches its harmony.'
+          : 'One scale in this preset is no longer available.',
+        error: true,
+      };
+      return;
+    }
+
+    selectedScalePresetId = id;
+    titleInput = preset.title;
+    chartInput = preset.chart;
+    scaleOverrides = resolution.overrides;
+    overridesFor = preset.chart;
+    selectedHarmonyPresetId = '';
+    result = null;
+    error = null;
+    generate();
+    if (!error) presetStatus = { text: `Scale selection “${preset.name}” loaded with its harmony.`, error: false };
+  }
+
+  function loadPatternUserPreset(id: string) {
+    const preset = userPresets.patterns.find((candidate) => candidate.id === id);
+    if (!preset) {
+      selectedPatternPresetId = '';
+      return;
+    }
+    const savedPairIndex = resolvePatternPresetPairIndex(preset, pairs);
+    if (savedPairIndex === null) {
+      selectedPatternPresetId = '';
+      presetStatus = { text: 'The triad pair in this preset is no longer available.', error: true };
+      return;
+    }
+    selectedPatternPresetId = id;
+    pairIndex = savedPairIndex;
+    figureIndex = preset.figureIndex;
+    pattern = clonePatternBlocks(preset.blocks);
+    presetStatus = { text: `Pattern “${preset.name}” loaded.`, error: false };
+  }
+
+  function deleteUserPreset(kind: GmcUserPresetKind, id: string) {
+    if (!id) return;
+    const preset = kind === 'harmony'
+      ? userPresets.harmonies.find((candidate) => candidate.id === id)
+      : kind === 'scales'
+        ? userPresets.scales.find((candidate) => candidate.id === id)
+        : userPresets.patterns.find((candidate) => candidate.id === id);
+    if (!preset || !window.confirm(`Delete preset “${preset.name}”?`)) return;
+    try {
+      userPresets = deleteGmcUserPreset(window.localStorage, kind, id);
+      if (kind === 'harmony') selectedHarmonyPresetId = '';
+      else if (kind === 'scales') selectedScalePresetId = '';
+      else selectedPatternPresetId = '';
+      presetStatus = { text: `Preset “${preset.name}” deleted.`, error: false };
+    } catch (deleteError) {
+      presetStatus = { text: deleteError instanceof Error ? deleteError.message : 'Could not delete preset.', error: true };
+    }
+  }
+
   function setScaleOverride(chordIdx: number, scaleIdx: number | null) {
+    selectedScalePresetId = '';
     scaleOverrides[chordIdx] = scaleIdx;
     scaleOverrides = [...scaleOverrides];
     regenerate();
@@ -299,26 +534,31 @@
   // Pattern editing
   function addBlock() {
     pattern = [...pattern, { count: 3, direction: 'asc', triad: 'T1', connector: DEFAULT_CONNECTOR }];
+    selectedPatternPresetId = '';
   }
 
   function removeBlock(idx: number) {
     pattern = pattern.filter((_, i) => i !== idx);
+    selectedPatternPresetId = '';
   }
 
   function setBlockCount(idx: number, val: number) {
     const count = Math.max(1, Math.min(6, val));
     pattern[idx] = { ...pattern[idx], count, contour: count === 3 ? pattern[idx].contour : undefined };
     pattern = [...pattern];
+    selectedPatternPresetId = '';
   }
 
   function toggleBlockDirection(idx: number) {
     pattern[idx] = { ...pattern[idx], direction: pattern[idx].direction === 'asc' ? 'desc' : 'asc' };
     pattern = [...pattern];
+    selectedPatternPresetId = '';
   }
 
   function toggleBlockTriad(idx: number) {
     pattern[idx] = { ...pattern[idx], triad: pattern[idx].triad === 'T1' ? 'T2' : 'T1' };
     pattern = [...pattern];
+    selectedPatternPresetId = '';
   }
 
   function voicingIndexOf(block: GmcPatternBlock): number {
@@ -333,11 +573,13 @@
     const v = VOICINGS[vIdx];
     pattern[idx] = { ...pattern[idx], shape: v.shape, anchor: v.anchor };
     pattern = [...pattern];
+    selectedPatternPresetId = '';
   }
 
   function setBlockConnector(idx: number, value: ConnectorValue) {
     pattern[idx] = { ...pattern[idx], connector: value };
     pattern = [...pattern];
+    selectedPatternPresetId = '';
   }
 
   // Contour: ordinal register shape for a 3-note cell (1 = lowest .. n = highest). Undefined
@@ -346,25 +588,30 @@
   function setBlockContour(idx: number, ranks: number[] | undefined) {
     pattern[idx] = { ...pattern[idx], contour: ranks };
     pattern = [...pattern];
+    selectedPatternPresetId = '';
   }
 
   function setBlockHold(idx: number, val: number) {
     pattern[idx] = { ...pattern[idx], holdLast: Math.max(0, Math.min(16, val || 0)) };
     pattern = [...pattern];
+    selectedPatternPresetId = '';
   }
 
   function setBlockLeadRest(idx: number, val: number) {
     pattern[idx] = { ...pattern[idx], leadRest: Math.max(0, Math.min(16, val || 0)) };
     pattern = [...pattern];
+    selectedPatternPresetId = '';
   }
 
   function selectPatternPreset(idx: number) {
     if (idx >= 0 && idx < PATTERN_PRESETS.length) {
       const p = PATTERN_PRESETS[idx];
-      pattern = [...p.blocks];
+      selectedPatternPresetId = '';
+      pattern = clonePatternBlocks(p.blocks);
       if (p.figureIndex !== undefined) figureIndex = p.figureIndex;
       if (p.pairIndex !== undefined) pairIndex = p.pairIndex;
       if (p.resetScales) {
+        selectedScalePresetId = '';
         scaleOverrides = [];
         overridesFor = chartInput;
       }
@@ -508,10 +755,15 @@
     <div class="tune-input">
       <div class="input-row row-inline">
         <label class="input-label" for="gmc-title">Title</label>
-        <input id="gmc-title" bind:value={titleInput} placeholder="Tune name" />
+        <input
+          id="gmc-title"
+          bind:value={titleInput}
+          oninput={() => selectedHarmonyPresetId = ''}
+          placeholder="Tune name"
+        />
         {#if presets.length > 0}
           <select class="preset-select" onchange={(e) => { selectPreset(parseInt((e.target as HTMLSelectElement).value)); (e.target as HTMLSelectElement).value = '-1'; }}>
-            <option value="-1">Presets...</option>
+            <option value="-1">Built-in...</option>
             {#each presets as preset, i}
               <option value={i}>{preset.title}</option>
             {/each}
@@ -520,9 +772,42 @@
       </div>
       <div class="input-row">
         <label class="input-label" for="gmc-chart">Chart</label>
-        <textarea id="gmc-chart" bind:value={chartInput} rows="2" placeholder="Dm7 | G7 | Cmaj7 | Cmaj7"></textarea>
+        <textarea
+          id="gmc-chart"
+          bind:value={chartInput}
+          oninput={() => { selectedHarmonyPresetId = ''; selectedScalePresetId = ''; }}
+          rows="2"
+          placeholder="Dm7 | G7 | Cmaj7 | Cmaj7"
+        ></textarea>
       </div>
     </div>
+
+    <div class="user-preset-row">
+      <span class="user-preset-label">Harmony</span>
+      <select
+        class="user-preset-select"
+        aria-label="Saved harmony presets"
+        value={selectedHarmonyPresetId}
+        onchange={(e) => loadHarmonyUserPreset((e.target as HTMLSelectElement).value)}
+      >
+        <option value="">Saved...</option>
+        {#each userPresets.harmonies as preset}
+          <option value={preset.id}>{preset.name}</option>
+        {/each}
+      </select>
+      <button class="preset-action" aria-label="Save harmony preset" onclick={saveHarmonyUserPreset}>Save…</button>
+      <button
+        class="preset-action danger"
+        aria-label="Delete selected harmony preset"
+        disabled={!selectedHarmonyPresetId}
+        onclick={() => deleteUserPreset('harmony', selectedHarmonyPresetId)}
+      >Delete</button>
+    </div>
+    {#if presetStatus}
+      <div class="preset-status" class:error={presetStatus.error} role={presetStatus.error ? 'alert' : 'status'}>
+        {presetStatus.text}
+      </div>
+    {/if}
 
     <button class="toggle-btn" onclick={() => controlsOpen = !controlsOpen}>
       {controlsOpen ? '▾' : '▸'} Controls
@@ -538,7 +823,11 @@
           onclick={applyShellEtudePreset}
           title="Set pair 7no5/7no3 + characteristic scales + arc pattern (editable)"
         >Shell Étude</button>
-        <select class="control-select" bind:value={pairIndex}>
+        <select
+          class="control-select"
+          bind:value={pairIndex}
+          onchange={() => selectedPatternPresetId = ''}
+        >
           {#each pairs as p, i}
             <option value={i}>{p.label}</option>
           {/each}
@@ -550,7 +839,11 @@
         <span class="control-label">Figure</span>
         <div class="btn-group">
           {#each FIGURE_LABELS as label, i}
-            <button class="filter-btn" class:active={figureIndex === i} onclick={() => figureIndex = i}>{label}</button>
+            <button
+              class="filter-btn"
+              class:active={figureIndex === i}
+              onclick={() => { figureIndex = i; selectedPatternPresetId = ''; }}
+            >{label}</button>
           {/each}
         </div>
       </div>
@@ -572,11 +865,32 @@
       <div class="control-row">
         <span class="control-label">Pattern</span>
         <select class="control-select" onchange={(e) => { selectPatternPreset(parseInt((e.target as HTMLSelectElement).value)); (e.target as HTMLSelectElement).value = '-1'; }}>
-          <option value="-1">Presets...</option>
+          <option value="-1">Built-in...</option>
           {#each PATTERN_PRESETS as p, i}
             <option value={i}>{p.label}</option>
           {/each}
         </select>
+        <div class="user-preset-row inset">
+          <span class="user-preset-label">Pattern</span>
+          <select
+            class="user-preset-select"
+            aria-label="Saved pattern presets"
+            value={selectedPatternPresetId}
+            onchange={(e) => loadPatternUserPreset((e.target as HTMLSelectElement).value)}
+          >
+            <option value="">Saved...</option>
+            {#each userPresets.patterns as preset}
+              <option value={preset.id}>{preset.name}</option>
+            {/each}
+          </select>
+          <button class="preset-action" aria-label="Save pattern preset" onclick={savePatternUserPreset}>Save…</button>
+          <button
+            class="preset-action danger"
+            aria-label="Delete selected pattern preset"
+            disabled={!selectedPatternPresetId}
+            onclick={() => deleteUserPreset('pattern', selectedPatternPresetId)}
+          >Delete</button>
+        </div>
       </div>
       <div class="pattern-blocks">
         {#each pattern as block, i}
@@ -664,15 +978,43 @@
     </div>
 
     {#if result?.changes}
-      <button class="scales-btn" onclick={() => scaleModalOpen = true}>
-        Scales {scaleOverrides.some(o => o !== null) ? '(edited)' : ''}
-      </button>
-      <button
-        class="scales-btn"
-        onclick={applyScaleShuffle}
-        title="Sortear uma escala válida (3ª+7ª, 5ª se alterada) para cada acorde"
-      >🎲 Cores</button>
+      <div class="scale-actions">
+        <button class="scales-btn" onclick={() => scaleModalOpen = true}>
+          Scales {scaleOverrides.some(o => o !== null) ? '(edited)' : ''}
+        </button>
+        <button
+          class="scales-btn"
+          onclick={applyScaleShuffle}
+          title="Sortear uma escala válida (3ª+7ª, 5ª se alterada) para cada acorde"
+        >🎲 Cores</button>
+      </div>
     {/if}
+    <div class="user-preset-row">
+      <span class="user-preset-label">Scales</span>
+      <select
+        class="user-preset-select"
+        aria-label="Saved scale-selection presets"
+        value={selectedScalePresetId}
+        onchange={(e) => loadScaleUserPreset((e.target as HTMLSelectElement).value)}
+      >
+        <option value="">Saved...</option>
+        {#each userPresets.scales as preset}
+          <option value={preset.id}>{preset.name}</option>
+        {/each}
+      </select>
+      <button
+        class="preset-action"
+        aria-label="Save scale-selection preset"
+        disabled={!result?.changes}
+        onclick={saveScaleUserPreset}
+      >Save…</button>
+      <button
+        class="preset-action danger"
+        aria-label="Delete selected scale-selection preset"
+        disabled={!selectedScalePresetId}
+        onclick={() => deleteUserPreset('scales', selectedScalePresetId)}
+      >Delete</button>
+    </div>
   </div>
 
   <!-- Center + bottom: tab + fretboard -->
@@ -1100,6 +1442,73 @@
     flex-shrink: 0;
   }
 
+  .user-preset-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .user-preset-row.inset {
+    margin-top: 2px;
+  }
+
+  .user-preset-label {
+    width: 52px;
+    flex: 0 0 52px;
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+
+  .user-preset-select {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 5px;
+    font-family: var(--font);
+    font-size: 10px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  .preset-action {
+    flex: 0 0 auto;
+    padding: 3px 6px;
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+  }
+
+  .preset-action:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--primary);
+  }
+
+  .preset-action.danger:hover:not(:disabled) {
+    color: #e66;
+    border-color: #e666;
+  }
+
+  .preset-action:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  .preset-status {
+    padding: 3px 6px;
+    color: var(--text-muted);
+    font-size: 10px;
+    background: var(--bg-raised);
+    border-left: 2px solid var(--primary);
+  }
+
+  .preset-status.error {
+    color: #e66;
+    border-left-color: #e66;
+  }
+
   .toggle-btn {
     background: var(--bg-raised);
     border: 1px solid var(--border);
@@ -1281,14 +1690,20 @@
   }
 
   /* Scales button */
+  .scale-actions {
+    display: flex;
+    gap: 4px;
+  }
+
   .scales-btn {
+    flex: 1;
     background: var(--bg-raised);
     border: 1px solid var(--border);
     color: var(--text-muted);
     padding: 4px 12px;
     font-size: var(--font-label);
     cursor: pointer;
-    width: 100%;
+    width: auto;
   }
 
   .scales-btn:hover {
